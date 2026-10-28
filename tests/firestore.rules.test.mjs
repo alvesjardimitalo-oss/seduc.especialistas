@@ -10,6 +10,7 @@ const env=await initializeTestEnvironment({
 });
 after(async()=>env.cleanup());
 const contexto=uid=>env.authenticatedContext(uid,{email:uid+'@exemplo.test'}).firestore();
+const contextoGoogle=(uid,email)=>env.authenticatedContext(uid,{email,email_verified:true,firebase:{sign_in_provider:'google.com'}}).firestore();
 
 await env.withSecurityRulesDisabled(async ctx=>{
  const db=ctx.firestore();
@@ -32,6 +33,54 @@ await env.withSecurityRulesDisabled(async ctx=>{
   ['notas_atendimento/atendimentoA',{escola_id:'a',atendimento_id:'atendimentoA',autor_uid:'espA',texto:'Observação fictícia',revisao:1}]
  ];
  for(const [path,data] of docs)await setDoc(doc(db,path),data);
+});
+
+
+test('gestão pré-autoriza especialista sem precisar do UID e mantém perfil restrito',async()=>{
+ const db=contexto('admin'),email='nova.profissional@exemplo.test';
+ const convite={
+  nome:'Profissional Convidada',email,perfil:'especialista',
+  escolas:['a'],ativo:true,criado_por:'admin',criado_em:serverTimestamp()
+ };
+ await assertSucceeds(setDoc(doc(db,'convites_usuarios',email),convite));
+ await assertSucceeds(getDoc(doc(db,'convites_usuarios',email)));
+ await assertFails(setDoc(doc(contexto('espA'),'convites_usuarios','indevido@exemplo.test'),convite));
+ await assertFails(updateDoc(doc(db,'convites_usuarios',email),{perfil:'superadmin'}));
+ await assertFails(updateDoc(doc(db,'convites_usuarios',email),{criado_por:'outro'}));
+});
+test('somente Google verificado com o e-mail autorizado pode ativar pré-autorização',async()=>{
+ const email='nova.profissional@exemplo.test';
+ const dados={
+  nome:'Profissional Convidada',email,ativo:true,perfil:'especialista',
+  escolas:['a'],gerenciar:false,criado_em:serverTimestamp()
+ };
+ const google=contextoGoogle('novaProfissional',email);
+ await assertSucceeds(getDoc(doc(google,'convites_usuarios',email)));
+ await assertSucceeds(setDoc(doc(google,'usuarios','novaProfissional'),dados));
+ await assertSucceeds(getDoc(doc(google,'usuarios','novaProfissional')));
+ const semConvite=contextoGoogle('outraProfissional','sem.convite@exemplo.test');
+ await assertFails(setDoc(doc(semConvite,'usuarios','outraProfissional'),{
+  ...dados,email:'sem.convite@exemplo.test'
+ }));
+ const emailErrado=contextoGoogle('impostora','impostora@exemplo.test');
+ await assertFails(getDoc(doc(emailErrado,'convites_usuarios',email)));
+ await assertFails(setDoc(doc(emailErrado,'usuarios','impostora'),dados));
+});
+test('convite suspenso não ativa profissional no primeiro acesso',async()=>{
+ const email='profissional.bloqueada@exemplo.test',db=contexto('admin');
+ await assertSucceeds(setDoc(doc(db,'convites_usuarios',email),{
+  nome:'Profissional Suspensa',email,perfil:'especialista',escolas:['a'],
+  ativo:false,criado_por:'admin',criado_em:serverTimestamp()
+ }));
+ const google=contextoGoogle('suspensa',email);
+ await assertFails(setDoc(doc(google,'usuarios','suspensa'),{
+  nome:'Profissional Suspensa',email,perfil:'especialista',
+  ativo:true,escolas:['a'],gerenciar:false,criado_em:serverTimestamp()
+ }));
+ await assertSucceeds(setDoc(doc(google,'usuarios','suspensa'),{
+  nome:'Profissional Suspensa',email,perfil:'pendente',
+  ativo:false,escolas:[],gerenciar:false,criado_em:serverTimestamp()
+ }));
 });
 
 test('conta pendente e visitante não acessam dados escolares',async()=>{
