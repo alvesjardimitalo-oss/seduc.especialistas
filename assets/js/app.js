@@ -6,6 +6,7 @@ import {montarListaProfissionais} from './profissionais-visao.mjs';
 import {resumirAluno,agruparConsultasPorAluno,etiquetasEvolucao} from './consultas-resumo.mjs';
 import {montarDocumentoAluno,montarDocumentoGerencial} from './relatorios-impressao.mjs';
 import {buscarAlunosDisponiveis} from './busca-alunos.mjs';
+import {prepararCadastroAluno,consultarCEP,formatarCEP,formatarCPF,formatarTelefone} from './cadastro-alunos.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
@@ -533,6 +534,112 @@ function ativarBuscaAlunosDoFormulario(){
  atualizar();
 }
 
+function camposCadastroCompletoAluno(criacao=true){
+ const secao=(titulo,descricao)=>'<div class="wide cadastro-secao"><h3>'+titulo+'</h3><p>'+descricao+'</p></div>';
+ const tx=(name,label,attrs='')=>'<label>'+label+'<input type="text" name="'+name+'" '+attrs+'></label>';
+ const required=tx('nome','Nome completo do aluno *','required maxlength="180" autocomplete="off"');
+ const nascimento='<label>Data de nascimento *<input type="date" name="nascimento" required max="'+new Date().toISOString().slice(0,10)+'"></label>';
+ const filiais=tx('mae_nome','Nome completo da mãe *','required maxlength="180"')+
+ '<label>Situação do pai<select name="pai_nao_declarado"><option value="nao">Pai declarado</option><option value="sim">Pai não declarado</option></select></label>'+
+ tx('pai_nome','Nome completo do pai','required maxlength="180"');
+ const responsavel=tx('responsavel_nome','Nome do responsável legal *','required maxlength="180"')+
+ '<label>Vínculo com o aluno *<select name="responsavel_parentesco" required><option value="Mae">Mãe</option><option value="Pai">Pai</option><option value="Avo">Avó / avô</option><option value="Tutor">Tutor / guardião legal</option><option value="Outro">Outro responsável</option></select></label>'+
+ tx('responsavel_telefone','Celular / telefone do responsável *','required inputmode="tel" placeholder="(33) 99999-9999" maxlength="16"')+
+ tx('responsavel_telefone_alternativo','Telefone alternativo','inputmode="tel" maxlength="16"')+
+ '<label class="wide">E-mail do responsável (opcional)<input type="email" name="responsavel_email" maxlength="180" placeholder="email@exemplo.com"></label>';
+ const endereco='<div class="wide cadastro-cep"><label>CEP <input type="text" name="cep" inputmode="numeric" maxlength="9" placeholder="00000-000"></label><button class="btn secondary" type="button" id="buscar-cep-aluno">Buscar CEP</button><small id="cep-aluno-estado" role="status">Busque o CEP para preencher endereço, bairro, cidade e UF. Se não encontrar, informe manualmente.</small></div>'+
+ tx('logradouro','Rua / avenida / comunidade *','required maxlength="180"')+
+ tx('numero','Número','maxlength="40" placeholder="S/N para sem número"')+
+ tx('complemento','Complemento','maxlength="150"')+
+ tx('bairro','Bairro / localidade *','required maxlength="150"')+
+ tx('cidade','Município *','required maxlength="120"')+
+ tx('uf','UF *','required maxlength="2" placeholder="MG"')+
+ '<label class="wide">Ponto de referência<input type="text" name="referencia" maxlength="200"></label>';
+ return (criacao?'<div class="wide cadastro-dica">Informe a escola e os dados do aluno. Os campos com * são obrigatórios.</div>':'<div class="wide cadastro-dica">Atualize os dados necessários sem perder histórico de consultas e agendamentos.</div>')+
+ secao('Identificação','Dados para localização e identificação escolar do aluno.')+
+ (criacao?schoolSelect():'')+required+nascimento+
+ tx('matricula','Matrícula escolar','maxlength="80"')+
+ tx('cpf','CPF do aluno (opcional)','inputmode="numeric" maxlength="14" placeholder="000.000.000-00"')+
+ '<p class="wide muted cadastro-nota">A verificação de CPF confere os dígitos informados, não a situação cadastral junto à Receita Federal.</p>'+
+ secao('Filiação','A identificação do pai pode ser marcada como não declarada.')+filiais+
+ secao('Responsável e contato','Pessoa autorizada para contato a respeito do aluno.')+responsavel+
+ secao('Endereço residencial','Dados para localização do aluno. O CEP não envia outros dados pessoais para consulta.')+endereco;
+}
+function configurarFormularioCompletoAluno(dados={}){
+ const form=document.getElementById('entry');if(!form)return;
+ const el=n=>form.elements.namedItem(n);
+ const campos=['nome','nascimento','matricula','cpf','mae_nome','pai_nome','responsavel_nome','responsavel_parentesco','responsavel_telefone','responsavel_telefone_alternativo','responsavel_email','cep','logradouro','numero','complemento','bairro','cidade','uf','referencia'];
+ for(const key of campos)if(el(key)&&typeof dados[key]==='string')el(key).value=dados[key];
+ // Cadastros antigos tinham campos genéricos. O telefone é aproveitado; a filiação antiga
+ // é apresentada para conferência sem adivinhar quem é pai ou mãe.
+ if(!dados.responsavel_telefone&&dados.telefone)el('responsavel_telefone').value=dados.telefone;
+ if(!dados.mae_nome&&dados.filiacao){
+  const info=document.createElement('p');info.className='wide cadastro-legado';
+  info.textContent='Filiação anterior: '+dados.filiacao+'. Confira e informe separadamente mãe e pai.';
+  const section=form.querySelector('[name="mae_nome"]')?.closest('label');
+  if(section)section.before(info);
+ }
+ if(!dados.logradouro&&dados.endereco){
+  const info=document.createElement('p');info.className='wide cadastro-legado';
+  info.textContent='Endereço anterior: '+dados.endereco+'. Confirme e distribua nos campos de endereço.';
+  const section=form.querySelector('[name="cep"]')?.closest('.cadastro-cep');
+  if(section)section.before(info);
+ }
+ const paiEstado=el('pai_nao_declarado'),pai=el('pai_nome');
+ paiEstado.value=dados.pai_nao_declarado===true?'sim':'nao';
+ const aplicarPai=()=>{const nao=paiEstado.value==='sim';pai.disabled=nao;pai.required=!nao;if(nao)pai.value='';};
+ paiEstado.onchange=aplicarPai;aplicarPai();
+ const cpf=el('cpf');cpf.addEventListener('input',()=>{cpf.value=formatarCPF(cpf.value);cpf.setCustomValidity('');});
+ const cep=el('cep');cep.addEventListener('input',()=>{cep.value=formatarCEP(cep.value);});
+ for(const nome of ['responsavel_telefone','responsavel_telefone_alternativo']){
+  const telefone=el(nome);telefone.addEventListener('input',()=>{telefone.value=formatarTelefone(telefone.value);});
+ }
+ const uf=el('uf');uf.addEventListener('input',()=>uf.value=uf.value.replace(/[^a-z]/ig,'').slice(0,2).toUpperCase());
+ const estado=document.getElementById('cep-aluno-estado'),botao=document.getElementById('buscar-cep-aluno');
+ let ultimaConsulta='',token=0;
+ const buscar=async()=>{
+  const codigo=cep.value.replace(/\D/g,'');
+  if(codigo.length!==8){estado.textContent='Digite um CEP completo de oito dígitos.';return}
+  if(ultimaConsulta===codigo)return;
+  const requestId=++token;
+  botao.disabled=true;estado.textContent='Consultando CEP...';
+  try{
+   const resultado=await consultarCEP(codigo);
+   if(requestId!==token||cep.value.replace(/\D/g,'')!==codigo)return;
+   for(const campo of ['logradouro','bairro','cidade','uf'])if(resultado[campo])el(campo).value=resultado[campo];
+   ultimaConsulta=codigo;estado.textContent='CEP encontrado. Confira o endereço e complete o número ou referência.';
+   el('numero').focus();
+  }catch(e){if(requestId===token)estado.textContent=e.message+' Os campos podem ser preenchidos manualmente.';}
+  finally{if(requestId===token)botao.disabled=false}
+ };
+ botao.onclick=buscar;
+ cep.addEventListener('blur',()=>{if(cep.value.replace(/\D/g,'').length===8&&cep.value.replace(/\D/g,'')!==ultimaConsulta)buscar();});
+}
+async function salvarCadastroCompletoAluno(d,{existente=null,privadoAnterior={}}={}){
+ if(!canWrite()&&!canManage())throw Error('Sem permissão para cadastrar ou editar alunos.');
+ const partes=prepararCadastroAluno(d,{
+  escolaId:existente?.escola_id||d.escola_id,criadoPor:user.uid,
+  existente,privadoAnterior
+ });
+ if(existente){
+  const id=existente.id,batch=writeBatch(db);
+  batch.update(doc(db,'alunos',id),{
+   nome:partes.publico.nome,nascimento:partes.publico.nascimento,
+   matricula:partes.publico.matricula
+  });
+  const ref=doc(db,'alunos_privado',id);
+  const privado={...partes.privado,criado_por:privadoAnterior?.criado_por||user.uid,escola_id:existente.escola_id};
+  if(privadoAnterior?._exists)batch.update(ref,privado);
+  else batch.set(ref,privado);
+  await batch.commit();
+ }else{
+  const ref=doc(collection(db,'alunos')),batch=writeBatch(db);
+  batch.set(ref,partes.publico);
+  batch.set(doc(db,'alunos_privado',ref.id),partes.privado);
+  await batch.commit();
+ }
+}
+
 function modal(name,form,submit){document.body.insertAdjacentHTML('beforeend','<div class="modalback" id="back"><div class="modal"><button class="btn secondary close" id="close">Fechar</button><h2>'+name+'</h2><form id="entry"><div class="formgrid">'+form+'</div><p class="actions" style="justify-content:flex-end;margin-top:20px"><button class="btn" type="submit">Salvar</button></p></form></div></div>');document.getElementById('close').onclick=()=>document.getElementById('back').remove();document.getElementById('entry').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('[type=submit]');button.disabled=true;try{const data=Object.fromEntries(new FormData(event.target));await submit(data);document.getElementById('back').remove();await refresh();render()}catch(e){showError(e)}finally{button.disabled=false}}}
 function fromInputDate(s){const d=new Date(s);if(!s||isNaN(d))throw Error('Data inválida');return d}
 function horarioLocal(d){
@@ -797,7 +904,7 @@ function openForm(kind){
  if(kind==='escola'){modal('Cadastrar escola',select('nome','Nome da instituição',schoolNames.map(n=>[n,n]))+field('inep','Código INEP')+field('telefone','Telefone')+field('endereco','Endereço')+field('email','E-mail','email')+select('tipo','Tipo da instituição',[['escola','Escola'],['creche','Creche']]),d=>addDoc(collection(db,'escolas'),d));return}
 if(kind==='profissional'){modal('Cadastrar profissional',field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date')+field('cpf','CPF (quando necessário)')+field('telefone','Telefone')+field('endereco','Endereço')+field('especialidade','Especialidade')+field('email','E-mail','email')+field('uid','UID do usuário Google (após aprovação)'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'profissionais'));const batch=writeBatch(db);const {cpf,telefone,endereco,nascimento,email,...base}=d;batch.set(id,{...base,uid:d.uid||'',escolas:[]});batch.set(doc(db,'profissionais_privado',id.id),{cpf,telefone,endereco,nascimento,email});await batch.commit()});return}
 if(kind==='vinculo'){modal('Vincular profissional',select('profissional_id','Profissional',cache.profissionais.map(p=>[p.id,p.nome]))+schoolSelect()+field('cargo','Cargo','text','required')+field('jornada','Jornada semanal (ex.: 20 horas)')+field('uid','UID do usuário Google da profissional','text','required')+field('horarios_texto','Dias e horários (ex.: 1 08:00-12:00; 3 13:00-17:00)','text','required'),async d=>{const horarios=lerHorarios(d.horarios_texto);delete d.horarios_texto;await addDoc(collection(db,'vinculos'),{...d,horarios,slots_semana:gerarSlotsSemana(horarios),ativo:true})});return}
-if(kind==='aluno'){modal('Cadastrar aluno',schoolSelect()+field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date','required')+field('cpf','CPF (quando necessário)')+field('matricula','Matrícula')+field('filiacao','Filiação / responsável')+field('telefone','Telefone do responsável')+field('endereco','Endereço'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'alunos'));const batch=writeBatch(db);const {cpf,filiacao,telefone,endereco,...base}=d;batch.set(id,{...base,criado_por:user.uid,ativo:true});batch.set(doc(db,'alunos_privado',id.id),{cpf,filiacao,telefone,endereco,escola_id:d.escola_id,criado_por:user.uid});await batch.commit()});return}
+if(kind==='aluno'){modal('Cadastrar aluno',camposCadastroCompletoAluno(true),d=>salvarCadastroCompletoAluno(d));configurarFormularioCompletoAluno();return}
 if(kind==='usuario'){modal('Autorizar usuário',field('uid','UID do usuário pendente','text','required')+select('perfil','Perfil',[['especialista','Especialista'],['direcao','Direção escolar'],['secretaria','Secretaria de Educação']])+field('escolas','IDs das escolas autorizadas, separados por vírgula') ,async d=>{const ref=doc(db,'usuarios',d.uid);const current=await getDoc(ref);if(!current.exists())throw Error('O usuário deve fazer login com Google antes da autorização.');if(current.data().perfil==='superadmin')throw Error('Não é permitido alterar o superadministrador.');await updateDoc(ref,{perfil:d.perfil,escolas:d.escolas.split(',').map(s=>s.trim()).filter(Boolean),ativo:true})});return}
 if(kind==='atendimento'||kind==='agendar'){
  if(!canWrite()){showError(Error('Somente especialistas autorizadas podem registrar consultas.'));return}
@@ -1042,23 +1149,16 @@ async function editSchool(id){
 }
 async function editStudent(id){
  if(!(canManage()||canWrite()))return;
- const a=cache.alunos.find(s=>s.id===id);if(!a)return;
- let privateData={};
- try{const details=await getDoc(doc(db,'alunos_privado',id));if(details.exists())privateData=details.data()}
- catch(e){showError(e);return}
- modal('Editar cadastro do aluno',
-  field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date','required')+
-  field('matricula','Matrícula')+field('cpf','CPF (quando necessário)')+
-  field('filiacao','Filiação / responsável')+field('telefone','Telefone')+field('endereco','Endereço'),
-  async d=>{
-   if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');
-   const batch=writeBatch(db);const {cpf,filiacao,telefone,endereco,...base}=d;
-   batch.update(doc(db,'alunos',id),base);
-   batch.update(doc(db,'alunos_privado',id),{cpf,filiacao,telefone,endereco});
-   await batch.commit();
-  });
- const form=document.getElementById('entry');
- for(const [key,val] of Object.entries({...a,...privateData})){const el=form.elements.namedItem(key);if(el&&typeof val==='string')el.value=val}
+ const aluno=cache.alunos.find(s=>s.id===id);
+ if(!aluno)return;
+ let anterior={};
+ try{
+  const ref=await getDoc(doc(db,'alunos_privado',id));
+  if(ref.exists())anterior={...ref.data(),_exists:true};
+ }catch(e){showError(e);return}
+ modal('Editar cadastro do aluno',camposCadastroCompletoAluno(false),
+  d=>salvarCadastroCompletoAluno(d,{existente:aluno,privadoAnterior:anterior}));
+ configurarFormularioCompletoAluno({...aluno,...anterior});
 }
 async function archiveStudent(id){
  if(!(canManage()||canWrite()))return;
