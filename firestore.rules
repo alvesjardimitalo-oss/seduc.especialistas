@@ -28,6 +28,21 @@ service cloud.firestore {
       get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.escola_id == escolaId &&
       get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.ativo == true;
   }
+  // Gestores podem apenas criar reservas para profissionais especialistas ativos,
+  // vinculados à escola. O responsável clínico continua sendo o especialista.
+  function vinculoAgendamento(vinculoId,escolaId,uid) {
+    let vinculo = get(/databases/$(database)/documents/vinculos/$(vinculoId)).data;
+    return exists(/databases/$(database)/documents/vinculos/$(vinculoId)) &&
+      vinculo.uid == uid && vinculo.escola_id == escolaId && vinculo.ativo == true &&
+      (
+        (uid == request.auth.uid && specialistIn(escolaId)) ||
+        (manage() &&
+          exists(/databases/$(database)/documents/usuarios/$(uid)) &&
+          get(/databases/$(database)/documents/usuarios/$(uid)).data.ativo == true &&
+          get(/databases/$(database)/documents/usuarios/$(uid)).data.perfil == 'especialista' &&
+          escolaId in get(/databases/$(database)/documents/usuarios/$(uid)).data.get('escolas', []))
+      );
+  }
   // Rede municipal no fuso America/Sao_Paulo (UTC-3, sem horario de verao vigente).
   // A grade semanal contém indices dia*48 + meia-hora. Validar eventual mudança legal de fuso.
   function indiceJornada(instante) {
@@ -388,7 +403,7 @@ service cloud.firestore {
     allow read: if active() &&
       (manage() || (specialist() &&
        get(appointmentPath(agendaId)).data.autor_uid == request.auth.uid));
-    allow create: if specialist() &&
+    allow create: if (specialist() || manage()) &&
       eventoValido(request.resource.data,agendaId,'agendamento') &&
       eventoId == request.resource.data.acao &&
       request.resource.data.acao in ['agendado','iniciado','concluido','cancelado','falta_aluno','falta_profissional','reagendado'] &&
@@ -404,7 +419,11 @@ service cloud.firestore {
           getAfter(appointmentPath(agendaId)).data.novo_agendamento_id !=
            get(appointmentPath(agendaId)).data.get('novo_agendamento_id',''))
       ) &&
-      getAfter(appointmentPath(agendaId)).data.autor_uid == request.auth.uid &&
+      (
+        getAfter(appointmentPath(agendaId)).data.autor_uid == request.auth.uid ||
+        (manage() && request.resource.data.acao == 'agendado' &&
+          getAfter(appointmentPath(agendaId)).data.get('agendado_por_uid','') == request.auth.uid)
+      ) &&
       getAfter(appointmentPath(agendaId)).data.escola_id == request.resource.data.escola_id &&
       getAfter(appointmentPath(agendaId)).data.aluno_id == request.resource.data.aluno_id &&
       (
@@ -453,9 +472,16 @@ service cloud.firestore {
 
   match /agendamentos/{id} {
     allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
-    allow create: if specialistIn(request.resource.data.escola_id) &&
-      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','status','remarcado_de']) &&
-      request.resource.data.autor_uid == request.auth.uid &&
+    allow create: if (specialistIn(request.resource.data.escola_id) || manage()) &&
+      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','status','remarcado_de','agendado_por_uid']) &&
+      (
+        (request.resource.data.autor_uid == request.auth.uid &&
+          !request.resource.data.keys().hasAny(['agendado_por_uid']) &&
+          specialistIn(request.resource.data.escola_id)) ||
+        (manage() &&
+          request.resource.data.get('agendado_por_uid','') == request.auth.uid &&
+          request.resource.data.autor_uid != request.auth.uid)
+      ) &&
       request.resource.data.status == 'agendado' &&
       request.resource.data.inicio is timestamp &&
       request.resource.data.inicio > request.time &&
@@ -463,7 +489,7 @@ service cloud.firestore {
       request.resource.data.inicio.seconds() == 0 &&
       request.resource.data.duracao_min in [30,60] &&
       validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
-      linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
+      vinculoAgendamento(request.resource.data.vinculo_id,request.resource.data.escola_id,request.resource.data.autor_uid) &&
       jornadaAutorizada(request.resource.data.vinculo_id,request.resource.data.inicio,request.resource.data.duracao_min) &&
       appointmentHasSlots(id,request.resource.data,'reservado') &&
       (!request.resource.data.keys().hasAny(['remarcado_de']) ||
@@ -535,9 +561,13 @@ service cloud.firestore {
   match /agenda_slots/{id} {
     allow get: if admin() || (specialist() && resource.data.autor_uid == request.auth.uid);
     allow list: if false;
-    allow create: if specialistIn(request.resource.data.escola_id) &&
+    allow create: if (specialistIn(request.resource.data.escola_id) || manage()) &&
       request.resource.data.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
-      request.resource.data.autor_uid == request.auth.uid &&
+      (
+        request.resource.data.autor_uid == request.auth.uid ||
+        (manage() && existsAfter(appointmentPath(request.resource.data.agendamento_id)) &&
+          getAfter(appointmentPath(request.resource.data.agendamento_id)).data.get('agendado_por_uid','') == request.auth.uid)
+      ) &&
       request.resource.data.inicio is timestamp &&
       id == request.auth.uid + '_' + string(request.resource.data.inicio.toMillis()) &&
       request.resource.data.status == 'reservado' &&
