@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cpfValido,lerHorarios,dentroDaJornada,possuiConflito,podeAgendar,resumirPerfil} from '../assets/js/validacoes.mjs';
+import {cpfValido,lerHorarios,gerarSlotsSemana,dentroDaJornada,possuiConflito,podeAgendar,resumirPerfil} from '../assets/js/validacoes.mjs';
 test('CPF: impede formato inválido e dígitos repetidos',()=>{
  assert.equal(cpfValido('111.111.111-11'),false);
  assert.equal(cpfValido('12345678900'),false);
@@ -23,4 +23,10 @@ test('agenda: detecta sobreposição no mesmo profissional',()=>{
 test('agenda: exige vínculo válido e escopo',()=>{
  assert.throws(()=>podeAgendar({inicio:'2027-11-02T12:00:00.000Z',escolaId:'a',uid:'x',vinculos:[],agendamentos:[]}),/vínculo/);
  assert.deepEqual(resumirPerfil({perfil:'especialista',ativo:true,escolas:['a']}),{perfil:'especialista',ativo:true,escolas:['a']});
+});
+
+test('grade semanal gera meias-horas para verificação no servidor',()=>{
+ const horarios=lerHorarios('1 08:00-10:00; 3 13:00-14:00');
+ assert.deepEqual(gerarSlotsSemana(horarios),[64,65,66,67,170,171]);
+ assert.throws(()=>lerHorarios('1 08:15-09:45'),/meias horas/);
 });
