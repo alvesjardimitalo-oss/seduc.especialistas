@@ -2,7 +2,7 @@ import {test,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,updateDoc,deleteDoc,collection,getDocs,writeBatch,serverTimestamp} from 'firebase/firestore';
+import {doc,setDoc,getDoc,updateDoc,deleteDoc,collection,getDocs,query,where,writeBatch,serverTimestamp} from 'firebase/firestore';
 
 const env=await initializeTestEnvironment({
  projectId:'demo-seduc-tests',
@@ -228,5 +228,7 @@ test('dados de acompanhamento são segregados e não acessíveis à direção',a
  await assertSucceeds(getDoc(doc(contexto('espA'),'alunos_necessidades/alu_0123456789abcdef01234567')));
  await assertFails(getDoc(doc(contexto('dirA'),'alunos_necessidades/alu_0123456789abcdef01234567')));
  await assertFails(getDoc(doc(contexto('espB'),'alunos_necessidades/alu_0123456789abcdef01234567')));
+ await assertSucceeds(getDocs(query(collection(contexto('espA'),'alunos_necessidades'),where('escola_id','==','a'))));
+ await assertFails(getDocs(query(collection(contexto('espB'),'alunos_necessidades'),where('escola_id','==','a'))));
  await assertFails(updateDoc(doc(db,'alunos_necessidades/alu_0123456789abcdef01234567'),{registro_escolar:'Alteração não auditada'}));
 });
