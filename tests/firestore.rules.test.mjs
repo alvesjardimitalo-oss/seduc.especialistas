@@ -169,6 +169,36 @@ function addLocks(db,batch,id,inicio,duracao){
   batch.set(doc(db,'agenda_slots',slotId('espA',t)),{autor_uid:'espA',escola_id:'a',agendamento_id:id,inicio:t,status:'reservado'});
  }
 }
+test('log de agendamento é imutável, vinculado ao autor e ao registro',async()=>{
+ const db=contexto('espA'),id='auditAgenda',inicio=new Date('2027-11-01T12:00:00Z'),batch=writeBatch(db);
+ batch.set(doc(db,'agendamentos',id),novoAgendamento(id,inicio));
+ addLocks(db,batch,id,inicio,30);
+ const registro={
+  acao:'agendado',alvo_tipo:'agendamento',alvo_id:id,escola_id:'a',
+  aluno_id:'alunoA',autor_uid:'espA',autor_nome:'Especialista A',
+  criado_em:serverTimestamp(),situacao_anterior:'',situacao_nova:'agendado'
+ };
+ batch.set(doc(db,'agendamentos',id,'historico','evento1'),registro);
+ await assertSucceeds(batch.commit());
+ await assertSucceeds(getDocs(collection(db,'agendamentos',id,'historico')));
+ await assertFails(getDocs(collection(contexto('espB'),'agendamentos',id,'historico')));
+ await assertFails(updateDoc(doc(db,'agendamentos',id,'historico','evento1'),{acao:'cancelado'}));
+ await assertFails(deleteDoc(doc(db,'agendamentos',id,'historico','evento1')));
+ await assertFails(setDoc(doc(db,'agendamentos',id,'historico','falso'),{
+  ...registro,acao:'concluido',criado_em:serverTimestamp(),situacao_nova:'realizado'
+ }));
+});
+test('auditoria de aluno é restrita ao profissional da escola e equipe gestora',async()=>{
+ const db=contexto('espA'),ref=doc(db,'alunos','alunoA','historico','evento1');
+ await assertSucceeds(setDoc(ref,{
+  acao:'aluno_atualizado',alvo_tipo:'aluno',alvo_id:'alunoA',escola_id:'a',
+  aluno_id:'alunoA',autor_uid:'espA',autor_nome:'Especialista A',
+  criado_em:serverTimestamp(),situacao_anterior:'cadastrado',situacao_nova:'atualizado'
+ }));
+ await assertSucceeds(getDoc(ref));
+ await assertSucceeds(getDoc(doc(contexto('admin'),'alunos','alunoA','historico','evento1')));
+ await assertFails(getDoc(doc(contexto('espB'),'alunos','alunoA','historico','evento1')));
+});
 test('agendamento sem reservas transacionais é proibido',async()=>{
  const inicio=new Date('2027-11-01T12:00:00.000Z');
  await assertFails(setDoc(doc(contexto('espA'),'agendamentos/semLocks'),novoAgendamento('semLocks',inicio)));
