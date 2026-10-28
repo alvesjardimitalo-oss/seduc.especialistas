@@ -701,7 +701,8 @@ function manualAdministrativoSEDUC(){
  return '<section class="card tutorial-admin"><span class="eyebrow">MANUAL DA GESTÃO · PASSO A PASSO</span><h2>Configuração e operação do SEDUC Especialistas</h2>'+
  '<p>Roteiro para Administração e Secretaria de Educação. Os cadastros escolares existentes não autorizam automaticamente um usuário a realizar consultas.</p>'+
  '<details class="tutorial-manual-step" open><summary><strong>1. Autorizar a conta Google da profissional</strong><small>Usuários → perfil e escolas</small></summary><div class="tutorial-step-body">'+
- '<p>Solicite que a profissional entre uma vez no SEDUC com a própria conta Google. Ela aparecerá como <strong>pendente</strong>. Na aba Usuários, encontre a conta, confirme o nome e a identificação, defina o perfil <strong>Especialista</strong>, atribua a(s) escola(s) e ative o acesso.</p>'+
+ '<p><strong>Opção 1 — preparar antes do primeiro acesso:</strong> na aba Usuários, clique em <strong>+ Pré-autorizar especialista</strong>, informe nome, e-mail Google e as escolas permitidas. A profissional deverá entrar com esse mesmo Google verificado. O sistema criará sua conta sem exigir UID.</p>'+
+ '<p><strong>Opção 2 — conta já entrou:</strong> procure a profissional em Usuários, clique em <strong>Permissões</strong>, escolha o perfil Especialista, marque as escolas e altere o acesso para Sim.</p>'+
  '<p>Para a Secretaria administrar profissionais, a conta precisa de permissão de gestão concedida pelo administrador. Uma conta apenas de visualização não habilita cadastros ou vínculos.</p>'+
  link('Usuários')+'</div></details>'+
  '<details class="tutorial-manual-step"><summary><strong>2. Cadastrar ou conferir a ficha profissional</strong><small>Profissionais → Cadastrar especialista</small></summary><div class="tutorial-step-body">'+
