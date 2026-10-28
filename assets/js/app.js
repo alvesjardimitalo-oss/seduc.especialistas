@@ -9,6 +9,7 @@ import {buscarAlunosDisponiveis} from './busca-alunos.mjs';
 import {montarGradeAgenda,diaLocal} from './agenda-calendario.mjs';
 import {listarProfissionaisDaEscola,horariosLivres} from './agenda-formulario.mjs';
 import {criarEmailAgendamento} from './notificacoes-email.mjs';
+import {DIAS_JORNADA,jornadaDosCampos,conferirJornadaVisual} from './jornada-visual.mjs';
 import {prepararCadastroAluno,consultarCEP,formatarCEP,formatarCPF,formatarTelefone} from './cadastro-alunos.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
@@ -474,25 +475,114 @@ async function removerVinculo(id){
  if(!confirm('Retirar este vínculo de acompanhamento? Consultas e relatórios anteriores serão preservados. Agendamentos futuros precisarão ser revistos na agenda.'))return;
  try{await updateDoc(doc(db,'vinculos',id),{ativo:false});await refresh();render()}catch(e){showError(e)}
 }
+function editorJornadaVisual(){
+ const turno=(dia,n,rotulo,ini,fim,extra=false)=>
+  '<div class="jornada-turno'+(extra?' jornada-turno-extra':'')+'" data-turno-dia="'+dia+'" data-turno-num="'+n+'">'+
+  '<label>'+rotulo+' · entrada<input type="time" name="inicio_'+dia+'_'+n+'" value="'+ini+'" step="1800"></label>'+
+  '<label>'+rotulo+' · saída<input type="time" name="fim_'+dia+'_'+n+'" value="'+fim+'" step="1800"></label></div>';
+ return '<div class="wide jornada-editor"><div class="jornada-heading"><div><span class="eyebrow">ESCALA DE ATENDIMENTO</span><h3>Dias e horários de trabalho</h3><p>Selecione os dias de atendimento. Adicione o segundo turno quando houver intervalo para almoço ou trabalho em dois períodos.</p></div>'+
+ '<div class="jornada-tools"><button class="btn secondary" type="button" id="jornada-semana-util">Selecionar seg. a sex.</button><button class="btn secondary" type="button" id="jornada-limpar">Limpar</button></div></div>'+
+ '<div class="jornada-days">'+DIAS_JORNADA.map(({dia,nome})=>
+ '<section class="jornada-day" data-dia="'+dia+'"><div class="jornada-day-top"><label class="jornada-toggle"><input type="checkbox" name="dia_'+dia+'" value="sim"><span>'+nome+'</span></label><span class="jornada-day-total" data-dia-total="'+dia+'">Folga</span></div>'+
+ '<div class="jornada-shifts" data-shifts="'+dia+'">'+
+ turno(dia,1,'Turno 1','08:00','12:00')+
+ '<label class="jornada-second-toggle"><input type="checkbox" name="turno2_'+dia+'" value="sim">Adicionar segundo turno</label>'+
+ turno(dia,2,'Turno 2','13:00','17:00',true)+'</div></section>').join('')+'</div>'+
+ '<div class="jornada-summary" aria-live="polite"><span><strong id="jornada-total">0 horas semanais</strong><small id="jornada-resumo">Selecione pelo menos um dia.</small></span><span id="jornada-alerta"></span></div>'+
+ '<input type="hidden" name="jornada" value=""></div>';
+}
+function configurarEditorJornada(horarios=[]){
+ const form=document.getElementById('entry'),editor=form?.querySelector('.jornada-editor');
+ if(!editor)return;
+ const dias=new Map();
+ for(const {dia} of DIAS_JORNADA)dias.set(dia,{ativo:false,turnos:[]});
+ for(const h of horarios||[]){
+  const dia=Number(h.dia);
+  if(dias.has(dia)){const obj=dias.get(dia);obj.ativo=true;if(obj.turnos.length<2)obj.turnos.push(h)}
+ }
+ for(const {dia} of DIAS_JORNADA){
+  const estado=dias.get(dia),campo=form.elements.namedItem('dia_'+dia);
+  campo.checked=estado.ativo;
+  const segundo=form.elements.namedItem('turno2_'+dia);
+  segundo.checked=estado.turnos.length>1;
+  estado.turnos.forEach((turno,n)=>{
+   form.elements.namedItem('inicio_'+dia+'_'+(n+1)).value=turno.inicio;
+   form.elements.namedItem('fim_'+dia+'_'+(n+1)).value=turno.fim;
+  });
+ }
+ const atualizar=()=>{
+  for(const {dia} of DIAS_JORNADA){
+   const ativo=form.elements.namedItem('dia_'+dia).checked;
+   const turno2=form.elements.namedItem('turno2_'+dia);
+   const item=editor.querySelector('[data-dia="'+dia+'"]');
+   item.classList.toggle('jornada-day-active',ativo);
+   item.querySelector('[data-shifts]').hidden=!ativo;
+   item.querySelector('.jornada-turno-extra').hidden=!ativo||!turno2.checked;
+   for(const input of item.querySelectorAll('input[type="time"]')){
+    const segundo=input.closest('[data-turno-num="2"]');
+    input.disabled=!ativo||Boolean(segundo&&!turno2.checked);
+   }
+   turno2.disabled=!ativo;
+  }
+  const dados=Object.fromEntries(new FormData(form));
+  let resultado=null;
+  try{
+   resultado=jornadaDosCampos(dados);
+   editor.querySelector('#jornada-total').textContent=resultado.jornada;
+   editor.querySelector('#jornada-resumo').textContent=resultado.dias+' dia(s) selecionado(s) · '+resultado.horarios.length+' turno(s)';
+   editor.querySelector('#jornada-alerta').textContent='';
+   form.elements.namedItem('jornada').value=resultado.jornada;
+  }catch(e){
+   editor.querySelector('#jornada-total').textContent='Escala incompleta';
+   editor.querySelector('#jornada-resumo').textContent=e.message;
+   editor.querySelector('#jornada-alerta').textContent='';
+   form.elements.namedItem('jornada').value='';
+  }
+  for(const {dia} of DIAS_JORNADA){
+   const h=resultado?.horarios.filter(x=>x.dia===dia)||[];
+   const min=h.reduce((t,x)=>{
+    const minutes=a=>Number(a.slice(0,2))*60+Number(a.slice(3));
+    return t+minutes(x.fim)-minutes(x.inicio);
+   },0);
+   editor.querySelector('[data-dia-total="'+dia+'"]').textContent=!form.elements.namedItem('dia_'+dia).checked?'Folga':min?((min/60).toLocaleString('pt-BR')+'h'):'Revisar turnos';
+  }
+ };
+ form.querySelectorAll('.jornada-editor input').forEach(input=>input.addEventListener('change',atualizar));
+ form.querySelectorAll('.jornada-editor input[type="time"]').forEach(input=>input.addEventListener('input',atualizar));
+ editor.querySelector('#jornada-semana-util').onclick=()=>{
+  for(const {dia} of DIAS_JORNADA)form.elements.namedItem('dia_'+dia).checked=dia>=1&&dia<=5;
+  atualizar();
+ };
+ editor.querySelector('#jornada-limpar').onclick=()=>{
+  for(const {dia} of DIAS_JORNADA){form.elements.namedItem('dia_'+dia).checked=false;form.elements.namedItem('turno2_'+dia).checked=false}
+  atualizar();
+ };
+ atualizar();
+}
+
 function redefinirVinculo(id){
  if(!canManage())return;
  const v=cache.vinculos.find(v=>v.id===id&&v.ativo===true);if(!v)return;
- modal('Redefinir local e jornada',schoolSelect()+field('cargo','Cargo / função','text','required')+
- field('jornada','Jornada semanal','text','required')+field('horarios_texto','Dias e horários (ex.: 1 08:00-12:00)','text','required')+
- '<p class="wide muted">O vínculo anterior será encerrado. Consultas já agendadas permanecem no local original e devem ser revistas pela equipe.</p>',
+ modal('Redefinir local e jornada',
+ schoolSelect()+field('cargo','Cargo / função','text','required maxlength="150"')+
+ editorJornadaVisual()+
+ '<p class="wide muted">A jornada antiga será preservada no vínculo encerrado. Agendamentos antigos devem ser revisados pela gestão antes da mudança.</p>',
  async d=>{
-  const horarios=lerHorarios(d.horarios_texto),batch=writeBatch(db);
+  const {horarios,jornada}=jornadaDosCampos(d);
+  if(!d.escola_id||!d.cargo.trim())throw Error('Selecione a escola e informe o cargo.');
+  const batch=writeBatch(db);
   batch.update(doc(db,'vinculos',v.id),{ativo:false});
-  batch.set(doc(collection(db,'vinculos')),{profissional_id:v.profissional_id,uid:v.uid,escola_id:d.escola_id,cargo:d.cargo,jornada:d.jornada,horarios,slots_semana:gerarSlotsSemana(horarios),ativo:true});
+  batch.set(doc(collection(db,'vinculos')),{
+   profissional_id:v.profissional_id,uid:v.uid,escola_id:d.escola_id,
+   cargo:d.cargo.trim(),jornada,horarios,slots_semana:gerarSlotsSemana(horarios),ativo:true
+  });
   await batch.commit();
- });
+ },['vinculos']);
  const form=document.getElementById('entry');
  form.elements.namedItem('escola_id').value=v.escola_id;
  form.elements.namedItem('cargo').value=v.cargo||'';
- form.elements.namedItem('jornada').value=v.jornada||'';
- form.elements.namedItem('horarios_texto').value=(v.horarios||[]).map(h=>h.dia+' '+h.inicio+'-'+h.fim).join('; ');
+ configurarEditorJornada(v.horarios);
 }
-
 
 function graficoBarras(titulo,dados){
  if(!dados.length)return '<div class="card"><h3>'+safe(titulo)+'</h3><p class="muted">Sem registros para esta seleção.</p></div>';
@@ -1229,7 +1319,39 @@ function openForm(kind){
  }
  if(kind==='escola'){modal('Cadastrar escola',select('nome','Nome da instituição',schoolNames.map(n=>[n,n]))+field('inep','Código INEP')+field('telefone','Telefone')+field('endereco','Endereço')+field('email','E-mail','email')+select('tipo','Tipo da instituição',[['escola','Escola'],['creche','Creche']]),d=>addDoc(collection(db,'escolas'),d));return}
 if(kind==='profissional'){modal('Cadastrar profissional',field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date')+field('cpf','CPF (quando necessário)')+field('telefone','Telefone')+field('endereco','Endereço')+field('especialidade','Especialidade')+field('email','E-mail','email')+field('uid','UID do usuário Google (após aprovação)'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'profissionais'));const batch=writeBatch(db);const {cpf,telefone,endereco,nascimento,email,...base}=d;batch.set(id,{...base,uid:d.uid||'',escolas:[]});batch.set(doc(db,'profissionais_privado',id.id),{cpf,telefone,endereco,nascimento,email});await batch.commit()});return}
-if(kind==='vinculo'){modal('Vincular profissional',select('profissional_id','Profissional',cache.profissionais.map(p=>[p.id,p.nome]))+schoolSelect()+field('cargo','Cargo','text','required')+field('jornada','Jornada semanal (ex.: 20 horas)')+field('uid','UID do usuário Google da profissional','text','required')+field('horarios_texto','Dias e horários (ex.: 1 08:00-12:00; 3 13:00-17:00)','text','required'),async d=>{const horarios=lerHorarios(d.horarios_texto);delete d.horarios_texto;await addDoc(collection(db,'vinculos'),{...d,horarios,slots_semana:gerarSlotsSemana(horarios),ativo:true})});return}
+if(kind==='vinculo'){
+ if(!canManage())return;
+ const habilitados=cache.usuarios.filter(x=>x.ativo===true&&x.perfil==='especialista');
+ modal('Vincular profissional e jornada',
+ select('profissional_id','Ficha da profissional',cache.profissionais.map(p=>[p.id,p.nome]))+
+ schoolSelect()+
+ select('uid','Conta Google autorizada da especialista',habilitados.map(u=>[u.id,u.nome||u.email||u.id]))+
+ field('cargo','Cargo ou especialidade','text','required maxlength="150"')+
+ editorJornadaVisual(),
+ async d=>{
+  const {horarios,jornada}=jornadaDosCampos(d);
+  const profissional=cache.profissionais.find(p=>p.id===d.profissional_id);
+  const conta=cache.usuarios.find(u=>u.id===d.uid);
+  if(!profissional||!conta||!conta.ativo||conta.perfil!=='especialista')throw Error('Selecione uma conta de especialista autorizada.');
+  if(!conta.escolas?.includes(d.escola_id))throw Error('A conta Google ainda não está autorizada para esta escola.');
+  if(!d.cargo.trim())throw Error('Informe o cargo ou especialidade.');
+  await addDoc(collection(db,'vinculos'),{
+   profissional_id:profissional.id,uid:conta.id,escola_id:d.escola_id,cargo:d.cargo.trim(),
+   jornada,horarios,slots_semana:gerarSlotsSemana(horarios),ativo:true
+  });
+ },['vinculos']);
+ configurarEditorJornada();
+ const form=document.getElementById('entry');
+ const escolher=()=>{
+  const profissional=cache.profissionais.find(p=>p.id===form.elements.namedItem('profissional_id').value);
+  if(!profissional)return;
+  form.elements.namedItem('cargo').value=profissional.especialidade||'';
+  if(profissional.uid&&habilitados.some(u=>u.id===profissional.uid))
+   form.elements.namedItem('uid').value=profissional.uid;
+ };
+ form.elements.namedItem('profissional_id').onchange=escolher;
+ return;
+}
 if(kind==='aluno'){modal('Cadastrar aluno',camposCadastroCompletoAluno(true),d=>salvarCadastroCompletoAluno(d),['alunos']);configurarFormularioCompletoAluno();return}
 if(kind==='usuario'){modal('Autorizar usuário',field('uid','UID do usuário pendente','text','required')+select('perfil','Perfil',[['especialista','Especialista'],['direcao','Direção escolar'],['secretaria','Secretaria de Educação']])+field('escolas','IDs das escolas autorizadas, separados por vírgula') ,async d=>{const ref=doc(db,'usuarios',d.uid);const current=await getDoc(ref);if(!current.exists())throw Error('O usuário deve fazer login com Google antes da autorização.');if(current.data().perfil==='superadmin')throw Error('Não é permitido alterar o superadministrador.');await updateDoc(ref,{perfil:d.perfil,escolas:d.escolas.split(',').map(s=>s.trim()).filter(Boolean),ativo:true})});return}
 if(kind==='atendimento'||kind==='agendar'){
