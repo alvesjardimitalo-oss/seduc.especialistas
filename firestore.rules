@@ -36,7 +36,7 @@ service cloud.firestore {
     return v.uid == uid && v.escola_id == escolaId && v.ativo == true &&
       conta.ativo == true && conta.perfil == 'especialista' &&
       escolaId in conta.get('escolas',[]) &&
-      ((uid == request.auth.uid && specialist()) || manage());
+      (specialistIn(escolaId) || manage());
   }
   // Rede municipal no fuso America/Sao_Paulo (UTC-3, sem horario de verao vigente).
   // A grade semanal contém indices dia*48 + meia-hora. Validar eventual mudança legal de fuso.
@@ -86,7 +86,12 @@ service cloud.firestore {
   }
 
   match /usuarios/{uid} {
-    allow get: if logged() && (uid == request.auth.uid || manage());
+    // Especialistas podem consultar pontualmente a conta de colegas ativos
+    // da mesma escola para vincular agendamentos e preparar avisos, sem listagem geral.
+    allow get: if logged() && (uid == request.auth.uid || manage() ||
+      (specialist() && resource.data.ativo == true &&
+       resource.data.perfil == 'especialista' &&
+       resource.data.escolas.hasAny(me().get('escolas',[]))));
     allow list: if manage();
     allow create: if logged() && uid == request.auth.uid &&
       request.resource.data.keys().hasOnly(['nome','email','ativo','perfil','escolas','gerenciar','criado_em']) &&
@@ -403,7 +408,8 @@ service cloud.firestore {
       a.escola_id == e.escola_id && a.aluno_id == e.aluno_id &&
       a.status == e.situacao_nova &&
       (a.autor_uid == request.auth.uid ||
-       (manage() && e.acao == 'agendado' && a.get('agendado_por_uid','') == request.auth.uid));
+       ((manage() || specialistIn(e.escola_id)) && e.acao == 'agendado' &&
+        a.get('agendado_por_uid','') == request.auth.uid));
   }
   match /agendamentos/{agendaId}/historico/{eventoId} {
     allow read: if active() && (manage() ||
@@ -450,7 +456,7 @@ service cloud.firestore {
         (request.resource.data.autor_uid == request.auth.uid &&
           !request.resource.data.keys().hasAny(['agendado_por_uid']) &&
           specialistIn(request.resource.data.escola_id)) ||
-        (manage() &&
+        ((manage() || specialistIn(request.resource.data.escola_id)) &&
           request.resource.data.get('agendado_por_uid','') == request.auth.uid &&
           request.resource.data.autor_uid != request.auth.uid)
       ) &&
@@ -543,10 +549,10 @@ service cloud.firestore {
           specialistIn(request.resource.data.escola_id) &&
           validSlotBooking(request.resource.data))
         ||
-        // Gestores autorizados só reservam horários para especialistas ativos.
-        // A integridade do vínculo agendamento/slot é exigida no documento
-        // de agendamento, evitando consulta recursiva ao getAfter.
-        (manage() &&
+        // Reservas feitas pela gestão ou por colega da mesma escola.
+        // A vinculação do slot ao agendamento é validada na regra do agendamento.
+        ((manage() || specialistIn(request.resource.data.escola_id)) &&
+          request.resource.data.autor_uid != request.auth.uid &&
           get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.ativo == true &&
           get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.perfil == 'especialista' &&
           request.resource.data.escola_id in
