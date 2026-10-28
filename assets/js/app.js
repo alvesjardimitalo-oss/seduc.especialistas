@@ -7,6 +7,7 @@ import {resumirAluno,agruparConsultasPorAluno,etiquetasEvolucao} from './consult
 import {montarDocumentoAluno,montarDocumentoGerencial} from './relatorios-impressao.mjs';
 import {buscarAlunosDisponiveis} from './busca-alunos.mjs';
 import {montarGradeAgenda,diaLocal} from './agenda-calendario.mjs';
+import {listarProfissionaisDaEscola,horariosLivres} from './agenda-formulario.mjs';
 import {prepararCadastroAluno,consultarCEP,formatarCEP,formatarCPF,formatarTelefone} from './cadastro-alunos.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
@@ -803,12 +804,12 @@ async function salvarAgendamento(payload){
  if(inicio<=new Date())throw Error('Agendamentos precisam estar no futuro.');
  const ref=doc(collection(db,'agendamentos'));
  const slots=[inicio,...(payload.duracao_min===60?[new Date(inicio.getTime()+1800000)]:[])];
- const refs=slots.map(t=>doc(db,'agenda_slots',slotId(user.uid,t)));
+ const refs=slots.map(t=>doc(db,'agenda_slots',slotId(payload.autor_uid,t)));
  await runTransaction(db,async tx=>{
   const atuais=await Promise.all(refs.map(r=>tx.get(r)));
   if(atuais.some(x=>x.exists()&&x.data().status==='reservado'))throw Error('Horário ocupado. Escolha outro.');
   tx.set(ref,{...payload,status:'agendado'});
-  refs.forEach((r,i)=>tx.set(r,{autor_uid:user.uid,escola_id:payload.escola_id,agendamento_id:ref.id,inicio:slots[i],status:'reservado'}));
+  refs.forEach((r,i)=>tx.set(r,{autor_uid:payload.autor_uid,escola_id:payload.escola_id,agendamento_id:ref.id,inicio:slots[i],status:'reservado'}));
   registrarEvento(tx,'agendamento',ref.id,'agendado',payload,'','agendado');
  });
 }
@@ -1043,6 +1044,89 @@ function configurarServidorComoEspecialista(id){
    await batch.commit();
   });
 }
+
+async function abrirNovoAgendamento(){
+ if(!canSchedule()){showError(Error('Somente especialistas e gestão autorizada podem criar agendamentos.'));return}
+ if(canManage()&&!colecoesCarregadas.has('usuarios')){
+  try{
+   await refresh(['usuarios']);
+  }catch(e){showError(e);return}
+ }
+ openForm('agendar');
+}
+function formularioNovoAgendamento(){
+ const todos=cache.alunos.filter(x=>x.ativo!==false).length;
+ return '<div class="wide booking-intro"><div class="booking-step-number">1</div><div><strong>Aluno e instituição</strong><small>'+todos+' aluno(s) ativo(s) disponíveis para pesquisa, sujeitos às permissões de sua conta.</small></div></div>'+
+ schoolSelect()+seletorAlunoPesquisavel()+
+ '<div class="wide booking-intro"><div class="booking-step-number">2</div><div><strong>Profissional responsável</strong><small>O sistema verifica a vinculação com a escola e a jornada cadastrada.</small></div></div>'+
+ (canManage()?'<label class="wide">Especialista responsável *<select name="profissional_uid" required><option value="">Selecione a escola primeiro</option></select></label>':
+ '<div class="wide booking-owner"><strong>Profissional autenticada</strong><span>'+safe(profile.nome||user.displayName||user.email||'Profissional')+'</span><input type="hidden" name="profissional_uid" value="'+safe(user.uid)+'"></div>')+
+ '<div class="wide booking-intro"><div class="booking-step-number">3</div><div><strong>Dia e horário da consulta</strong><small>Horários disponíveis conforme a escala da profissional e os agendamentos já existentes.</small></div></div>'+
+ '<label>Data da consulta *<input name="dia_consulta" type="date" required></label>'+
+ select('duracao_min','Duração',[[30,'30 minutos'],[60,'60 minutos']])+
+ '<label>Horário disponível *<select name="hora_consulta" required><option value="">Selecione data e profissional</option></select></label>'+
+ '<label>Especialidade *<input name="especialidade" maxlength="150" required placeholder="Ex.: Psicopedagogia"></label>'+
+ '<input type="hidden" name="inicio" value="">'+
+ '<p class="wide booking-help" id="booking-status" role="status">Escolha escola, aluno, profissional, data e um horário permitido para finalizar.</p>'+
+ '<div class="wide booking-check"><strong>Registro de auditoria</strong><small>Quem agendou, a profissional responsável e a data de criação são registrados automaticamente. Somente a profissional responsável poderá iniciar e concluir a consulta.</small></div>';
+}
+function configurarFormularioNovoAgendamento(){
+ const form=document.getElementById('entry');
+ if(!form)return;
+ const escola=form.elements.namedItem('escola_id'),profissional=form.elements.namedItem('profissional_uid');
+ const dia=form.elements.namedItem('dia_consulta'),hora=form.elements.namedItem('hora_consulta');
+ const duracao=form.elements.namedItem('duracao_min'),especialidade=form.elements.namedItem('especialidade');
+ const inicio=form.elements.namedItem('inicio'),status=form.querySelector('#booking-status');
+ const isGestao=canManage();
+ const atualizarHorarios=()=>{
+  hora.replaceChildren();
+  const uid=profissional.value;
+  const disponiveis=horariosLivres({
+   data:dia.value,escolaId:escola.value,uid,duracaoMin:Number(duracao.value),
+   vinculos:cache.vinculos,agendamentos:cache.agendamentos
+  });
+  hora.append(new Option(disponiveis.length?'Selecione um horário':'Nenhum horário disponível',''));
+  for(const item of disponiveis)hora.append(new Option(item.rotulo,item.valor));
+  hora.disabled=!disponiveis.length;inicio.value='';
+  status.textContent=!escola.value?'Selecione a instituição para continuar.':
+   !uid?'Selecione a profissional responsável.':
+   !dia.value?'Escolha uma data no calendário.':
+   !disponiveis.length?'Não há horários livres nessa data ou na jornada da profissional. Escolha outro dia ou profissional.':
+   disponiveis.length+' horário(s) disponível(is) nessa data.';
+ };
+ const atualizarProfissionais=()=>{
+  if(!isGestao){atualizarHorarios();return}
+  const elegiveis=listarProfissionaisDaEscola({
+   escolaId:escola.value,vinculos:cache.vinculos,usuarios:cache.usuarios,
+   profissionais:cache.profissionais,gestao:true
+  });
+  profissional.replaceChildren();
+  profissional.append(new Option(elegiveis.length?'Selecione a profissional':'Nenhuma profissional habilitada para esta escola',''));
+  for(const item of elegiveis)profissional.append(new Option(item.nome+' · '+item.especialidade,item.uid));
+  profissional.disabled=!elegiveis.length;
+  atualizarHorarios();
+ };
+ const atualizarInicio=()=>{inicio.value=dia.value&&hora.value?dia.value+'T'+hora.value:'';};
+ escola.addEventListener('change',atualizarProfissionais);
+ profissional.addEventListener('change',()=>{
+  if(isGestao){
+   const item=listarProfissionaisDaEscola({escolaId:escola.value,vinculos:cache.vinculos,usuarios:cache.usuarios,profissionais:cache.profissionais,gestao:true})
+    .find(p=>p.uid===profissional.value);
+   if(item)especialidade.value=item.especialidade==='Atendimento especializado'?'':item.especialidade;
+  }
+  atualizarHorarios();
+ });
+ dia.addEventListener('change',atualizarHorarios);
+ duracao.addEventListener('change',atualizarHorarios);
+ hora.addEventListener('change',atualizarInicio);
+ const dataAgora=new Date();dataAgora.setSeconds(0,0);
+ const dataMinima=new Date(dataAgora.getFullYear(),dataAgora.getMonth(),dataAgora.getDate());
+ dia.min=diaLocal(dataMinima);
+ const selecionado=agendaDiaSelecionado&&agendaDiaSelecionado>=dia.min?agendaDiaSelecionado:dia.min;
+ dia.value=selecionado;
+ atualizarProfissionais();
+}
+
 function openForm(kind){
  if(kind==='frequencia'){
   const vinculos=cache.vinculos.filter(v=>v.uid===user.uid&&v.ativo===true);
@@ -1067,24 +1151,33 @@ if(kind==='atendimento'||kind==='agendar'){
  const isAgenda=kind==='agendar';
  if(!(isAgenda?canSchedule():canWrite())){showError(Error('Sua conta não possui permissão para executar esta operação.'));return}
  if(!cache.alunos.length){alert('Cadastre primeiro o aluno na escola correspondente.');return}
- const fields=schoolSelect()+seletorAlunoPesquisavel()+
- field('inicio',isAgenda?'Data e hora do agendamento':'Data e hora da consulta realizada','datetime-local','required')+
+ const fields=isAgenda?formularioNovoAgendamento():schoolSelect()+seletorAlunoPesquisavel()+
+ field('inicio','Data e hora da consulta realizada','datetime-local','required')+
  select('duracao_min','Duração',[[30,'30 minutos'],[60,'60 minutos']])+
  field('especialidade','Especialidade','text','required maxlength="150"');
- modal(isAgenda?'Agendar consulta':'Registrar consulta sem agendamento',fields+
- (isAgenda?'<p class="wide muted">Ao iniciar a consulta pela agenda, o registro será vinculado automaticamente ao aluno.</p>':camposRegistroConsulta()),
+ modal(isAgenda?'Novo agendamento':'Registrar consulta sem agendamento',fields+(isAgenda?'':camposRegistroConsulta()),
  async d=>{
   if(!d.aluno_id)throw Error('Pesquise e selecione um aluno cadastrado na escola para continuar.');
   const student=cache.alunos.find(a=>a.id===d.aluno_id);
   if(!student||student.ativo===false||student.escola_id!==d.escola_id)throw Error('Selecione um aluno ativo da instituição.');
   const date=fromInputDate(d.inicio),duracao=Number(d.duracao_min);
-  if(isAgenda)eligible(date,d.escola_id,duracao);
-  else if(date.getTime()>Date.now()+60000)throw Error('A consulta avulsa deve ter ocorrido hoje ou em data anterior. Para consultas futuras, utilize a agenda.');
-  const vinculo=cache.vinculos.find(v=>v.escola_id===d.escola_id&&v.uid===user.uid&&v.ativo===true&&dentroDaJornada(date,duracao,v.horarios));
-  if(!vinculo)throw Error('Não existe vínculo ativo e jornada autorizada para este aluno, escola e horário.');
-  const {descricao,atividades,observacoes,orientacoes,evolucao_observada,...campos}=d;
+  const especialistaUid=isAgenda?(canManage()?d.profissional_uid:user.uid):user.uid;
+  if(isAgenda){
+   if(!especialistaUid||!d.hora_consulta||!d.dia_consulta)throw Error('Preencha profissional, data e horário disponíveis.');
+   if(canManage()&&!listarProfissionaisDaEscola({
+     escolaId:d.escola_id,vinculos:cache.vinculos,usuarios:cache.usuarios,
+     profissionais:cache.profissionais,gestao:true
+   }).some(p=>p.uid===especialistaUid))throw Error('Profissional não autorizada para esta escola.');
+   podeAgendar({inicio:date,duracaoMin:duracao,escolaId:d.escola_id,uid:especialistaUid,
+     vinculos:cache.vinculos,agendamentos:cache.agendamentos.map(a=>({...a,inicio:new Date(dataMs(a.inicio))}))});
+  }else if(date.getTime()>Date.now()+60000)throw Error('A consulta avulsa deve ter ocorrido hoje ou em data anterior. Para consultas futuras, utilize a agenda.');
+  const vinculo=cache.vinculos.find(v=>v.escola_id===d.escola_id&&v.uid===especialistaUid&&v.ativo===true&&dentroDaJornada(date,duracao,v.horarios));
+  if(!vinculo)throw Error('Não existe vínculo ativo e jornada autorizada para a profissional, escola e horário.');
+  const pessoa=canManage()&&isAgenda?cache.usuarios.find(u=>u.id===especialistaUid):null;
+  const {descricao,atividades,observacoes,orientacoes,evolucao_observada,dia_consulta,hora_consulta,profissional_uid,...campos}=d;
   const payload={...campos,vinculo_id:vinculo.id,inicio:date,duracao_min:duracao,
-   autor_uid:user.uid,autor_nome:profile.nome||user.displayName,criado_em:serverTimestamp()};
+   autor_uid:especialistaUid,autor_nome:pessoa?.nome||profile.nome||user.displayName,criado_em:serverTimestamp()};
+  if(isAgenda&&canManage())payload.agendado_por_uid=user.uid;
   if(isAgenda)await salvarAgendamento(payload);
   else{
    const texto=registroConsultaTexto({descricao,atividades,observacoes,orientacoes});
@@ -1096,6 +1189,7 @@ if(kind==='atendimento'||kind==='agendar'){
   }
  },isAgenda?['agendamentos']:['atendimentos','notas_atendimento']);
  ativarBuscaAlunosDoFormulario();
+ if(isAgenda){configurarFormularioNovoAgendamento();return}
  const entrada=document.querySelector('#entry [name=inicio]');
  if(entrada){
   const agora=new Date();
