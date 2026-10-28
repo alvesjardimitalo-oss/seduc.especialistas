@@ -1,6 +1,12 @@
-// Configure um projeto Firebase exclusivo para o SEDUC. Nunca utilize as credenciais do projeto SISDIFI.
-// Firebase web apiKey identifica o projeto; a proteção real depende das regras Firestore publicadas.
+// Configuração pública do aplicativo Web SEDUC Especialistas.
+// Atenção: NÃO reutilize o banco do SISDIFI. A proteção de dados depende das
+// regras Firestore, da autenticação e das autorizações que forem publicadas.
+// Nunca inclua credenciais de conta de serviço, tokens privados ou dados de alunos aqui.
 export const firebaseConfig = {
- apiKey: "CONFIGURAR", authDomain: "CONFIGURAR", projectId: "CONFIGURAR",
- storageBucket: "CONFIGURAR", messagingSenderId: "CONFIGURAR", appId: "CONFIGURAR"
+  apiKey: "AIzaSyBu_vUMMysYCXqc54qu8srHQ4dk3H040rY",
+  authDomain: "seduc-especialistas.firebaseapp.com",
+  projectId: "seduc-especialistas",
+  storageBucket: "seduc-especialistas.firebasestorage.app",
+  messagingSenderId: "1971251228",
+  appId: "1:1971251228:web:7010b0d04793f72e8017d9"
 };
