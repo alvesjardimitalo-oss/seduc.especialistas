@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signed() {return request.auth != null;}
+  function profileExists() {return signed() && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));}
+  function me() {return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;}
+  function active() {return profileExists() && me().ativo == true;}
+  function admin() {return active() && me().perfil == 'superadmin';}
+  function secretary() {return active() && me().perfil == 'secretaria';}
+  function manager() {return admin() || (secretary() && me().get('gerenciar',false) == true);}
+  function schoolAccess(id) {return active() && (admin() || secretary() || id in me().get('escolas',[]));}
+  function author() {return active() && request.auth.uid == resource.data.autor_uid;}
+  match /usuarios/{id} {
+   allow get: if signed() && (id == request.auth.uid || manager());
+   allow list: if manager();
+   allow create: if signed() && id == request.auth.uid && request.resource.data.keys().hasOnly(['nome','email','ativo','perfil','escolas','gerenciar','criado_em']) && request.resource.data.ativo == false && request.resource.data.perfil == 'pendente' && request.resource.data.gerenciar == false && request.resource.data.escolas == [] && request.resource.data.email == request.auth.token.email;
+   allow create,update: if admin();
+   allow update: if secretary() && me().get('gerenciar',false)==true && id!=request.auth.uid && resource.data.perfil!='superadmin' && request.resource.data.perfil!='superadmin' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo','perfil','escolas','nome','gerenciar']) && request.resource.data.gerenciar==false;
+   allow delete: if false;
+  }
+  match /escolas/{id} {
+   allow read: if schoolAccess(id);
+   allow create,update: if manager();
+   allow delete: if admin();
+  }
+  match /profissionais/{id} {
+   allow read: if active() && (manager() || resource.data.get('escolas',[]).hasAny(me().get('escolas',[])));
+   allow create,update: if manager();
+   allow delete: if false;
+  }
+  match /vinculos/{id} {
+   allow read: if active() && (manager() || schoolAccess(resource.data.escola_id));
+   allow create,update: if manager();
+   allow delete: if false;
+  }
+  match /alunos/{id} {
+   allow read: if active() && (manager() || schoolAccess(resource.data.escola_id));
+   allow create: if active() && schoolAccess(request.resource.data.escola_id) && me().perfil in ['especialista','secretaria','superadmin'];
+   allow update: if active() && schoolAccess(resource.data.escola_id) && request.resource.data.escola_id==resource.data.escola_id && (manager() || resource.data.criado_por==request.auth.uid);
+   allow delete: if false;
+  }
+  match /agendamentos/{id} {
+   allow read: if active() && (manager() || schoolAccess(resource.data.escola_id));
+   allow create: if active() && me().perfil=='especialista' && request.resource.data.autor_uid==request.auth.uid && request.resource.data.escola_id in me().get('escolas',[]);
+   allow update: if author() && request.resource.data.autor_uid==resource.data.autor_uid && request.resource.data.escola_id==resource.data.escola_id;
+   allow delete: if false;
+  }
+  match /atendimentos/{id} {
+   allow read: if active() && (manager() || schoolAccess(resource.data.escola_id));
+   allow create: if active() && me().perfil=='especialista' && request.resource.data.autor_uid==request.auth.uid && request.resource.data.escola_id in me().get('escolas',[]) && request.resource.data.texto is string && request.resource.data.texto.size() <= 1000;
+   allow update: if (author() || admin()) && request.resource.data.autor_uid==resource.data.autor_uid && request.resource.data.escola_id==resource.data.escola_id && request.resource.data.aluno_id==resource.data.aluno_id && request.resource.data.texto is string && request.resource.data.texto.size()<=1000;
+   allow delete: if false;
+  }
+  match /{document=**} {allow read,write: if false;}
+ }
+}
