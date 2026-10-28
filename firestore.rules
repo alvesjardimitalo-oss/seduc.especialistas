@@ -31,9 +31,10 @@ service cloud.firestore {
   // Gestores podem apenas criar reservas para profissionais especialistas ativos,
   // vinculados à escola. O responsável clínico continua sendo o especialista.
   function vinculoAgendamento(vinculoId,escolaId,uid) {
-    let vinculo = get(/databases/$(database)/documents/vinculos/$(vinculoId)).data;
     return exists(/databases/$(database)/documents/vinculos/$(vinculoId)) &&
-      vinculo.uid == uid && vinculo.escola_id == escolaId && vinculo.ativo == true &&
+      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.uid == uid &&
+      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.escola_id == escolaId &&
+      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.ativo == true &&
       (
         (uid == request.auth.uid && specialistIn(escolaId)) ||
         (manage() &&
