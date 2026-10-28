@@ -9,7 +9,7 @@ const configured=!Object.values(firebaseConfig).some(v=>!v||String(v)==='CONFIGU
 const schoolNames=['Escola Municipal Doutor João de Souza Lima','Escola Municipal Professora Terezinha Sarmento de Oliveira','Creche Municipal Wilma Glória Nunes Mourão','Escola Municipal Prefeito José Pedro da Silva','Escola Municipal Monteiro Lobato'];
 const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formatDate=x=>{if(!x)return '—';const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR')};
-let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[]};
+let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[]};
 const canManage=()=>profile?.perfil==='superadmin'||(profile?.perfil==='secretaria'&&profile?.gerenciar===true);
 const canWrite=()=>profile?.perfil==='especialista';
 const mySchools=()=>profile?.perfil==='superadmin'||profile?.perfil==='secretaria'?cache.escolas:cache.escolas.filter(e=>(profile?.escolas||[]).includes(e.id));
@@ -24,7 +24,7 @@ async function refresh(){
  const manager=canManage();
  const schools=(manager||profile.perfil==='secretaria')?(await getDocs(collection(db,'escolas'))).docs.map(d=>({id:d.id,...d.data()})):(await Promise.all((profile.escolas||[]).map(async id=>{try{const s=await getDoc(doc(db,'escolas',id));return s.exists()?{id:s.id,...s.data()}:null}catch{return null}}))).filter(Boolean);
  const ids=schools.map(x=>x.id);
- const out={escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[]};
+ const out={escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[]};
  for(const key of Object.keys(out).filter(x=>x!=='escolas')){
   try{
    if(manager){const r=await getDocs(collection(db,key));out[key]=r.docs.map(d=>({id:d.id,...d.data()}));continue}
@@ -41,7 +41,7 @@ async function refresh(){
  cache=out;
  for(const a of cache.atendimentos){a.texto=cache.notas_atendimento.find(n=>n.id===a.id)?.texto||''}
 }
-function layout(content){const items=['Painel','Escolas','Profissionais','Alunos','Agenda','Atendimentos','Relatórios'];if(canManage())items.push('Usuários');root.innerHTML='<div class="shell"><aside class="side"><div class="brand">SEDUC Especialistas<small>Rede Municipal de Ensino</small></div><nav class="menu">'+items.map(n=>'<button class="'+(tab===n?'active':'')+'" data-tab="'+safe(n)+'">'+safe(n)+'</button>').join('')+'</nav></aside><section><header class="top"><span>'+safe(tab)+'</span><span>'+safe(profile.nome||user.email)+' &nbsp; <button class="btn secondary" id="logout">Sair</button></span></header><main class="body">'+content+'</main></section></div>';document.getElementById('logout').onclick=()=>signOut(auth);document.querySelectorAll('[data-tab]').forEach(n=>n.onclick=()=>{tab=n.dataset.tab;render()})}
+function layout(content){const items=['Painel','Escolas','Profissionais','Alunos','Agenda','Atendimentos','Frequência','Relatórios'];if(canManage())items.push('Usuários');root.innerHTML='<div class="shell"><aside class="side"><div class="brand">SEDUC Especialistas<small>Rede Municipal de Ensino</small></div><nav class="menu">'+items.map(n=>'<button class="'+(tab===n?'active':'')+'" data-tab="'+safe(n)+'">'+safe(n)+'</button>').join('')+'</nav></aside><section><header class="top"><span>'+safe(tab)+'</span><span>'+safe(profile.nome||user.email)+' &nbsp; <button class="btn secondary" id="logout">Sair</button></span></header><main class="body">'+content+'</main></section></div>';document.getElementById('logout').onclick=()=>signOut(auth);document.querySelectorAll('[data-tab]').forEach(n=>n.onclick=()=>{tab=n.dataset.tab;render()})}
 function title(name,subtitle){return '<h1>'+name+'</h1><p class="sub">'+subtitle+'</p>'}
 function table(headers,rows){return '<div class="card tablewrap"><table><thead><tr>'+headers.map(x=>'<th>'+safe(x)+'</th>').join('')+'</tr></thead><tbody>'+(rows.length?rows.join(''):'<tr><td colspan="'+headers.length+'" class="muted">Nenhum registro encontrado.</td></tr>')+'</tbody></table></div>'}
 function render(){if(!profile?.ativo)return;let html=title(tab,'Acompanhamento de atendimentos especializados');const students=cache.alunos;const appointments=cache.agendamentos;const visits=cache.atendimentos;if(tab==='Painel'){html+='<div class="grid">'+[['Alunos cadastrados',students.length],['Atendimentos realizados',visits.filter(x=>x.status!=='cancelado').length],['Agendamentos',appointments.filter(x=>x.status==='agendado').length],['Instituições',mySchools().length]].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div>';if(canWrite())html+='<div class="actions"><button class="btn" data-action="atendimento">+ Atendimento imediato</button><button class="btn secondary" data-action="agendar">Agendar consulta</button></div>';html+='<div class="card"><h3>Últimos atendimentos</h3>'+history(visits.slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,10))+'</div>'}
@@ -50,9 +50,15 @@ if(tab==='Profissionais'){if(canManage())html+='<div class="actions"><button cla
 if(tab==='Alunos'){if(canWrite()||canManage())html+='<div class="actions"><button class="btn" data-action="aluno">+ Cadastrar aluno</button></div>';html+=table(['Aluno','Nascimento','Escola','Histórico'],students.map(a=>'<tr><td>'+safe(a.nome)+'</td><td>'+safe(a.nascimento)+'</td><td>'+safe(schoolName(a.escola_id))+'</td><td><button class="btn secondary" data-student="'+safe(a.id)+'">Ver atendimentos</button></td></tr>'))}
 if(tab==='Agenda'){if(canWrite())html+='<div class="actions"><button class="btn" data-action="agendar">+ Agendar consulta</button></div>';html+=table(['Data','Aluno','Escola','Profissional','Situação'],appointments.sort((a,b)=>String(a.inicio).localeCompare(String(b.inicio))).map(a=>'<tr><td>'+safe(formatDate(a.inicio))+'</td><td>'+safe(students.find(s=>s.id===a.aluno_id)?.nome)+'</td><td>'+safe(schoolName(a.escola_id))+'</td><td>'+safe(a.autor_nome)+'</td><td>'+safe(a.status)+'</td></tr>'))}
 if(tab==='Atendimentos'){if(canWrite())html+='<div class="actions"><button class="btn" data-action="atendimento">+ Atendimento imediato</button></div>';html+='<div class="card">'+history(visits.slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))))+'</div>'}
+if(tab==='Frequência'){
+ html+='<div class="alert">Registro declaratório de entrada e saída. Os horários devem ser conferidos pela gestão antes de uso em controle funcional oficial.</div>';
+ if(canWrite())html+='<div class="actions"><button class="btn" data-action="frequencia">Registrar entrada</button></div>';
+ html+=table(['Entrada','Saída','Escola','Profissional','Situação','Ação'],cache.frequencias.slice().sort((a,b)=>(b.entrada?.seconds||0)-(a.entrada?.seconds||0)).map(f=>
+ '<tr><td>'+safe(formatDate(f.entrada))+'</td><td>'+safe(formatDate(f.saida))+'</td><td>'+safe(schoolName(f.escola_id))+'</td><td>'+safe(f.uid)+'</td><td>'+safe(f.status)+'</td><td>'+((f.uid===user.uid&&f.status==='aberta')?'<button class="btn secondary" data-exit="'+safe(f.id)+'">Registrar saída</button>':'—')+'</td></tr>'));
+}
 if(tab==='Relatórios'){html+='<div class="grid">'+[['Alunos cadastrados',students.length],['Atendimentos',visits.length],['Agendamentos',appointments.length],['Profissionais',cache.profissionais.length]].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div><div class="card"><p>Indicadores de acompanhamento no escopo de acesso do usuário. Exportações com dados pessoais permanecerão desativadas nesta primeira versão.</p></div>'}
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
-layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools}
+layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools}
 function history(records){return records.length?records.map(a=>'<details class="history" data-visit="'+safe(a.id)+'" data-student="'+safe(a.aluno_id)+'"><summary><b>'+safe(cache.alunos.find(s=>s.id===a.aluno_id)?.nome||'Aluno')+'</b> · '+safe(formatDate(a.data))+' · '+safe(a.autor_nome||professionalName(a.autor_uid))+' <span class="badge">'+safe(a.status||'realizado')+'</span></summary><p style="white-space:pre-wrap">'+((profile.perfil==='especialista'||profile.perfil==='superadmin')?safe(a.texto):'<em>Observações restritas aos especialistas autorizados.</em>')+'</p><small>'+safe(a.especialidade||'Atendimento especializado')+'</small>'+(a.autor_uid===user.uid||profile.perfil==='superadmin'?'<p><button class="btn secondary" data-edit="'+safe(a.id)+'">Editar / cancelar</button></p>':'')+'</details>').join(''):'<p class="muted">Ainda não há atendimentos registrados.</p>'}
 function field(name,label,type='text',extra=''){return '<label>'+label+'<input name="'+name+'" type="'+type+'" '+extra+'></label>'}
 function select(name,label,options){return '<label>'+label+'<select name="'+name+'" required><option value="">Selecione</option>'+options.map(([id,n])=>'<option value="'+safe(id)+'">'+safe(n)+'</option>').join('')+'</select></label>'}
@@ -62,7 +68,22 @@ function fromInputDate(s){const d=new Date(s);if(!s||isNaN(d))throw Error('Data 
 function eligible(slot,school,duracaoMin=30){
  return podeAgendar({inicio:slot,duracaoMin,escolaId:school,uid:user.uid,vinculos:cache.vinculos,agendamentos:cache.agendamentos});
 }
-function openForm(kind){if(kind==='escola'){modal('Cadastrar escola',select('nome','Nome da instituição',schoolNames.map(n=>[n,n]))+field('inep','Código INEP')+field('telefone','Telefone')+field('endereco','Endereço')+field('email','E-mail','email'),d=>addDoc(collection(db,'escolas'),d));return}
+function openForm(kind){
+ if(kind==='frequencia'){
+  const vinculos=cache.vinculos.filter(v=>v.uid===user.uid&&v.ativo===true);
+  if(!vinculos.length){alert('Não há vínculo ativo para registrar frequência.');return}
+  modal('Registrar entrada',select('vinculo_id','Escola e cargo',vinculos.map(v=>[v.id,schoolName(v.escola_id)+' — '+v.cargo])),
+  async d=>{
+   const v=vinculos.find(x=>x.id===d.vinculo_id);if(!v)throw Error('Vínculo inválido.');
+   const now=new Date(),pad=x=>String(x).padStart(2,'0');
+   const dia=now.getFullYear()+'-'+pad(now.getMonth()+1)+'-'+pad(now.getDate());
+   await setDoc(doc(db,'frequencias',user.uid+'_'+v.escola_id+'_'+dia),{
+    uid:user.uid,escola_id:v.escola_id,vinculo_id:v.id,dia,entrada:serverTimestamp(),saida:null,status:'aberta'
+   });
+  });
+  return;
+ }
+ if(kind==='escola'){modal('Cadastrar escola',select('nome','Nome da instituição',schoolNames.map(n=>[n,n]))+field('inep','Código INEP')+field('telefone','Telefone')+field('endereco','Endereço')+field('email','E-mail','email'),d=>addDoc(collection(db,'escolas'),d));return}
 if(kind==='profissional'){modal('Cadastrar profissional',field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date')+field('cpf','CPF (quando necessário)')+field('telefone','Telefone')+field('endereco','Endereço')+field('especialidade','Especialidade')+field('email','E-mail','email')+field('uid','UID do usuário Google (após aprovação)'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'profissionais'));const batch=writeBatch(db);const {cpf,telefone,endereco,nascimento,email,...base}=d;batch.set(id,{...base,uid:d.uid||'',escolas:[]});batch.set(doc(db,'profissionais_privado',id.id),{cpf,telefone,endereco,nascimento,email});await batch.commit()});return}
 if(kind==='vinculo'){modal('Vincular profissional',select('profissional_id','Profissional',cache.profissionais.map(p=>[p.id,p.nome]))+schoolSelect()+field('cargo','Cargo','text','required')+field('jornada','Jornada semanal (ex.: 20 horas)')+field('uid','UID do usuário Google da profissional','text','required')+field('horarios_texto','Dias e horários (ex.: 1 08:00-12:00; 3 13:00-17:00)','text','required'),async d=>{const horarios=lerHorarios(d.horarios_texto);delete d.horarios_texto;await addDoc(collection(db,'vinculos'),{...d,horarios,ativo:true})});return}
 if(kind==='aluno'){modal('Cadastrar aluno',schoolSelect()+field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date','required')+field('cpf','CPF (quando necessário)')+field('matricula','Matrícula')+field('filiacao','Filiação / responsável')+field('telefone','Telefone do responsável')+field('endereco','Endereço'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'alunos'));const batch=writeBatch(db);const {cpf,filiacao,telefone,endereco,...base}=d;batch.set(id,{...base,criado_por:user.uid,ativo:true});batch.set(doc(db,'alunos_privado',id.id),{cpf,filiacao,telefone,endereco,escola_id:d.escola_id,criado_por:user.uid});await batch.commit()});return}
@@ -78,6 +99,11 @@ async function seedSchools(){
   if(!found)batch.set(doc(db,'escolas',ids[i]),{nome:schoolNames[i],inep:'',telefone:'',endereco:'',email:''});
  }
  try{await batch.commit();await refresh();render()}catch(e){showError(e)}
+}
+async function registerExit(id){
+ const f=cache.frequencias.find(x=>x.id===id);if(!f||f.uid!==user.uid||f.status!=='aberta')return;
+ if(!confirm('Registrar saída do trabalho neste momento?'))return;
+ try{await updateDoc(doc(db,'frequencias',id),{saida:serverTimestamp(),status:'fechada'});await refresh();render()}catch(e){showError(e)}
 }
 function openUser(uid){
  const u=cache.usuarios.find(x=>x.id===uid);if(!u||u.perfil==='superadmin')return;
