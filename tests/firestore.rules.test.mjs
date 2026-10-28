@@ -170,7 +170,7 @@ function addLocks(db,batch,id,inicio,duracao){
  }
 }
 test('log de agendamento é imutável, vinculado ao autor e ao registro',async()=>{
- const db=contexto('espA'),id='auditAgenda',inicio=new Date('2027-11-01T12:00:00Z'),batch=writeBatch(db);
+ const db=contexto('espA'),id='auditAgenda',inicio=new Date('2027-12-13T12:00:00Z'),batch=writeBatch(db);
  batch.set(doc(db,'agendamentos',id),novoAgendamento(id,inicio));
  addLocks(db,batch,id,inicio,30);
  const registro={
