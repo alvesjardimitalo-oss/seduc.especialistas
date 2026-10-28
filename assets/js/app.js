@@ -23,6 +23,8 @@ let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculo
 let filtrosRelatorio={de:'',ate:'',escola:'',aluno:'',profissional:'',especialidade:''};
 let filtrosAgenda={},filtrosAtendimentos={};
 let alunoSelecionado=null,filtrosConsulta={},erroRelatorios=false,erroMetas=false,errosCarregamento=[];
+const TERMOS_VERSAO='2026-10-28-v1';
+let termosSessaoConfirmados=false;
 const canManage=()=>profile?.perfil==='superadmin'||(profile?.perfil==='secretaria'&&profile?.gerenciar===true);
 const canWrite=()=>profile?.perfil==='especialista';
 const mySchools=()=>profile?.perfil==='superadmin'||profile?.perfil==='secretaria'?cache.escolas:cache.escolas.filter(e=>(profile?.escolas||[]).includes(e.id));
@@ -46,7 +48,8 @@ function showLogin(message=''){
  '<div class="auth-footer">Plataforma de gestão do atendimento especializado</div></div>'+
  '<div class="auth-panel"><div class="auth-card"><div class="auth-mobile-brand"><span class="brand-symbol" aria-hidden="true">✳</span><strong>SEDUC Especialistas</strong></div>'+
  '<div class="auth-welcome"><span class="eyebrow">ACESSO À PLATAFORMA</span><h1>Bem-vindo(a) de volta</h1><p>Entre para acompanhar as atividades da rede de ensino.</p></div>'+
- '<div class="auth-warning"><span aria-hidden="true">ⓘ</span> Ambiente de homologação. Use apenas informações fictícias de alunos.</div>'+
+ '<div class="auth-warning"><span aria-hidden="true">ⓘ</span> Ambiente de homologação. Use apenas informações fictícias de alunos.</div>'+ 
+ '<div class="auth-security-note" role="note"><strong>Proteção de dados e sigilo profissional</strong><p>Este sistema utiliza informações de alunos e responsáveis. Acesse apenas o necessário para suas funções, não compartilhe senhas, documentos, consultas ou relatórios, e mantenha a sessão protegida. Conforme a LGPD, os dados devem ser tratados para finalidades autorizadas e com segurança.</p><small>Após o login, será solicitado que você leia e confirme a ciência dos Termos de Uso e Responsabilidade.</small></div>'+
  (message?'<div class="alert" role="status">'+safe(message)+'</div>':'')+
  (pendente?'<div class="pending-profile"><strong>Conta aguardando liberação</strong><p>'+safe(user.email)+'</p><label>Identificador para a Secretaria</label><code>'+safe(user.uid)+'</code></div><button class="btn secondary auth-btn" id="trocar">Sair e trocar conta</button>':
  '<button class="btn auth-btn" id="google"><span class="google-mark" aria-hidden="true">G</span> Entrar com Google <span class="auth-arrow" aria-hidden="true">→</span></button>')+
@@ -54,8 +57,63 @@ function showLogin(message=''){
  if(pendente)document.getElementById('trocar').onclick=()=>signOut(auth).catch(showError);
  else document.getElementById('google').onclick=()=>signInWithPopup(auth,new GoogleAuthProvider()).catch(showError);
 }
+
+function textoAvisoSeguranca(){
+ return '<div class="privacy-list"><p><strong>Finalidade:</strong> utilizar dados pessoais exclusivamente para cadastro escolar, agendamentos, acompanhamento especializado e relatórios autorizados pela Secretaria de Educação.</p>'+
+ '<p><strong>Sigilo:</strong> é proibido compartilhar cadastros, CPF, endereços, relatórios, histórico de atendimentos ou credenciais com pessoas não autorizadas; não fotografar telas nem enviar documentos por canais pessoais.</p>'+
+ '<p><strong>Segurança da informação:</strong> mantenha dispositivo e conta protegidos, saia ao terminar, evite computadores públicos e comunique imediatamente qualquer acesso indevido ou suspeita de vazamento ao responsável institucional.</p>'+
+ '<p><strong>Crianças e adolescentes:</strong> o tratamento deve observar o melhor interesse do aluno, a necessidade e a finalidade institucional. Nunca registre informação desnecessária.</p>'+
+ '<p><strong>Responsabilidade:</strong> a confirmação abaixo registra ciência dos deveres de uso da plataforma. <strong>Não substitui a base legal de tratamento, o aviso de privacidade institucional nem eventual consentimento de pais ou responsáveis quando exigido.</strong></p></div>'+
+ '<p class="privacy-law">Referência: <a target="_blank" rel="noopener noreferrer" href="https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm">Lei 13.709/2018 (LGPD)</a> — especialmente art. 14 para crianças e adolescentes.</p>';
+}
+async function mostrarTermosSeguranca(){
+ if(!user||!profile?.ativo)return;
+ let aceiteAnterior=false,registroDisponivel=true;
+ try{const s=await getDoc(doc(db,'termos_aceites',user.uid));aceiteAnterior=s.exists()&&s.data()?.versao===TERMOS_VERSAO}
+ catch(e){registroDisponivel=false;console.warn('Registro de ciência dos termos indisponível:',e.code||e.message)}
+ root.innerHTML='<div class="lgpd-gate"><section class="lgpd-panel" role="dialog" aria-modal="true" aria-labelledby="lgpd-title">'+
+ '<span class="eyebrow">ACESSO SEGURO · LGPD</span><h1 id="lgpd-title">Proteção de dados e responsabilidade</h1>'+
+ '<p class="muted">Antes de acessar informações de alunos, leia o aviso de segurança. Este lembrete aparece em cada login.</p>'+
+ textoAvisoSeguranca()+
+ (!registroDisponivel?'<p class="alert" role="alert">Registro central de termos indisponível. A ciência poderá ser confirmada nesta sessão, mas sua gravação no Firestore ainda depende das regras publicadas.</p>':'')+
+ '<label class="privacy-check"><input id="lgpd-confirmar" type="checkbox"><span>Li e compreendi os deveres de sigilo, uso autorizado e segurança da informação, e me comprometo a respeitá-los.</span></label>'+
+ '<div class="privacy-actions"><button id="lgpd-sair" type="button" class="btn secondary">Sair da conta</button><button id="lgpd-entrar" type="button" class="btn" disabled>Estou ciente · continuar</button></div>'+
+ '<p id="lgpd-status" class="muted" role="status"></p>'+
+ '<p class="privacy-version">Termos de uso e responsabilidade · versão '+TERMOS_VERSAO+(aceiteAnterior?' · ciência previamente registrada':'')+'</p></section></div>';
+ const checkbox=document.getElementById('lgpd-confirmar'),button=document.getElementById('lgpd-entrar');
+ checkbox.onchange=()=>button.disabled=!checkbox.checked;
+ document.getElementById('lgpd-sair').onclick=()=>signOut(auth).catch(showError);
+ button.onclick=async()=>{
+  if(!checkbox.checked||termosSessaoConfirmados)return;
+  button.disabled=true;
+  const status=document.getElementById('lgpd-status');status.textContent='Validando acesso...';
+  let registrado=aceiteAnterior;
+  if(!aceiteAnterior){
+   try{
+    await setDoc(doc(db,'termos_aceites',user.uid),{
+     uid:user.uid,versao:TERMOS_VERSAO,tipo:'ciencia_termos_uso',aceito_em:serverTimestamp()
+    });
+    registrado=true;
+   }catch(e){
+    // Não indisponibilizar a conta por uma alteração ainda não publicada de regras.
+    console.warn('Ciência dos termos sem registro central:',e.code||e.message);
+    registrado=false;
+   }
+  }
+  termosSessaoConfirmados=true;
+  try{
+   await refresh();render();
+   if(!registrado){
+    const aviso=document.createElement('p');aviso.className='alert privacy-storage-warning';aviso.setAttribute('role','alert');
+    aviso.textContent='LGPD: ciência confirmada nesta sessão, mas o registro central dos termos não pôde ser gravado. A administração precisa publicar as regras de segurança no Firestore.';
+    root.querySelector('.app-content')?.prepend(aviso);
+   }
+  }catch(e){termosSessaoConfirmados=false;showError(e);button.disabled=false}
+ };
+}
+
 function showSetup(){root.innerHTML='<div class="login"><div class="card"><h1>SEDUC Especialistas</h1><div class="alert">Ambiente ainda não configurado. Nenhum dado real pode ser registrado.</div><p>Configure um projeto Firebase exclusivo em <code>assets/js/firebase-config.js</code> e publique as regras de segurança do arquivo <code>firestore.rules</code>.</p><p class="muted">Não utilize o Firebase do SISDIFI. O acesso inicial do superadministrador deve ser provisionado de modo seguro.</p></div></div>'}
-async function initialize(){if(!configured){showSetup();return}const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;if(!u){profile=null;showLogin();return}try{const ref=doc(db,'usuarios',u.uid);let s=await getDoc(ref);if(!s.exists()){await setDoc(ref,{nome:u.displayName||u.email,email:u.email,ativo:false,perfil:'pendente',escolas:[],gerenciar:false,criado_em:serverTimestamp()});s=await getDoc(ref)}profile={id:s.id,...s.data()};if(!profile.ativo){showLogin('Sua conta foi registrada e está aguardando liberação da Secretaria de Educação.');return}await refresh();render()}catch(e){showLogin('Não foi possível verificar a autorização: '+e.message)}})}
+async function initialize(){if(!configured){showSetup();return}const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;if(!u){profile=null;termosSessaoConfirmados=false;showLogin();return}try{const ref=doc(db,'usuarios',u.uid);let s=await getDoc(ref);if(!s.exists()){await setDoc(ref,{nome:u.displayName||u.email,email:u.email,ativo:false,perfil:'pendente',escolas:[],gerenciar:false,criado_em:serverTimestamp()});s=await getDoc(ref)}profile={id:s.id,...s.data()};if(!profile.ativo){showLogin('Sua conta foi registrada e está aguardando liberação da Secretaria de Educação.');return}termosSessaoConfirmados=false;await mostrarTermosSeguranca()}catch(e){showLogin('Não foi possível verificar a autorização: '+e.message)}})}
 async function refresh(){
  const manager=canManage();erroRelatorios=false;erroMetas=false;errosCarregamento=[];
  const schools=(manager||profile.perfil==='secretaria')?(await getDocs(collection(db,'escolas'))).docs.map(d=>({id:d.id,...d.data()})):(await Promise.all((profile.escolas||[]).map(async id=>{try{const s=await getDoc(doc(db,'escolas',id));return s.exists()?{id:s.id,...s.data()}:null}catch{return null}}))).filter(Boolean);
@@ -465,6 +523,7 @@ function registrarEvolucao(metaId){
 function tutorialSistema(){
  return title('Tutorial e acompanhamento','Um roteiro de trabalho para a equipe e a Secretaria')+
  '<div class="card tutorial-settings"><h2>Guia de orientação</h2><p>O guia pode ser ocultado no painel inicial a qualquer momento. Ele continuará disponível neste menu.</p><button class="btn secondary" id="alternar-tutorial">'+(tutorialAtivo()?'Desativar guia do painel':'Ativar guia do painel')+'</button></div>'+
+ '<div class="card privacy-tutorial"><h2>LGPD e segurança da informação</h2><p>O acesso é individual e restrito às atividades profissionais. A leitura e ciência dos Termos de Uso são solicitadas em cada login.</p>'+textoAvisoSeguranca()+'</div>'+ 
  '<div class="card"><h2>Consulta sem agendamento</h2><p>Acesse Atendimentos e escolha Registrar consulta sem agendamento. Informe escola, aluno, data, especialidade, atividades, observações e a classificação da evolução feita pela profissional.</p></div>'+
  '<div class="card"><h2>Agendamento, faltas e reagendamento</h2><p>Abra um agendamento para iniciar a consulta, marcar falta ou reagendar com nova data e motivo. Os registros anteriores ficam preservados, inclusive o motivo da ausência.</p></div>'+
  '<div class="card"><h2>Histórico e impressão</h2><p>O histórico agrupa consultas por aluno. Expanda cada consulta para visualizar os detalhes. Na ficha individual ou no menu Relatórios, use Imprimir para gerar um documento A4 ou salvar como PDF pelo navegador.</p></div>'+
