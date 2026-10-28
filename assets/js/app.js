@@ -1050,6 +1050,7 @@ async function abrirNovoAgendamento(){
  if(canManage()&&!colecoesCarregadas.has('usuarios')){
   try{
    await refresh(['usuarios']);
+   if(!colecoesCarregadas.has('usuarios'))throw Error('Não foi possível carregar os profissionais autorizados. Confira seu acesso e tente novamente.');
   }catch(e){showError(e);return}
  }
  openForm('agendar');
@@ -1189,7 +1190,7 @@ if(kind==='atendimento'||kind==='agendar'){
   }
  },isAgenda?['agendamentos']:['atendimentos','notas_atendimento']);
  ativarBuscaAlunosDoFormulario();
- if(isAgenda){configurarFormularioNovoAgendamento();return}
+ if(isAgenda){configurarFormularioNovoAgendamento();const salvar=document.querySelector('#entry [type=submit]');if(salvar)salvar.textContent='Confirmar agendamento';return}
  const entrada=document.querySelector('#entry [name=inicio]');
  if(entrada){
   const agora=new Date();
