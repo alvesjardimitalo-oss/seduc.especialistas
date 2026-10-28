@@ -232,3 +232,46 @@ test('dados de acompanhamento são segregados e não acessíveis à direção',a
  await assertFails(getDocs(query(collection(contexto('espB'),'alunos_necessidades'),where('escola_id','==','a'))));
  await assertFails(updateDoc(doc(db,'alunos_necessidades/alu_0123456789abcdef01234567'),{registro_escolar:'Alteração não auditada'}));
 });
+
+const relatorioFicticio=()=>({aluno_id:'alunoA',escola_id:'a',vinculo_id:'vinculoA',autor_uid:'espA',autor_nome:'Especialista A',especialidade:'Fonoaudiologia',titulo:'Evolução fictícia',texto:'Acompanhamento fictício',criado_em:serverTimestamp()});
+test('relatório permanece vinculado ao aluno e Secretaria pode consultar sem editar',async()=>{
+ const db=contexto('espA');
+ await assertSucceeds(setDoc(doc(db,'relatorios_alunos/relA'),relatorioFicticio()));
+ await assertSucceeds(getDoc(doc(contexto('secview'),'relatorios_alunos/relA')));
+ await assertSucceeds(getDocs(collection(contexto('secview'),'relatorios_alunos')));
+ await assertSucceeds(getDocs(query(collection(db,'relatorios_alunos'),where('escola_id','in',['a']))));
+ for(const uid of ['espB','dirA','pendente'])await assertFails(getDoc(doc(contexto(uid),'relatorios_alunos/relA')));
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'relatorios_alunos/relA')));
+ for(const uid of ['secview','espA','espB']){
+  await assertFails(updateDoc(doc(contexto(uid),'relatorios_alunos/relA'),{texto:'Substituído'}));
+  await assertFails(deleteDoc(doc(contexto(uid),'relatorios_alunos/relA')));
+ }
+});
+test('relatórios recusam autoria falsa, escola incorreta, órfãos, schema e datas adulteradas',async()=>{
+ const db=contexto('espA');
+ const ataques=[
+  {autor_uid:'espB'},{autor_nome:'Outra pessoa'},{escola_id:'b'},{aluno_id:'inexistente'},
+  {vinculo_id:'inexistente'},{criado_em:new Date('2000-01-01')},{texto:5},
+  {texto:'x'.repeat(5001)},{titulo:'x'.repeat(151)},{titulo:''},{especialidade:''},
+  {extra:'não permitido'},{escola_id:3}
+ ];
+ for(let i=0;i<ataques.length;i++)await assertFails(setDoc(doc(db,'relatorios_alunos/ataque'+i),{...relatorioFicticio(),...ataques[i]}));
+ const incompleto=relatorioFicticio();delete incompleto.titulo;
+ await assertFails(setDoc(doc(db,'relatorios_alunos/incompleto'),incompleto));
+ await assertFails(setDoc(doc(contexto('secview'),'relatorios_alunos/autoriaSecretaria'),relatorioFicticio()));
+});
+test('Secretaria consulta profissionais sem obter dados privados nem permissão de escrita',async()=>{
+ await env.withSecurityRulesDisabled(async ctx=>{await setDoc(doc(ctx.firestore(),'profissionais/profA'),{nome:'Especialista A',uid:'espA',especialidade:'Fonoaudiologia',escolas:['a']})});
+ await assertSucceeds(getDocs(collection(contexto('secview'),'profissionais')));
+ await assertFails(updateDoc(doc(contexto('secview'),'profissionais/profA'),{nome:'Alterado'}));
+ await assertFails(getDoc(doc(contexto('secview'),'profissionais_privado/profA')));
+});
+test('Secretaria com gestão redefine local preservando vínculo anterior e histórico',async()=>{
+ const db=contexto('sec');
+ await assertSucceeds(updateDoc(doc(db,'vinculos/vinculoA'),{ativo:false}));
+ await assertSucceeds(setDoc(doc(db,'vinculos/vinculoNovoLocal'),{uid:'espA',escola_id:'b',profissional_id:'profA',cargo:'Especialista',jornada:'20 horas',horarios:[],slots_semana:[],ativo:true}));
+ const anterior=await assertSucceeds(getDoc(doc(db,'atendimentos/atendimentoA')));
+ assert.equal(anterior.data().escola_id,'a');
+ await assertFails(deleteDoc(doc(db,'vinculos/vinculoA')));
+ await assertFails(updateDoc(doc(contexto('secview'),'vinculos/vinculoNovoLocal'),{ativo:false}));
+});

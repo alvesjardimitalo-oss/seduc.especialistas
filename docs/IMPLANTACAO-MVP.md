@@ -112,3 +112,13 @@ Com conta `superadmin` ou de Secretaria com delegação de gestão:
 - Datas inclusivas no horário municipal (America/Sao_Paulo), inclusive quando o Firestore retorna Timestamp.
 - Indicadores e tabela por instituição seguem a mesma seleção; alunos são contados de forma distinta nos atendimentos realizados. Cancelamentos não entram nos realizados.
 - Os relatórios utilizam apenas os registros já disponíveis para a conta, sem novas permissões de leitura. A homologação visual com uma sessão autorizada ainda é necessária.
+
+## 13. Ficha do aluno, consultas e acompanhamento pela Secretaria
+- Em Alunos, **Ficha / consultas / relatórios** abre o histórico individual. Consultas e atendimentos têm filtros de período, profissional, especialidade, situação e tipo.
+- Agenda e Atendimentos têm filtros por nome do aluno (busca sem distinção de acentos), profissional, escola/local, data inicial e final. Para um dia específico, repita a data nos dois limites.
+- Na ficha do aluno, a especialista com vínculo ativo pode emitir um relatório de texto simples de até 5.000 caracteres. Relatórios ficam vinculados ao aluno, com autoria e data do servidor. Complementos geram novo relatório, preservando documentos anteriores.
+- A Secretaria ativa pode consultar relatórios individuais e fichas profissionais mínimas. As observações privadas das consultas continuam com suas restrições existentes.
+- Para cadastrar profissionais, adicionar vínculos, redefinir local/jornada ou retirar vínculos, a conta da Secretaria deve ter a delegação administrativa **gerenciar: true**, atribuída pelo superadministrador. Não há promoção automática de contas.
+- Redefinir local/jornada encerra o vínculo antigo e cria outro atomicamente. Retirar um vínculo marca-o como inativo. Histórico e relatórios não são apagados; consultas futuras já existentes permanecem no local original e devem ser revistas na agenda.
+- **As novas regras firestore.rules precisam ser publicadas no Firebase antes do uso dos relatórios individuais.** Este commit não publica regras nem altera permissões de contas existentes no banco.
+- As regras adicionadas são protótipos com testes de autorização; dependem de revisão e homologação antes de uso amplo. A validação visual com sessão autorizada continua necessária.

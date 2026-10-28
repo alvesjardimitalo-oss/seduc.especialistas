@@ -140,7 +140,7 @@ service cloud.firestore {
     allow delete: if false;
   }
   match /profissionais/{id} {
-    allow read: if manage() || (active() && resource.data.uid == request.auth.uid);
+    allow read: if seduc() || manage() || (active() && resource.data.uid == request.auth.uid);
     allow create,update: if manage() &&
       request.resource.data.keys().hasOnly(['nome','especialidade','uid','escolas']) &&
       request.resource.data.nome is string &&
@@ -218,6 +218,38 @@ service cloud.firestore {
 
   // Dois horários de 30 minutos formam uma consulta de 60 minutos.
   // A reserva e os locks são obrigatórios na mesma transação Firestore.
+
+  // Relatórios individuais: texto simples, autoria e aluno imutáveis.
+  // Campos obrigatórios e exclusivos: aluno_id/escola_id/vinculo_id (string <=128),
+  // autor_uid (string <=128), autor_nome (string <=180), especialidade/titulo
+  // (string 1..150), texto (string 1..5000), criado_em (timestamp do servidor).
+  function validRelatorioAluno(d) {
+    return d.keys().hasAll(['aluno_id','escola_id','vinculo_id','autor_uid','autor_nome','especialidade','titulo','texto','criado_em']) &&
+      d.keys().hasOnly(['aluno_id','escola_id','vinculo_id','autor_uid','autor_nome','especialidade','titulo','texto','criado_em']) &&
+      d.aluno_id is string && d.aluno_id.size() > 0 && d.aluno_id.size() <= 128 &&
+      d.escola_id is string && d.escola_id.size() > 0 && d.escola_id.size() <= 128 &&
+      d.vinculo_id is string && d.vinculo_id.size() > 0 && d.vinculo_id.size() <= 128 &&
+      d.autor_uid is string && d.autor_uid.size() > 0 && d.autor_uid.size() <= 128 &&
+      d.autor_nome is string && d.autor_nome.size() > 0 && d.autor_nome.size() <= 180 &&
+      d.especialidade is string && d.especialidade.size() > 0 && d.especialidade.size() <= 150 &&
+      d.titulo is string && d.titulo.size() > 0 && d.titulo.size() <= 150 &&
+      d.texto is string && d.texto.size() > 0 && d.texto.size() <= 5000 &&
+      d.criado_em is timestamp;
+  }
+  match /relatorios_alunos/{id} {
+    allow read: if (admin() || seduc() || specialistIn(resource.data.escola_id)) &&
+      exists(/databases/$(database)/documents/alunos/$(resource.data.aluno_id)) &&
+      get(/databases/$(database)/documents/alunos/$(resource.data.aluno_id)).data.escola_id == resource.data.escola_id;
+    allow create: if validRelatorioAluno(request.resource.data) &&
+      request.resource.data.autor_uid == request.auth.uid &&
+      request.resource.data.autor_nome == me().nome &&
+      request.resource.data.criado_em == request.time &&
+      linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
+      validAluno(request.resource.data.aluno_id,request.resource.data.escola_id);
+    // Complementos geram um novo documento; versões emitidas nunca são sobrescritas.
+    allow update,delete: if false;
+  }
+
   match /agendamentos/{id} {
     allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
     allow create: if specialistIn(request.resource.data.escola_id) &&
