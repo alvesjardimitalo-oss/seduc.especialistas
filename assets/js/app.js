@@ -69,7 +69,7 @@ function textoAvisoSeguranca(){
 async function mostrarTermosSeguranca(){
  if(!user||!profile?.ativo)return;
  let aceiteAnterior=false,registroDisponivel=true;
- try{const s=await getDoc(doc(db,'termos_aceites',user.uid));aceiteAnterior=s.exists()&&s.data()?.versao===TERMOS_VERSAO}
+ try{const s=await getDoc(doc(db,'termos_aceites',user.uid+'_'+TERMOS_VERSAO));aceiteAnterior=s.exists()&&s.data()?.versao===TERMOS_VERSAO}
  catch(e){registroDisponivel=false;console.warn('Registro de ciência dos termos indisponível:',e.code||e.message)}
  root.innerHTML='<div class="lgpd-gate"><section class="lgpd-panel" role="dialog" aria-modal="true" aria-labelledby="lgpd-title">'+
  '<span class="eyebrow">ACESSO SEGURO · LGPD</span><h1 id="lgpd-title">Proteção de dados e responsabilidade</h1>'+
@@ -90,7 +90,7 @@ async function mostrarTermosSeguranca(){
   let registrado=aceiteAnterior;
   if(!aceiteAnterior){
    try{
-    await setDoc(doc(db,'termos_aceites',user.uid),{
+    await setDoc(doc(db,'termos_aceites',user.uid+'_'+TERMOS_VERSAO),{
      uid:user.uid,versao:TERMOS_VERSAO,tipo:'ciencia_termos_uso',aceito_em:serverTimestamp()
     });
     registrado=true;
