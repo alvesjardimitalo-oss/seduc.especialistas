@@ -64,7 +64,24 @@ if(tab==='Frequência'){
  html+=table(['Entrada','Saída','Escola','Profissional','Situação','Ação'],cache.frequencias.slice().sort((a,b)=>(b.entrada?.seconds||0)-(a.entrada?.seconds||0)).map(f=>
  '<tr><td>'+safe(formatDate(f.entrada))+'</td><td>'+safe(formatDate(f.saida))+'</td><td>'+safe(schoolName(f.escola_id))+'</td><td>'+safe(f.uid)+'</td><td>'+safe(f.status)+'</td><td>'+((f.uid===user.uid&&f.status==='aberta')?'<button class="btn secondary" data-exit="'+safe(f.id)+'">Registrar saída</button>':'—')+'</td></tr>'));
 }
-if(tab==='Relatórios'){html+='<div class="grid">'+[['Alunos cadastrados',students.length],['Atendimentos',visits.length],['Agendamentos',appointments.length],['Profissionais',cache.profissionais.length]].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div><div class="card"><p>Indicadores de acompanhamento no escopo de acesso do usuário. Exportações com dados pessoais permanecerão desativadas nesta primeira versão.</p></div>'}
+if(tab==='Relatórios'){
+ const schools=mySchools();
+ html+='<div class="grid">'+[
+  ['Alunos cadastrados',students.filter(a=>a.ativo!==false).length],
+  ['Atendimentos realizados',visits.filter(a=>a.status==='realizado').length],
+  ['Agendamentos pendentes',appointments.filter(a=>a.status==='agendado').length],
+  ['Registros de frequência',cache.frequencias.length]
+ ].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div>';
+ html+='<h3>Indicadores por instituição</h3>';
+ html+=table(['Escola','Alunos ativos','Atendimentos','Agendados','Ausências de alunos'],schools.map(e=>{
+  const a=students.filter(x=>x.escola_id===e.id&&x.ativo!==false).length;
+  const v=visits.filter(x=>x.escola_id===e.id&&x.status==='realizado').length;
+  const ag=appointments.filter(x=>x.escola_id===e.id&&x.status==='agendado').length;
+  const falta=appointments.filter(x=>x.escola_id===e.id&&x.status==='falta_aluno').length;
+  return '<tr><td>'+safe(e.nome)+'</td><td>'+a+'</td><td>'+v+'</td><td>'+ag+'</td><td>'+falta+'</td></tr>';
+ }));
+ html+='<div class="card"><p class="muted">Os relatórios apresentam quantidades, sem divulgar CPF, filiação ou observações confidenciais. Filtros por período, profissional e especialidade serão incluídos na etapa de homologação.</p></div>';
+}
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
 layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools}
 function history(records){return records.length?records.map(a=>'<details class="history" data-visit="'+safe(a.id)+'" data-student="'+safe(a.aluno_id)+'"><summary><b>'+safe(cache.alunos.find(s=>s.id===a.aluno_id)?.nome||'Aluno')+'</b> · '+safe(formatDate(a.data))+' · '+safe(a.autor_nome||professionalName(a.autor_uid))+' <span class="badge">'+safe(a.status||'realizado')+'</span></summary><p style="white-space:pre-wrap">'+((profile.perfil==='especialista'||profile.perfil==='superadmin')?safe(a.texto):'<em>Observações restritas aos especialistas autorizados.</em>')+'</p><small>'+safe(a.especialidade||'Atendimento especializado')+'</small>'+(a.autor_uid===user.uid||profile.perfil==='superadmin'?'<p><button class="btn secondary" data-edit="'+safe(a.id)+'">Editar / cancelar</button></p>':'')+'</details>').join(''):'<p class="muted">Ainda não há atendimentos registrados.</p>'}
