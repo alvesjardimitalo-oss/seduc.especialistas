@@ -19,6 +19,7 @@ await env.withSecurityRulesDisabled(async ctx=>{
   ['usuarios/secview',{nome:'Secretaria consulta',email:'secview@exemplo.test',ativo:true,perfil:'secretaria',gerenciar:false,escolas:[]}],
   ['usuarios/espA',{nome:'Especialista A',email:'espA@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['a']}],
   ['usuarios/espB',{nome:'Especialista B',email:'espB@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['b']}],
+  ['usuarios/espC',{nome:'Especialista C',email:'espC@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['a']}],
   ['usuarios/dirA',{nome:'Direção A',email:'dirA@exemplo.test',ativo:true,perfil:'direcao',gerenciar:false,escolas:['a']}],
   ['usuarios/pendente',{nome:'Pendente',email:'pendente@exemplo.test',ativo:false,perfil:'pendente',gerenciar:false,escolas:[]}],
   ['escolas/a',{nome:'Escola A',inep:'',telefone:'',endereco:'',email:''}],
@@ -26,6 +27,7 @@ await env.withSecurityRulesDisabled(async ctx=>{
   ['alunos/alunoA',{nome:'Aluno fictício A',escola_id:'a',nascimento:'2018-01-01',criado_por:'espA',ativo:true}],
   ['alunos_privado/alunoA',{cpf:'',filiacao:'',telefone:'',endereco:'',escola_id:'a',criado_por:'espA'}],
   ['vinculos/vinculoA',{uid:'espA',escola_id:'a',profissional_id:'profA',cargo:'Especialista',jornada:'20 horas',horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],slots_semana:[64,65,66,67,68,69,70,71],ativo:true}],
+  ['vinculos/vinculoC',{uid:'espC',escola_id:'a',profissional_id:'profC',cargo:'Especialista',jornada:'4 horas',horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],slots_semana:[64,65,66,67,68,69,70,71],ativo:true}],
   ['atendimentos/atendimentoA',{escola_id:'a',aluno_id:'alunoA',autor_uid:'espA',autor_nome:'Especialista A',status:'realizado'}],
   ['notas_atendimento/atendimentoA',{escola_id:'a',atendimento_id:'atendimentoA',autor_uid:'espA',texto:'Observação fictícia',revisao:1}]
  ];
@@ -211,6 +213,31 @@ test('auditoria de aluno é restrita ao profissional da escola e equipe gestora'
  await assertSucceeds(getDoc(ref));
  await assertSucceeds(getDoc(doc(contexto('admin'),'alunos','alunoA','historico','evento1')));
  await assertFails(getDoc(doc(contexto('espB'),'alunos','alunoA','historico','evento1')));
+});
+test('especialista vê colega da mesma escola e agenda sem obter permissão clínica',async()=>{
+ await assertSucceeds(getDoc(doc(contexto('espA'),'usuarios/espC')));
+ await assertFails(getDoc(doc(contexto('espB'),'usuarios/espC')));
+ const uid='espC',id='colegaMesmaEscola',inicio=new Date('2027-11-15T12:00:00Z');
+ const db=contexto('espA'),batch=writeBatch(db);
+ const slot=doc(db,'agenda_slots',slotId(uid,inicio));
+ await assertSucceeds(getDoc(slot));
+ batch.set(doc(db,'agendamentos',id),{
+  ...novoAgendamento(id,inicio),vinculo_id:'vinculoC',
+  autor_uid:uid,autor_nome:'Especialista C',agendado_por_uid:'espA'
+ });
+ batch.set(slot,{autor_uid:uid,escola_id:'a',agendamento_id:id,inicio,status:'reservado'});
+ batch.set(doc(db,'agendamentos',id,'historico','agendado'),{
+  acao:'agendado',alvo_tipo:'agendamento',alvo_id:id,escola_id:'a',
+  aluno_id:'alunoA',autor_uid:'espA',autor_nome:'Especialista A',
+  criado_em:serverTimestamp(),situacao_anterior:'',situacao_nova:'agendado'
+ });
+ await assertSucceeds(batch.commit());
+ const ag=await getDoc(doc(db,'agendamentos',id));
+ assert.equal(ag.data().autor_uid,'espC');
+ assert.equal(ag.data().agendado_por_uid,'espA');
+ await assertFails(updateDoc(doc(db,'agendamentos',id),{status:'em_atendimento',iniciado_em:serverTimestamp()}));
+ await assertSucceeds(updateDoc(doc(contexto(uid),'agendamentos',id),{status:'em_atendimento',iniciado_em:serverTimestamp()}));
+ await assertFails(getDoc(doc(contexto('espB'),'agenda_slots',slot.id)));
 });
 test('admin agenda para especialista habilitada preservando autoria e trava do horario',async()=>{
  const db=contexto('admin'),id='gestaoAgendamento',inicio=new Date('2027-11-08T11:00:00.000Z'),batch=writeBatch(db);
