@@ -5,6 +5,7 @@ import {firebaseConfig} from './firebase-config.js';
 import {montarListaProfissionais} from './profissionais-visao.mjs';
 import {resumirAluno,agruparConsultasPorAluno,etiquetasEvolucao} from './consultas-resumo.mjs';
 import {montarDocumentoAluno,montarDocumentoGerencial} from './relatorios-impressao.mjs';
+import {buscarAlunosDisponiveis} from './busca-alunos.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
@@ -478,6 +479,60 @@ function history(records){return records.length?records.map(a=>'<details class="
 function field(name,label,type='text',extra=''){return '<label>'+label+'<input name="'+name+'" type="'+type+'" '+extra+'></label>'}
 function select(name,label,options){return '<label>'+label+'<select name="'+name+'" required><option value="">Selecione</option>'+options.map(([id,n])=>'<option value="'+safe(id)+'">'+safe(n)+'</option>').join('')+'</select></label>'}
 function schoolSelect(){return select('escola_id','Escola',mySchools().map(s=>[s.id,s.nome]))}
+function seletorAlunoPesquisavel(){
+ return '<div class="wide aluno-search-widget" data-aluno-picker>'+
+ '<label for="pesquisa-aluno-agenda">Pesquisar aluno cadastrado</label>'+
+ '<input id="pesquisa-aluno-agenda" type="search" autocomplete="off" placeholder="Selecione a escola para buscar pelo nome ou matrícula" disabled aria-describedby="aluno-search-feedback">'+
+ '<input type="hidden" name="aluno_id" value="">'+
+ '<div id="aluno-search-selecionado" class="aluno-search-selecionado" role="status" hidden></div>'+
+ '<p id="aluno-search-feedback" class="muted" aria-live="polite">Selecione a escola para pesquisar os alunos cadastrados.</p>'+
+ '<div id="aluno-search-resultados" class="aluno-search-resultados" aria-label="Alunos encontrados"></div>'+
+ '</div>';
+}
+function ativarBuscaAlunosDoFormulario(){
+ const form=document.getElementById('entry'),picker=form?.querySelector('[data-aluno-picker]');
+ if(!picker)return;
+ const escola=form.querySelector('[name="escola_id"]'),busca=picker.querySelector('[type="search"]');
+ const idSelecionado=picker.querySelector('[name="aluno_id"]');
+ const selecionado=picker.querySelector('#aluno-search-selecionado');
+ const feedback=picker.querySelector('#aluno-search-feedback'),resultados=picker.querySelector('#aluno-search-resultados');
+ const resetar=()=>{
+  idSelecionado.value='';selecionado.hidden=true;selecionado.textContent='';
+ };
+ const atualizar=()=>{
+  resultados.replaceChildren();
+  if(!escola.value){
+   busca.disabled=true;busca.placeholder='Selecione uma escola primeiro';
+   feedback.textContent='Selecione a escola para pesquisar os alunos cadastrados.';return;
+  }
+  busca.disabled=false;busca.placeholder='Digite o nome ou matrícula do aluno';
+  const encontrados=buscarAlunosDisponiveis(cache.alunos,escola.value,busca.value,10);
+  if(!encontrados.total){
+   feedback.textContent=busca.value.trim()?'Nenhum aluno cadastrado corresponde à pesquisa nesta escola.':'Não existem alunos ativos disponíveis nesta escola.';return;
+  }
+  feedback.textContent='Exibindo '+encontrados.alunos.length+' de '+encontrados.total+' aluno(s) nesta escola. Se necessário, digite mais letras.';
+  for(const aluno of encontrados.alunos){
+   const botao=document.createElement('button');botao.type='button';botao.className='aluno-search-opcao';
+   botao.dataset.alunoId=aluno.id;
+   const nome=document.createElement('strong');nome.textContent=aluno.nome||'Aluno sem nome';
+   const detalhes=document.createElement('small');
+   detalhes.textContent=(aluno.matricula?'Matrícula '+aluno.matricula+' · ':'')+schoolName(aluno.escola_id);
+   botao.append(nome,detalhes);
+   botao.addEventListener('click',()=>{
+    idSelecionado.value=aluno.id;busca.value=aluno.nome||'';
+    selecionado.hidden=false;selecionado.textContent='Aluno selecionado: '+(aluno.nome||'Aluno sem nome')+' · '+schoolName(aluno.escola_id);
+    resultados.replaceChildren();feedback.textContent='Aluno vinculado ao agendamento. Para trocar, digite outra busca.';
+   });
+   resultados.append(botao);
+  }
+ };
+ escola.addEventListener('change',()=>{resetar();busca.value='';atualizar();});
+ busca.addEventListener('input',()=>{resetar();atualizar();});
+ busca.addEventListener('focus',()=>{if(!idSelecionado.value)atualizar();});
+ busca.addEventListener('keydown',ev=>{if(ev.key==='Escape')resultados.replaceChildren();});
+ atualizar();
+}
+
 function modal(name,form,submit){document.body.insertAdjacentHTML('beforeend','<div class="modalback" id="back"><div class="modal"><button class="btn secondary close" id="close">Fechar</button><h2>'+name+'</h2><form id="entry"><div class="formgrid">'+form+'</div><p class="actions" style="justify-content:flex-end;margin-top:20px"><button class="btn" type="submit">Salvar</button></p></form></div></div>');document.getElementById('close').onclick=()=>document.getElementById('back').remove();document.getElementById('entry').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('[type=submit]');button.disabled=true;try{const data=Object.fromEntries(new FormData(event.target));await submit(data);document.getElementById('back').remove();await refresh();render()}catch(e){showError(e)}finally{button.disabled=false}}}
 function fromInputDate(s){const d=new Date(s);if(!s||isNaN(d))throw Error('Data inválida');return d}
 function horarioLocal(d){
@@ -748,13 +803,14 @@ if(kind==='atendimento'||kind==='agendar'){
  if(!canWrite()){showError(Error('Somente especialistas autorizadas podem registrar consultas.'));return}
  if(!cache.alunos.length){alert('Cadastre primeiro o aluno na escola correspondente.');return}
  const isAgenda=kind==='agendar';
- const fields=schoolSelect()+select('aluno_id','Aluno',cache.alunos.filter(a=>a.ativo!==false).map(a=>[a.id,a.nome+' — '+schoolName(a.escola_id)]))+
+ const fields=schoolSelect()+seletorAlunoPesquisavel()+
  field('inicio',isAgenda?'Data e hora do agendamento':'Data e hora da consulta realizada','datetime-local','required')+
  select('duracao_min','Duração',[[30,'30 minutos'],[60,'60 minutos']])+
  field('especialidade','Especialidade','text','required maxlength="150"');
  modal(isAgenda?'Agendar consulta':'Registrar consulta sem agendamento',fields+
  (isAgenda?'<p class="wide muted">Ao iniciar a consulta pela agenda, o registro será vinculado automaticamente ao aluno.</p>':camposRegistroConsulta()),
  async d=>{
+  if(!d.aluno_id)throw Error('Pesquise e selecione um aluno cadastrado na escola para continuar.');
   const student=cache.alunos.find(a=>a.id===d.aluno_id);
   if(!student||student.ativo===false||student.escola_id!==d.escola_id)throw Error('Selecione um aluno ativo da instituição.');
   const date=fromInputDate(d.inicio),duracao=Number(d.duracao_min);
@@ -774,6 +830,7 @@ if(kind==='atendimento'||kind==='agendar'){
    await batch.commit();
   }
  });
+ ativarBuscaAlunosDoFormulario();
  const entrada=document.querySelector('#entry [name=inicio]');
  if(entrada){
   const agora=new Date();
