@@ -191,6 +191,34 @@ service cloud.firestore {
       request.resource.data.criado_por == resource.data.criado_por;
     allow delete: if false;
   }
+
+  // Informações escolares sensíveis ficam fora do cadastro geral de alunos.
+  // A direção escolar não pode acessar esta coleção.
+  match /alunos_necessidades/{id} {
+    allow get,list: if admin() ||
+      (specialistIn(resource.data.escola_id) &&
+        exists(/databases/$(database)/documents/alunos/$(id)) &&
+        get(/databases/$(database)/documents/alunos/$(id)).data.escola_id == resource.data.escola_id);
+    allow create: if admin() &&
+      request.resource.data.keys().hasOnly([
+        'aluno_id','escola_id','turma','registro_escolar','ano_letivo',
+        'origem','importado_por','criado_em'
+      ]) &&
+      request.resource.data.aluno_id == id &&
+      request.resource.data.ano_letivo == 2026 &&
+      request.resource.data.origem == 'relatorio_escolar_2026' &&
+      request.resource.data.importado_por == request.auth.uid &&
+      request.resource.data.criado_em == request.time &&
+      request.resource.data.turma is string &&
+      request.resource.data.turma.size() <= 150 &&
+      request.resource.data.registro_escolar is string &&
+      request.resource.data.registro_escolar.size() <= 140 &&
+      existsAfter(/databases/$(database)/documents/alunos/$(id)) &&
+      getAfter(/databases/$(database)/documents/alunos/$(id)).data.escola_id ==
+        request.resource.data.escola_id;
+    allow update,delete: if false;
+  }
+
   // Dois horários de 30 minutos formam uma consulta de 60 minutos.
   // A reserva e os locks são obrigatórios na mesma transação Firestore.
   match /agendamentos/{id} {
