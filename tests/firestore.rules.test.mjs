@@ -191,12 +191,12 @@ test('log de agendamento é imutável, vinculado ao autor e ao registro',async()
   aluno_id:'alunoA',autor_uid:'espA',autor_nome:'Especialista A',
   criado_em:serverTimestamp(),situacao_anterior:'',situacao_nova:'agendado'
  };
- batch.set(doc(db,'agendamentos',id,'historico','evento1'),registro);
+ batch.set(doc(db,'agendamentos',id,'historico','agendado'),registro);
  await assertSucceeds(batch.commit());
  await assertSucceeds(getDocs(collection(db,'agendamentos',id,'historico')));
  await assertFails(getDocs(collection(contexto('espB'),'agendamentos',id,'historico')));
- await assertFails(updateDoc(doc(db,'agendamentos',id,'historico','evento1'),{acao:'cancelado'}));
- await assertFails(deleteDoc(doc(db,'agendamentos',id,'historico','evento1')));
+ await assertFails(updateDoc(doc(db,'agendamentos',id,'historico','agendado'),{acao:'cancelado'}));
+ await assertFails(deleteDoc(doc(db,'agendamentos',id,'historico','agendado')));
  await assertFails(setDoc(doc(db,'agendamentos',id,'historico','falso'),{
   ...registro,acao:'concluido',criado_em:serverTimestamp(),situacao_nova:'realizado'
  }));
