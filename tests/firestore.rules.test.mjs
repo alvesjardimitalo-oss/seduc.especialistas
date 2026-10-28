@@ -211,6 +211,22 @@ test('atendimento vinculado exige agendamento iniciado e conclusão atômica',as
  }));
 });
 
+test('registra ausencia e libera horario com seguranca',async()=>{
+ const dt=new Date('2026-10-26T12:00:00.000Z'),id='registroAusencia';
+ await env.withSecurityRulesDisabled(async ctx=>{
+  const db=ctx.firestore();
+  await setDoc(doc(db,'agendamentos',id),{...novoAgendamento(id,dt),criado_em:new Date('2026-10-25T12:00:00Z')});
+  await setDoc(doc(db,'agenda_slots',slotId('espA',dt)),{autor_uid:'espA',escola_id:'a',agendamento_id:id,inicio:dt,status:'reservado'});
+ });
+ const db=contexto('espA');
+ await assertFails(updateDoc(doc(contexto('espB'),'agendamentos',id),{status:'falta_aluno'}));
+ const batch=writeBatch(db);
+ batch.update(doc(db,'agendamentos',id),{status:'falta_aluno',motivo_falta:'Registro de teste',falta_registrada_em:serverTimestamp()});
+ batch.update(doc(db,'agenda_slots',slotId('espA',dt)),{status:'liberado'});
+ await assertSucceeds(batch.commit());
+ const snap=await getDoc(doc(db,'agendamentos',id));
+ assert.equal(snap.data().status,'falta_aluno');
+});
 test('slots não podem ser liberados sem cancelar o agendamento',async()=>{
  const db=contexto('espA'),inicio=new Date('2027-11-01T12:00:00.000Z');
  await assertFails(updateDoc(doc(db,'agenda_slots',slotId('espA',inicio)),{status:'liberado'}));
