@@ -19,10 +19,20 @@ export function lerHorarios(texto) {
   if(!m) throw Error('Formato inválido: use 1 08:00-12:00; 3 13:00-17:00.');
   const inicio=Number(m[2])*60+Number(m[3]),fim=Number(m[4])*60+Number(m[5]);
   if(fim<=inicio)throw Error('O horário final deve ser posterior ao inicial.');
+  if(inicio%30!==0||fim%30!==0)throw Error('As jornadas deste módulo devem ser informadas em horas cheias ou meias horas.');
   return {dia:Number(m[1]),inicio:m[2]+':'+m[3],fim:m[4]+':'+m[5]};
  });
 }
 const minuto=hora=>{const [h,m]=hora.split(':').map(Number);return h*60+m};
+export function gerarSlotsSemana(horarios){
+ const indices=new Set();
+ for(const h of horarios){
+  const inicio=minuto(h.inicio),fim=minuto(h.fim);
+  for(let min=inicio;min+30<=fim;min+=30) indices.add(h.dia*48+min/30);
+ }
+ return [...indices].sort((a,b)=>a-b);
+}
+
 export function dentroDaJornada(inicio, duracaoMin, horarios) {
  const d=new Date(inicio);
  if(!Number.isFinite(d.getTime())||!Number.isInteger(duracaoMin)||duracaoMin<=0)return false;
