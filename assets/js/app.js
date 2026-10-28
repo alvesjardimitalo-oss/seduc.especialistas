@@ -1060,8 +1060,7 @@ function formularioNovoAgendamento(){
  return '<div class="wide booking-intro"><div class="booking-step-number">1</div><div><strong>Aluno e instituição</strong><small>'+todos+' aluno(s) ativo(s) disponíveis para pesquisa, sujeitos às permissões de sua conta.</small></div></div>'+
  schoolSelect()+seletorAlunoPesquisavel()+
  '<div class="wide booking-intro"><div class="booking-step-number">2</div><div><strong>Profissional responsável</strong><small>O sistema verifica a vinculação com a escola e a jornada cadastrada.</small></div></div>'+
- (canManage()?'<label class="wide">Especialista responsável *<select name="profissional_uid" required><option value="">Selecione a escola primeiro</option></select></label>':
- '<div class="wide booking-owner"><strong>Profissional autenticada</strong><span>'+safe(profile.nome||user.displayName||user.email||'Profissional')+'</span><input type="hidden" name="profissional_uid" value="'+safe(user.uid)+'"></div>')+
+ '<label class="wide">Profissional responsável *<select name="profissional_uid" required><option value="">Selecione a escola primeiro</option></select></label>'+
  '<div class="wide booking-intro"><div class="booking-step-number">3</div><div><strong>Dia e horário da consulta</strong><small>Horários disponíveis conforme a escala da profissional e os agendamentos já existentes.</small></div></div>'+
  '<label>Data da consulta *<input name="dia_consulta" type="date" required></label>'+
  select('duracao_min','Duração',[[30,'30 minutos'],[60,'60 minutos']])+
@@ -1079,6 +1078,7 @@ function configurarFormularioNovoAgendamento(){
  const duracao=form.elements.namedItem('duracao_min'),especialidade=form.elements.namedItem('especialidade');
  const inicio=form.elements.namedItem('inicio'),status=form.querySelector('#booking-status');
  const isGestao=canManage();
+ let requisicaoProfissionais=0;
  const atualizarHorarios=()=>{
   hora.replaceChildren();
   const uid=profissional.value;
@@ -1095,22 +1095,47 @@ function configurarFormularioNovoAgendamento(){
    !disponiveis.length?'Não há horários livres nessa data ou na jornada da profissional. Escolha outro dia ou profissional.':
    disponiveis.length+' horário(s) disponível(is) nessa data.';
  };
- const atualizarProfissionais=()=>{
-  if(!isGestao){atualizarHorarios();return}
+ const atualizarProfissionais=async()=>{
+  const escolaAtual=escola.value,identificador=++requisicaoProfissionais;
+  profissional.disabled=true;
+  profissional.replaceChildren();
+  profissional.append(new Option('Carregando profissionais autorizadas...',''));
+  hora.disabled=true;
+  const candidatos=[...new Set(cache.vinculos.filter(v=>v.ativo===true&&v.escola_id===escolaAtual&&v.uid).map(v=>v.uid))];
+  if(!isGestao&&escolaAtual){
+   if(!cache.usuarios.some(u=>u.id===user.uid))cache.usuarios.push({id:user.uid,...profile});
+   // Consulta pontual somente de contas profissionais da escola escolhida;
+   // resultados ficam em cache para evitar releituras ao trocar a data.
+   const faltantes=candidatos.filter(uid=>!cache.usuarios.some(u=>u.id===uid)&&uid!==user.uid);
+   await Promise.all(faltantes.map(async uid=>{
+    try{
+     const snap=await getDoc(doc(db,'usuarios',uid));
+     if(snap.exists()&&snap.data().ativo===true&&snap.data().perfil==='especialista'&&
+         snap.data().escolas?.includes(escolaAtual)&&!cache.usuarios.some(u=>u.id===uid)){
+      cache.usuarios.push({id:uid,...snap.data()});
+     }
+    }catch(e){console.warn('Profissional indisponível para agendamento',e.code||e.message)}
+   }));
+  }
+  if(identificador!==requisicaoProfissionais||escola.value!==escolaAtual)return;
   const elegiveis=listarProfissionaisDaEscola({
-   escolaId:escola.value,vinculos:cache.vinculos,usuarios:cache.usuarios,
+   escolaId:escolaAtual,vinculos:cache.vinculos,usuarios:cache.usuarios,
    profissionais:cache.profissionais,gestao:true
   });
+  const anterior=profissional.dataset.escolhido||'';
   profissional.replaceChildren();
   profissional.append(new Option(elegiveis.length?'Selecione a profissional':'Nenhuma profissional habilitada para esta escola',''));
   for(const item of elegiveis)profissional.append(new Option(item.nome+' · '+item.especialidade,item.uid));
   profissional.disabled=!elegiveis.length;
-  atualizarHorarios();
+  const padrao=elegiveis.some(p=>p.uid===user.uid)?user.uid:'';
+  profissional.value=elegiveis.some(p=>p.uid===anterior)?anterior:padrao;
+  profissional.dispatchEvent(new Event('change'));
  };
  const atualizarInicio=()=>{inicio.value=dia.value&&hora.value?dia.value+'T'+hora.value:'';};
- escola.addEventListener('change',atualizarProfissionais);
+ escola.addEventListener('change',()=>{profissional.dataset.escolhido='';void atualizarProfissionais()});
  profissional.addEventListener('change',()=>{
-  if(isGestao){
+  profissional.dataset.escolhido=profissional.value;
+  if(true){
    const item=listarProfissionaisDaEscola({escolaId:escola.value,vinculos:cache.vinculos,usuarios:cache.usuarios,profissionais:cache.profissionais,gestao:true})
     .find(p=>p.uid===profissional.value);
    if(item)especialidade.value=item.especialidade==='Atendimento especializado'?'':item.especialidade;
@@ -1125,7 +1150,7 @@ function configurarFormularioNovoAgendamento(){
  dia.min=diaLocal(dataMinima);
  const selecionado=agendaDiaSelecionado&&agendaDiaSelecionado>=dia.min?agendaDiaSelecionado:dia.min;
  dia.value=selecionado;
- atualizarProfissionais();
+ void atualizarProfissionais();
 }
 
 function openForm(kind){
@@ -1162,10 +1187,10 @@ if(kind==='atendimento'||kind==='agendar'){
   const student=cache.alunos.find(a=>a.id===d.aluno_id);
   if(!student||student.ativo===false||student.escola_id!==d.escola_id)throw Error('Selecione um aluno ativo da instituição.');
   const date=fromInputDate(d.inicio),duracao=Number(d.duracao_min);
-  const especialistaUid=isAgenda?(canManage()?d.profissional_uid:user.uid):user.uid;
+  const especialistaUid=isAgenda?d.profissional_uid:user.uid;
   if(isAgenda){
    if(!especialistaUid||!d.hora_consulta||!d.dia_consulta)throw Error('Preencha profissional, data e horário disponíveis.');
-   if(canManage()&&!listarProfissionaisDaEscola({
+   if(!listarProfissionaisDaEscola({
      escolaId:d.escola_id,vinculos:cache.vinculos,usuarios:cache.usuarios,
      profissionais:cache.profissionais,gestao:true
    }).some(p=>p.uid===especialistaUid))throw Error('Profissional não autorizada para esta escola.');
@@ -1174,11 +1199,11 @@ if(kind==='atendimento'||kind==='agendar'){
   }else if(date.getTime()>Date.now()+60000)throw Error('A consulta avulsa deve ter ocorrido hoje ou em data anterior. Para consultas futuras, utilize a agenda.');
   const vinculo=cache.vinculos.find(v=>v.escola_id===d.escola_id&&v.uid===especialistaUid&&v.ativo===true&&dentroDaJornada(date,duracao,v.horarios));
   if(!vinculo)throw Error('Não existe vínculo ativo e jornada autorizada para a profissional, escola e horário.');
-  const pessoa=canManage()&&isAgenda?cache.usuarios.find(u=>u.id===especialistaUid):null;
+  const pessoa=isAgenda?cache.usuarios.find(u=>u.id===especialistaUid):null;
   const {descricao,atividades,observacoes,orientacoes,evolucao_observada,dia_consulta,hora_consulta,profissional_uid,...campos}=d;
   const payload={...campos,vinculo_id:vinculo.id,inicio:date,duracao_min:duracao,
    autor_uid:especialistaUid,autor_nome:pessoa?.nome||profile.nome||user.displayName,criado_em:serverTimestamp()};
-  if(isAgenda&&canManage())payload.agendado_por_uid=user.uid;
+  if(isAgenda&&especialistaUid!==user.uid)payload.agendado_por_uid=user.uid;
   if(isAgenda)await salvarAgendamento(payload);
   else{
    const texto=registroConsultaTexto({descricao,atividades,observacoes,orientacoes});
