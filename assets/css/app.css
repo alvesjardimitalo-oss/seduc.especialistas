@@ -341,3 +341,24 @@ code{background:#eef5f7;color:#375568;padding:3px 6px;border-radius:5px;overflow
 .audit-event strong{font-size:12px;color:#254151}
 .audit-event small{font-size:10px;color:#8797a2}
 @media(max-width:640px){.agenda-calendar{padding:13px}.agenda-calendar-day{min-height:47px;padding:7px 5px;border-radius:7px;font-size:11px;flex-direction:column}.agenda-calendar-day small{font-size:9px;height:15px;min-width:15px}.agenda-calendar-grid{gap:4px}.agenda-calendar-spacer{min-height:47px}.agenda-calendar-actions{width:100%;justify-content:space-between}.agenda-active-user{margin-left:0;width:100%}}
+
+/* Formulário de agendamento estruturado em três etapas. */
+#back>.modal:has(.booking-intro){width:min(820px,100%);padding:30px}
+.booking-intro{display:flex;align-items:center;gap:12px;margin:18px 0 6px;padding:15px 0 9px;border-top:1px solid #e8f0f1}
+.booking-intro:first-child{margin-top:0;border-top:0}
+.booking-intro>div:last-child{display:flex;flex-direction:column;gap:3px}
+.booking-intro strong{color:#213f50;font-size:15px;font-weight:800;letter-spacing:-.02em}
+.booking-intro small{color:#788e9e;font-size:11px}
+.booking-step-number{display:grid;place-items:center;flex:none;width:33px;height:33px;border-radius:11px;background:#e3f7f0;color:#108577;font-size:14px;font-weight:850}
+.booking-owner{display:flex;flex-direction:column;gap:4px;background:#edf9f5;border:1px solid #d0ece2;border-radius:11px;padding:12px 15px}
+.booking-owner strong{font-size:10px;color:#5a8e80;font-weight:800;letter-spacing:.075em;text-transform:uppercase}
+.booking-owner span{font-size:13px;font-weight:750;color:#155c51}
+.booking-help{padding:12px 14px;border:1px solid #d0e5e9;border-radius:11px;background:#f1f8fa;color:#527383;font-size:11px;line-height:1.6}
+.booking-check{display:flex;flex-direction:column;gap:4px;padding:13px 14px;border-radius:11px;background:#fff9e9;border:1px solid #f0e4c6}
+.booking-check strong{font-size:11px;color:#795b2e}
+.booking-check small{font-size:11px;color:#92794f;line-height:1.6}
+.agenda-permission-note{background:#fff6e5;border:1px solid #eee0b9;padding:12px 15px;border-radius:11px;font-size:12px}
+#back>.modal:has(.booking-intro) .aluno-search-widget{background:#fbfefd;padding:15px;border:1px solid #dfebec;border-radius:13px}
+#back>.modal:has(.booking-intro) .aluno-search-resultados{max-height:220px}
+#back>.modal:has(.booking-intro) .actions[type=submit]{position:sticky;bottom:0;background:#fff}
+@media(max-width:640px){#back>.modal:has(.booking-intro){padding:20px 16px}.booking-intro{margin-top:14px}.booking-intro strong{font-size:13px}}
