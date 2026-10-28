@@ -50,4 +50,17 @@ await check('Firebase Authentication: configuração pública', async () => {
   }
   return 'Domínio do GitHub Pages autorizado.';
 });
+await check('Firebase Authentication: login Google habilitado', async () => {
+  const url='https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key='+encodeURIComponent(firebaseConfig.apiKey);
+  const response=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({providerId:'google.com',continueUri:site}),
+    signal:AbortSignal.timeout(20000)
+  });
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(data?.error?.message||('HTTP '+response.status));
+  if(!data.authUri)throw new Error('Provedor Google não retornou URI de autenticação.');
+  return 'Provedor Google retornou URI OAuth válida (sem fazer login).';
+});
 if (failed) process.exitCode = 1;
