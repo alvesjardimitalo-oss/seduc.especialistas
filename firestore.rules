@@ -97,8 +97,46 @@ service cloud.firestore {
     allow get: if schoolAllowed(id);
     allow list: if active() && (seduc() || admin());
     allow create,update: if manage() &&
-      request.resource.data.keys().hasOnly(['nome','inep','telefone','endereco','email']) &&
+      request.resource.data.keys().hasOnly(['nome','inep','telefone','endereco','email','tipo']) &&
+      request.resource.data.get('tipo','escola') in ['escola','creche'] &&
       request.resource.data.nome is string && request.resource.data.nome.size() > 3;
+    allow delete: if false;
+  }
+  // Quadro de servidores escolares separado dos profissionais autorizados
+  // a registrar consultas. Não atribuir permissões de login via importação.
+  match /servidores/{id} {
+    allow read: if manage();
+    allow create: if manage() &&
+      id.matches('srv_[a-z0-9]{12,80}') &&
+      request.resource.data.keys().hasOnly(['nome','cargo','escola_id','ano','escola_origem','linha_origem','ativo']) &&
+      request.resource.data.nome is string &&
+      request.resource.data.nome.size() >= 3 &&
+      request.resource.data.nome.size() <= 180 &&
+      request.resource.data.cargo is string &&
+      request.resource.data.cargo.size() <= 180 &&
+      request.resource.data.escola_id is string &&
+      request.resource.data.ano == 2026 &&
+      request.resource.data.ativo == true &&
+      request.resource.data.escola_origem is string &&
+      request.resource.data.linha_origem is int &&
+      exists(/databases/$(database)/documents/escolas/$(request.resource.data.escola_id));
+    allow update: if manage() &&
+      resource.data.escola_id == request.resource.data.escola_id &&
+      request.resource.data.keys().hasOnly(['nome','cargo','escola_id','ano','escola_origem','linha_origem','ativo']);
+    allow delete: if false;
+  }
+  match /servidores_privado/{id} {
+    allow read: if manage();
+    allow create: if manage() &&
+      existsAfter(/databases/$(database)/documents/servidores/$(id)) &&
+      request.resource.data.keys().hasOnly(['celular','telefone','escola_id']) &&
+      request.resource.data.escola_id ==
+        getAfter(/databases/$(database)/documents/servidores/$(id)).data.escola_id &&
+      request.resource.data.celular is string &&
+      request.resource.data.telefone is string;
+    allow update: if manage() &&
+      request.resource.data.escola_id == resource.data.escola_id &&
+      request.resource.data.keys().hasOnly(['celular','telefone','escola_id']);
     allow delete: if false;
   }
   match /profissionais/{id} {
