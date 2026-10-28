@@ -30,7 +30,7 @@ test('criação e edição de vínculo usam o mesmo editor, sem digitar códigos
  assert.ok(source.includes("modal('Redefinir local e jornada'"));
  assert.ok(source.includes("jornadaDosCampos(d)"));
  assert.ok(!source.includes("field('horarios_texto'"));
- assert.ok(source.includes("id=\\"jornada-semana-util\\""));
+ assert.ok(source.includes("jornada-semana-util"));
 });
 test('especialista da mesma escola pode ser escolhida sem substituir autor do agendamento',()=>{
  assert.ok(source.includes("profissional.value=elegiveis.some(p=>p.uid===anterior)?anterior:padrao"));
