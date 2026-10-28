@@ -23,7 +23,7 @@ const schoolNames=['Escola Municipal Doutor João de Souza Lima','Escola Municip
 const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formatDate=x=>{if(!x)return '—';const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR')};
 const dataMs=x=>{if(!x)return 0;const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?0:d.getTime()};
-let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[],metas_alunos:[],revisoes_metas:[]};
+let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],convites_usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[],metas_alunos:[],revisoes_metas:[]};
 let filtrosRelatorio={de:'',ate:'',escola:'',aluno:'',profissional:'',especialidade:''};
 let filtrosAgenda={},filtrosAtendimentos={};
 let agendaMes=new Date(new Date().getFullYear(),new Date().getMonth(),1),agendaDiaSelecionado='';
@@ -129,13 +129,41 @@ async function mostrarTermosSeguranca(){
 }
 
 function showSetup(){root.innerHTML='<div class="login"><div class="card"><h1>SEDUC Especialistas</h1><div class="alert">Ambiente ainda não configurado. Nenhum dado real pode ser registrado.</div><p>Configure um projeto Firebase exclusivo em <code>assets/js/firebase-config.js</code> e publique as regras de segurança do arquivo <code>firestore.rules</code>.</p><p class="muted">Não utilize o Firebase do SISDIFI. O acesso inicial do superadministrador deve ser provisionado de modo seguro.</p></div></div>'}
-async function initialize(){if(!configured){showSetup();return}const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;if(!u){profile=null;termosSessaoConfirmados=false;showLogin();return}try{const ref=doc(db,'usuarios',u.uid);let s=await getDoc(ref);if(!s.exists()){await setDoc(ref,{nome:u.displayName||u.email,email:u.email,ativo:false,perfil:'pendente',escolas:[],gerenciar:false,criado_em:serverTimestamp()});s=await getDoc(ref)}profile={id:s.id,...s.data()};if(!profile.ativo){showLogin('Sua conta foi registrada e está aguardando liberação da Secretaria de Educação.');return}termosSessaoConfirmados=false;await mostrarTermosSeguranca()}catch(e){showLogin('Não foi possível verificar a autorização: '+e.message)}})}
+async function initialize(){if(!configured){showSetup();return}const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{
+ user=u;
+ if(!u){profile=null;termosSessaoConfirmados=false;showLogin();return}
+ try{
+  const ref=doc(db,'usuarios',u.uid);let registro=await getDoc(ref);
+  if(!registro.exists()){
+   // Um convite só poderá ser usado pela mesma conta Google verificada.
+   // Falha na leitura do convite não bloqueia o cadastro normal, que fica pendente.
+   let convite=null;
+   if(u.email&&u.emailVerified&&u.providerData?.some(p=>p.providerId==='google.com')){
+    try{
+     const conviteRef=await getDoc(doc(db,'convites_usuarios',u.email.toLowerCase()));
+     if(conviteRef.exists()&&conviteRef.data().ativo===true&&
+       conviteRef.data().perfil==='especialista'&&conviteRef.data().email===u.email&&
+       Array.isArray(conviteRef.data().escolas)&&conviteRef.data().escolas.length>0)convite=conviteRef.data();
+    }catch(e){console.warn('Pré-autorização não disponível',e.code||e.message)}
+   }
+   await setDoc(ref,{
+    nome:u.displayName||u.email,email:u.email,ativo:Boolean(convite),
+    perfil:convite?'especialista':'pendente',
+    escolas:convite?convite.escolas:[],gerenciar:false,criado_em:serverTimestamp()
+   });
+   registro=await getDoc(ref);
+  }
+  profile={id:registro.id,...registro.data()};
+  if(!profile.ativo){showLogin('Sua conta foi registrada e está aguardando liberação da Secretaria de Educação.');return}
+  termosSessaoConfirmados=false;await mostrarTermosSeguranca();
+ }catch(e){showLogin('Não foi possível verificar a autorização: '+e.message)}
+})}
 async function refresh(colecoes=null){
  const parcial=Array.isArray(colecoes)&&colecoes.length>0;
  const manager=canManage();erroRelatorios=false;erroMetas=false;errosCarregamento=[];
  const schools=parcial?cache.escolas:(manager||profile.perfil==='secretaria')?(await getDocs(collection(db,'escolas'))).docs.map(d=>({id:d.id,...d.data()})):(await Promise.all((profile.escolas||[]).map(async id=>{try{const s=await getDoc(doc(db,'escolas',id));return s.exists()?{id:s.id,...s.data()}:null}catch{return null}}))).filter(Boolean);
  const ids=schools.map(x=>x.id);
- const out=parcial?{...cache}:{escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[],metas_alunos:[],revisoes_metas:[]};
+ const out=parcial?{...cache}:{escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],convites_usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[],metas_alunos:[],revisoes_metas:[]};
  const previstas=parcial?colecoes:colecoesIniciais;
  for(const key of previstas){
   try{
@@ -158,7 +186,7 @@ async function refresh(colecoes=null){
 }
 async function abrirTela(tela){
  tab=tela;
- const extras={Profissionais:['servidores'],Servidores:['servidores'],Usuários:['usuarios'],Frequência:['frequencias'],Atendimentos:['notas_atendimento','revisoes_metas'],Relatórios:['relatorios_alunos','revisoes_metas'], 'Ficha do aluno':['notas_atendimento','relatorios_alunos','metas_alunos','revisoes_metas']};
+ const extras={Profissionais:['servidores'],Servidores:['servidores'],Usuários:['usuarios','convites_usuarios'],Frequência:['frequencias'],Atendimentos:['notas_atendimento','revisoes_metas'],Relatórios:['relatorios_alunos','revisoes_metas'], 'Ficha do aluno':['notas_atendimento','relatorios_alunos','metas_alunos','revisoes_metas']};
  const pendentes=(extras[tela]||[]).filter(key=>!colecoesCarregadas.has(key));
  try{if(pendentes.length)await refresh(pendentes)}catch(e){showError(e)}
  render();
@@ -361,9 +389,22 @@ if(tab==='Relatórios'){
  }
  html+='<p class="muted">Cada aluno é contado uma vez no total e uma vez por instituição em que foi atendido. Os indicadores apresentam apenas quantidades.</p>';
 }
-if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
+if(tab==='Usuários'&&canManage()){
+ const cadastrados=cache.usuarios,convites=cache.convites_usuarios||[];
+ html+='<div class="card users-onboarding"><div><span class="eyebrow">GESTÃO DE ACESSOS</span><h2>Autorizar especialistas</h2><p>Você pode liberar quem já entrou com Google ou preparar a autorização pelo e-mail antes do primeiro login. Não é preciso digitar UID do Firebase.</p></div><div class="actions"><button type="button" class="btn" id="preautorizar-especialista">+ Pré-autorizar especialista</button></div></div>';
+ if(errosCarregamento.includes('usuarios')||errosCarregamento.includes('convites_usuarios'))
+ html+='<div class="alert" role="alert">Uma das listas de autorização não pôde ser carregada. Verifique as permissões do Firestore.</div>';
+ html+='<div class="card"><h3>Contas que já acessaram o SEDUC</h3><p class="muted">Uma profissional que já fez login aparece aqui como Pendente até ser aprovada. Clique em Permissões, escolha Especialista e marque as escolas.</p></div>';
+ html+=table(['Usuário','E-mail Google','Perfil','Situação','Ação'],cadastrados.map(u=>
+ '<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'));
+ html+='<div class="card"><h3>Pré-autorizações por e-mail</h3><p class="muted">A profissional acessa com o mesmo Google verificado. Depois do primeiro login, a conta aparece na tabela acima e você pode associar a jornada em Profissionais.</p></div>';
+ html+=table(['Nome','E-mail autorizado','Escolas','Situação','Ação'],convites.map(c=>{
+  const existe=cadastrados.some(u=>String(u.email||'').toLowerCase()===c.email);
+  return '<tr><td>'+safe(c.nome)+'</td><td>'+safe(c.email)+'</td><td>'+safe((c.escolas||[]).map(id=>schoolName(id)).join(', '))+'</td><td>'+safe(!c.ativo?'Suspenso':existe?'Já realizou login':'Aguardando primeiro login')+'</td><td><button type="button" class="btn secondary" data-alternar-convite="'+safe(c.id)+'">'+(c.ativo?'Suspender convite':'Reativar convite')+'</button></td></tr>';
+ }));
+}
 if(tab==='Ficha do aluno')html=title('Ficha do aluno','Consultas, acompanhamento e relatórios individuais')+fichaAluno();
-layout(html);document.querySelectorAll('[data-agenda-mes]').forEach(b=>b.onclick=()=>{agendaMes=new Date(agendaMes.getFullYear(),agendaMes.getMonth()+Number(b.dataset.agendaMes),1);agendaDiaSelecionado='';render()});document.querySelectorAll('[data-agenda-dia]').forEach(b=>b.onclick=()=>{agendaDiaSelecionado=b.dataset.agendaDia;render()});const botaoAuditoria=document.getElementById('carregar-auditoria');if(botaoAuditoria)botaoAuditoria.onclick=consultarAcessosAuditoria;const agendaTodos=document.getElementById('agenda-todos');if(agendaTodos)agendaTodos.onclick=()=>{agendaDiaSelecionado='';render()};document.querySelectorAll('[data-print-aluno]').forEach(b=>b.onclick=()=>imprimirAluno(b.dataset.printAluno));const imprimG=document.getElementById('imprimir-gerencial');if(imprimG)imprimG.onclick=imprimirGerencial;const tutorialToggle=document.getElementById('alternar-tutorial');if(tutorialToggle)tutorialToggle.onclick=alternarTutorial;const introOff=document.getElementById('ocultar-tutorial');if(introOff)introOff.onclick=alternarTutorial;document.querySelectorAll('[data-abrir-agendamento]').forEach(b=>b.onclick=()=>abrirAgendamento(b.dataset.abrirAgendamento));document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>abrirTela(el.dataset.go));const novaMeta=document.getElementById('nova-meta');if(novaMeta)novaMeta.onclick=()=>definirMeta();document.querySelectorAll('[data-evolucao-meta]').forEach(b=>b.onclick=()=>registrarEvolucao(b.dataset.evolucaoMeta));document.querySelectorAll('[data-redefinir-meta]').forEach(b=>b.onclick=()=>definirMeta(b.dataset.redefinirMeta));document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>b.dataset.action==='agendar'?abrirNovoAgendamento():b.dataset.action==='vinculo'?abrirFormularioVinculo().catch(showError):openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};abrirTela('Ficha do aluno')});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
+layout(html);document.querySelectorAll('[data-agenda-mes]').forEach(b=>b.onclick=()=>{agendaMes=new Date(agendaMes.getFullYear(),agendaMes.getMonth()+Number(b.dataset.agendaMes),1);agendaDiaSelecionado='';render()});document.querySelectorAll('[data-agenda-dia]').forEach(b=>b.onclick=()=>{agendaDiaSelecionado=b.dataset.agendaDia;render()});const botaoAuditoria=document.getElementById('carregar-auditoria');if(botaoAuditoria)botaoAuditoria.onclick=consultarAcessosAuditoria;const agendaTodos=document.getElementById('agenda-todos');if(agendaTodos)agendaTodos.onclick=()=>{agendaDiaSelecionado='';render()};document.querySelectorAll('[data-print-aluno]').forEach(b=>b.onclick=()=>imprimirAluno(b.dataset.printAluno));const imprimG=document.getElementById('imprimir-gerencial');if(imprimG)imprimG.onclick=imprimirGerencial;const tutorialToggle=document.getElementById('alternar-tutorial');if(tutorialToggle)tutorialToggle.onclick=alternarTutorial;const introOff=document.getElementById('ocultar-tutorial');if(introOff)introOff.onclick=alternarTutorial;document.querySelectorAll('[data-abrir-agendamento]').forEach(b=>b.onclick=()=>abrirAgendamento(b.dataset.abrirAgendamento));document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>abrirTela(el.dataset.go));const novaMeta=document.getElementById('nova-meta');if(novaMeta)novaMeta.onclick=()=>definirMeta();document.querySelectorAll('[data-evolucao-meta]').forEach(b=>b.onclick=()=>registrarEvolucao(b.dataset.evolucaoMeta));document.querySelectorAll('[data-redefinir-meta]').forEach(b=>b.onclick=()=>definirMeta(b.dataset.redefinirMeta));document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>b.dataset.action==='agendar'?abrirNovoAgendamento():b.dataset.action==='vinculo'?abrirFormularioVinculo().catch(showError):openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};abrirTela('Ficha do aluno')});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));const conviteBotao=document.getElementById('preautorizar-especialista');if(conviteBotao)conviteBotao.onclick=abrirPreAutorizacao;document.querySelectorAll('[data-alternar-convite]').forEach(b=>b.onclick=()=>alternarConvite(b.dataset.alternarConvite));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
 
 
 function painelResumoAluno(alunoId){
@@ -1670,6 +1711,48 @@ async function archiveStudent(id){
  if(!confirm('Arquivar o cadastro de '+a.nome+'? O histórico de consultas será preservado. Novos agendamentos serão bloqueados.'))return;
  try{await updateDoc(doc(db,'alunos',id),{ativo:false});await refresh();render()}catch(e){showError(e)}
 }
+
+function abrirPreAutorizacao(){
+ if(!canManage())return showError(Error('Sem permissão para pré-autorizar profissionais.'));
+ const escolas=cache.escolas;
+ if(!escolas.length)return showError(Error('Cadastre ou carregue as escolas antes da autorização.'));
+ modal('Pré-autorizar especialista pelo e-mail',
+ '<div class="wide cadastro-dica">A autorização fica vinculada ao e-mail Google verificado da profissional. Não crie senhas nem digite UID.</div>'+
+ '<label class="wide">Nome da especialista *<input type="text" name="nome" required maxlength="180" placeholder="Nome completo"></label>'+
+ '<label class="wide">E-mail da conta Google *<input type="email" name="email" required maxlength="180" placeholder="profissional@exemplo.com"></label>'+
+ '<div class="wide"><strong>Escolas autorizadas *</strong><div class="school-permission-list">'+escolas.map(e=>
+ '<label class="check-school"><input type="checkbox" name="escolas" value="'+safe(e.id)+'"> '+safe(e.nome)+'</label>').join('')+'</div></div>'+
+ '<div class="wide booking-check"><strong>Segurança de acesso</strong><small>A pré-autorização concede somente o perfil Especialista e as escolas marcadas. A pessoa precisará autenticar-se pelo Google verificado e aceitar os termos de segurança. O vínculo e a jornada serão configurados separadamente.</small></div>',
+ async d=>{
+  const email=String(d.email||'').toLowerCase().trim(),nome=String(d.nome||'').trim();
+  if(!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)||email.length>180)
+   throw Error('Informe um e-mail Google válido.');
+  if(nome.length<3||nome.length>180)throw Error('Informe o nome completo da especialista.');
+  const escolasSelecionadas=[...new Set([...document.querySelectorAll('#entry input[name="escolas"]:checked')].map(x=>x.value))];
+  if(!escolasSelecionadas.length||escolasSelecionadas.some(id=>!cache.escolas.some(e=>e.id===id)))
+   throw Error('Selecione ao menos uma escola válida.');
+  const cadastrado=cache.usuarios.find(u=>String(u.email||'').toLowerCase()===email);
+  if(cadastrado)throw Error('Esta conta já acessou o SEDUC. Use o botão Permissões na tabela de usuários para aprová-la.');
+  if(cache.convites_usuarios.some(c=>c.id===email))
+   throw Error('Este e-mail já possui pré-autorização. Utilize a ação Suspender/Reativar ou revise a conta existente.');
+  await setDoc(doc(db,'convites_usuarios',email),{
+   nome,email,perfil:'especialista',escolas:escolasSelecionadas,
+   ativo:true,criado_por:user.uid,criado_em:serverTimestamp()
+  });
+ },['convites_usuarios']);
+}
+async function alternarConvite(email){
+ if(!canManage())return;
+ const convite=cache.convites_usuarios.find(x=>x.id===email);
+ if(!convite)return;
+ const novoEstado=!convite.ativo;
+ if(!confirm((novoEstado?'Reativar':'Suspender')+' a pré-autorização de '+convite.email+'?\\n\\nA suspensão NÃO desativa uma conta que já tenha feito login. Para isso, altere as Permissões do usuário.'))return;
+ try{
+  await updateDoc(doc(db,'convites_usuarios',email),{ativo:novoEstado});
+  await refresh(['convites_usuarios']);render();
+ }catch(e){showError(e)}
+}
+
 function openUser(uid){
  const u=cache.usuarios.find(x=>x.id===uid);if(!u||u.perfil==='superadmin')return;
  modal('Permissões de '+safe(u.nome||u.email),
