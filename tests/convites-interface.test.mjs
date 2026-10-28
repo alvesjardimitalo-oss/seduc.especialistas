@@ -9,8 +9,8 @@ test('tela de usuarios inclui pré-autorização sem UID e escolas',()=>{
   assert.ok(app.includes(part),'Ausente: '+part);
 });
 test('login Google verificado ativa só perfil especialista e aceita termos LGPD',()=>{
- for(const part of ['u.emailVerified','providerId===\\'google.com\\'','conviteRef.data().ativo===true',
- 'perfil:convite?\\'especialista\\':\\'pendente\\'','await mostrarTermosSeguranca()'])
+ for(const part of ['u.emailVerified',"providerId==='google.com'",'conviteRef.data().ativo===true',
+ "perfil:convite?'especialista':'pendente'",'await mostrarTermosSeguranca()'])
   assert.ok(app.includes(part),'Ausente: '+part);
 });
 test('regras proíbem convite virar administrador e limitam acesso a email verificado',()=>{
