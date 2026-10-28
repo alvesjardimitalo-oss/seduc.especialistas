@@ -100,10 +100,11 @@ test('autor edita nota com trilha de alteração imutável',async()=>{
 
 test('frequência registra entrada e saída com carimbos do servidor',async()=>{
  const db=contexto('espA');
- const ref=doc(db,'frequencias/espA_a_2026-10-28');
+ const dia=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ const ref=doc(db,'frequencias/espA_a_'+dia);
  await assertSucceeds(setDoc(ref,{
   uid:'espA',escola_id:'a',vinculo_id:'vinculoA',
-  dia:'2026-10-28',entrada:serverTimestamp(),saida:null,status:'aberta'
+  dia,entrada:serverTimestamp(),saida:null,status:'aberta'
  }));
  await assertSucceeds(updateDoc(ref,{saida:serverTimestamp(),status:'fechada'}));
  await assertFails(updateDoc(ref,{saida:serverTimestamp(),status:'fechada'}));
@@ -176,4 +177,12 @@ test('regras do servidor recusam consultas fora da jornada semanal',async()=>{
  batch.set(doc(db,'agendamentos/foraJornada'),novoAgendamento('foraJornada',inicio));
  addLocks(db,batch,'foraJornada',inicio,30);
  await assertFails(batch.commit());
+});
+
+test('frequência não pode ser registrada com data falsificada',async()=>{
+ const db=contexto('espA');
+ await assertFails(setDoc(doc(db,'frequencias/espA_a_2025-01-01'),{
+  uid:'espA',escola_id:'a',vinculo_id:'vinculoA',
+  dia:'2025-01-01',entrada:serverTimestamp(),saida:null,status:'aberta'
+ }));
 });
