@@ -29,11 +29,33 @@ Abra GitHub > Settings > Pages e habilite publicação da branch de homologaçã
 
 ## 5. Limitações e bloqueios antes da produção
 - O filtro de jornada do MVP roda no navegador; **a validação atômica no backend ainda precisa ser criada** para impedir agendamentos manipulados ou concorrentes.
-- O histórico de versões/auditoria de edições ainda precisa ser implementado.
-- A tela de profissional ainda não isola CPF em coleção privada.
-- A gestão de usuários pelo UID precisa virar busca por e-mail com mecanismo privilegiado seguro.
-- A autorização por escola deve passar por testes automatizados reais com perfis distintos, inclusive para Firestore queries de coleção.
-- Relatórios avançados, frequência funcional, matrícula histórica, transferência, exportação, backup, política de retenção e exclusão controlada ainda não foram implementados.
+- As edições de notas já geram versões imutáveis em lote, mas o histórico completo de acessos/consultas (auditoria administrativa) ainda precisa ser implementado.
+- O cadastro passou a separar CPF, filiação, endereço e telefone em coleções privadas; ainda falta homologação das políticas de retenção e de consulta de cada campo.
+- A gestão de usuários já apresenta a lista de pessoas autenticadas e permite atribuir perfis e escolas. A criação de usuários continua sendo por convite/login Google; falta envio de convite e fluxo de recuperação/regularização de identidade.
+- Foram criados testes automatizados de regras no Firestore Emulator. É necessário completar cenários de consulta multi-escola, vínculos revogados, simultaneidade e perfis administrativos antes de homologar.
+- Foi incluído um registro inicial e **declaratório** de frequência com entrada e saída carimbadas no servidor, que não substitui homologação da jornada pela chefia. Relatórios avançados, matrícula histórica, transferências, exportação, backup, política de retenção e fluxo de eliminação legal ainda não foram implementados.
 - A UI não implementa todos os critérios da especificação. Há necessidade de revisão de acessibilidade e validação com a equipe da Educação.
 
 **Portanto: esta entrega é um MVP de desenvolvimento e não deve ser liberada para uso com dados pessoais de alunos.**
+
+## 6. Testes automatizados no GitHub
+A branch contém um workflow em `.github/workflows/testes.yml` que verifica sintaxe, valida CPF/jornadas/conflitos e executa testes de permissões usando o emulador oficial do Firestore com dados fictícios. A publicação de regras em produção deve acontecer **somente após revisão e testes verdes**.
+
+Com Node.js e Java instalados, localmente:
+```bash
+npm install
+npm test
+npm run test:rules
+```
+
+## 7. Funcionalidades presentes no protótipo
+- Lista e carga assistida das cinco escolas; demais dados são informados pela Secretaria.
+- Cadastro de usuários por login Google, com aprovação por perfil e escola.
+- Profissionais, dados privados, vínculos e jornadas.
+- Alunos, dados privados, edição e arquivamento sem exclusão de atendimentos.
+- Agendamento, atendimento com nota de até 1.000 caracteres e histórico expandível.
+- Textos privados das notas separados dos metadados gerenciais.
+- Edição por autor/superadmin com justificativa e cópia de versão imutável.
+- Frequência declaratória: entrada e saída pela hora do servidor, sem equivaler a ponto homologado.
+
+> As verificações de choque de horários e de limites de jornada ainda ocorrem **apenas no navegador**. Para produção, uma API confiável/Cloud Function ou outro backend transacional deverá executar essas verificações também no servidor, especialmente com múltiplos profissionais registrando simultaneamente.
