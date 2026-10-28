@@ -31,18 +31,12 @@ service cloud.firestore {
   // Gestores podem apenas criar reservas para profissionais especialistas ativos,
   // vinculados à escola. O responsável clínico continua sendo o especialista.
   function vinculoAgendamento(vinculoId,escolaId,uid) {
-    return exists(/databases/$(database)/documents/vinculos/$(vinculoId)) &&
-      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.uid == uid &&
-      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.escola_id == escolaId &&
-      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.ativo == true &&
-      (
-        (uid == request.auth.uid && specialistIn(escolaId)) ||
-        (manage() &&
-          exists(/databases/$(database)/documents/usuarios/$(uid)) &&
-          get(/databases/$(database)/documents/usuarios/$(uid)).data.ativo == true &&
-          get(/databases/$(database)/documents/usuarios/$(uid)).data.perfil == 'especialista' &&
-          escolaId in get(/databases/$(database)/documents/usuarios/$(uid)).data.get('escolas', []))
-      );
+    let v = get(/databases/$(database)/documents/vinculos/$(vinculoId)).data;
+    let conta = get(/databases/$(database)/documents/usuarios/$(uid)).data;
+    return v.uid == uid && v.escola_id == escolaId && v.ativo == true &&
+      conta.ativo == true && conta.perfil == 'especialista' &&
+      escolaId in conta.get('escolas',[]) &&
+      ((uid == request.auth.uid && specialist()) || manage());
   }
   // Rede municipal no fuso America/Sao_Paulo (UTC-3, sem horario de verao vigente).
   // A grade semanal contém indices dia*48 + meia-hora. Validar eventual mudança legal de fuso.
@@ -78,13 +72,12 @@ service cloud.firestore {
         slotStatus(d.autor_uid, d.inicio + duration.value(30, 'm'), id, d.escola_id, estado));
   }
   function validSlotBooking(d) {
-    return existsAfter(appointmentPath(d.agendamento_id)) &&
-      getAfter(appointmentPath(d.agendamento_id)).data.autor_uid == d.autor_uid &&
-      getAfter(appointmentPath(d.agendamento_id)).data.escola_id == d.escola_id &&
-      getAfter(appointmentPath(d.agendamento_id)).data.status == 'agendado' &&
-      (getAfter(appointmentPath(d.agendamento_id)).data.inicio == d.inicio ||
-        (getAfter(appointmentPath(d.agendamento_id)).data.duracao_min == 60 &&
-          getAfter(appointmentPath(d.agendamento_id)).data.inicio + duration.value(30, 'm') == d.inicio));
+    let a = getAfter(appointmentPath(d.agendamento_id)).data;
+    return a.autor_uid == d.autor_uid &&
+      a.escola_id == d.escola_id &&
+      a.status == 'agendado' &&
+      (a.inicio == d.inicio ||
+       (a.duracao_min == 60 && a.inicio + duration.value(30,'m') == d.inicio));
   }
   function sameAuthorAndScope() {
     return request.resource.data.autor_uid == resource.data.autor_uid &&
@@ -400,44 +393,22 @@ service cloud.firestore {
     d.situacao_anterior is string && d.situacao_anterior.size() <= 45 &&
     d.situacao_nova is string && d.situacao_nova.size() <= 45;
   }
+  // Eventos imutáveis. O status, estudante e escola são verificados no destino.
+  function auditarAgendamento(agendaId,eventoId) {
+    let e = request.resource.data;
+    let a = getAfter(appointmentPath(agendaId)).data;
+    return eventoValido(e,agendaId,'agendamento') &&
+      eventoId == e.acao &&
+      e.acao in ['agendado','iniciado','concluido','cancelado','falta_aluno','falta_profissional','reagendado'] &&
+      a.escola_id == e.escola_id && a.aluno_id == e.aluno_id &&
+      a.status == e.situacao_nova &&
+      (a.autor_uid == request.auth.uid ||
+       (manage() && e.acao == 'agendado' && a.get('agendado_por_uid','') == request.auth.uid));
+  }
   match /agendamentos/{agendaId}/historico/{eventoId} {
-    allow read: if active() &&
-      (manage() || (specialist() &&
-       get(appointmentPath(agendaId)).data.autor_uid == request.auth.uid));
-    allow create: if (specialist() || manage()) &&
-      eventoValido(request.resource.data,agendaId,'agendamento') &&
-      eventoId == request.resource.data.acao &&
-      request.resource.data.acao in ['agendado','iniciado','concluido','cancelado','falta_aluno','falta_profissional','reagendado'] &&
-      existsAfter(appointmentPath(agendaId)) &&
-      (
-        (request.resource.data.acao == 'agendado' && !exists(appointmentPath(agendaId))) ||
-        (request.resource.data.acao in ['iniciado','concluido','cancelado','falta_aluno','falta_profissional'] &&
-          exists(appointmentPath(agendaId)) &&
-          get(appointmentPath(agendaId)).data.status != request.resource.data.situacao_nova) ||
-        (request.resource.data.acao == 'reagendado' &&
-          exists(appointmentPath(agendaId)) &&
-          getAfter(appointmentPath(agendaId)).data.novo_agendamento_id is string &&
-          getAfter(appointmentPath(agendaId)).data.novo_agendamento_id !=
-           get(appointmentPath(agendaId)).data.get('novo_agendamento_id',''))
-      ) &&
-      (
-        getAfter(appointmentPath(agendaId)).data.autor_uid == request.auth.uid ||
-        (manage() && request.resource.data.acao == 'agendado' &&
-          getAfter(appointmentPath(agendaId)).data.get('agendado_por_uid','') == request.auth.uid)
-      ) &&
-      getAfter(appointmentPath(agendaId)).data.escola_id == request.resource.data.escola_id &&
-      getAfter(appointmentPath(agendaId)).data.aluno_id == request.resource.data.aluno_id &&
-      (
-       (request.resource.data.acao == 'agendado' && request.resource.data.situacao_nova == 'agendado') ||
-       (request.resource.data.acao == 'iniciado' && request.resource.data.situacao_nova == 'em_atendimento') ||
-       (request.resource.data.acao == 'concluido' && request.resource.data.situacao_nova == 'realizado') ||
-       (request.resource.data.acao == 'cancelado' && request.resource.data.situacao_nova == 'cancelado') ||
-       (request.resource.data.acao in ['falta_aluno','falta_profissional'] &&
-        request.resource.data.situacao_nova == request.resource.data.acao) ||
-       (request.resource.data.acao == 'reagendado' &&
-        request.resource.data.situacao_nova in ['remarcado','falta_aluno','falta_profissional'])
-      ) &&
-      getAfter(appointmentPath(agendaId)).data.status == request.resource.data.situacao_nova;
+    allow read: if active() && (manage() ||
+      (specialist() && get(appointmentPath(agendaId)).data.autor_uid == request.auth.uid));
+    allow create: if (specialist() || manage()) && auditarAgendamento(agendaId,eventoId);
     allow update,delete: if false;
   }
   match /atendimentos/{atendimentoId}/historico/{eventoId} {
