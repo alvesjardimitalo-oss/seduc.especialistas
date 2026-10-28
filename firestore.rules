@@ -181,17 +181,60 @@ service cloud.firestore {
       request.resource.data.criado_por == resource.data.criado_por;
     allow delete: if false;
   }
+  // CPF, contatos, filiação e endereço permanecem fora da coleção pública de alunos.
+  function dadosPrivadosValidos(d) {
+    return d.keys().hasOnly([
+      'cpf','filiacao','telefone','endereco','escola_id','criado_por',
+      'mae_nome','pai_nome','pai_nao_declarado','responsavel_nome',
+      'responsavel_parentesco','responsavel_telefone','responsavel_telefone_alternativo',
+      'responsavel_email','cep','logradouro','numero','complemento',
+      'bairro','cidade','uf','referencia'
+    ]) &&
+    d.get('cpf','') is string && d.get('cpf','').size() <= 14 &&
+    d.get('filiacao','') is string && d.get('filiacao','').size() <= 400 &&
+    d.get('telefone','') is string && d.get('telefone','').size() <= 30 &&
+    d.get('endereco','') is string && d.get('endereco','').size() <= 1000 &&
+    d.get('mae_nome','') is string && d.get('mae_nome','').size() <= 180 &&
+    d.get('pai_nome','') is string && d.get('pai_nome','').size() <= 180 &&
+    d.get('pai_nao_declarado',false) is bool &&
+    d.get('responsavel_nome','') is string && d.get('responsavel_nome','').size() <= 180 &&
+    d.get('responsavel_parentesco','') is string && d.get('responsavel_parentesco','').size() <= 60 &&
+    d.get('responsavel_telefone','') is string && d.get('responsavel_telefone','').size() <= 30 &&
+    d.get('responsavel_telefone_alternativo','') is string && d.get('responsavel_telefone_alternativo','').size() <= 30 &&
+    d.get('responsavel_email','') is string && d.get('responsavel_email','').size() <= 180 &&
+    d.get('cep','') is string && d.get('cep','').size() <= 9 &&
+    d.get('logradouro','') is string && d.get('logradouro','').size() <= 180 &&
+    d.get('numero','') is string && d.get('numero','').size() <= 40 &&
+    d.get('complemento','') is string && d.get('complemento','').size() <= 150 &&
+    d.get('bairro','') is string && d.get('bairro','').size() <= 150 &&
+    d.get('cidade','') is string && d.get('cidade','').size() <= 120 &&
+    d.get('uf','') is string && d.get('uf','').size() <= 2 &&
+    d.get('referencia','') is string && d.get('referencia','').size() <= 200;
+  }
   match /alunos_privado/{id} {
     allow read: if active() && (manage() || specialistIn(resource.data.escola_id));
     allow create: if (manage() || specialistIn(request.resource.data.escola_id)) &&
       existsAfter(/databases/$(database)/documents/alunos/$(id)) &&
       getAfter(/databases/$(database)/documents/alunos/$(id)).data.escola_id == request.resource.data.escola_id &&
-      request.resource.data.keys().hasOnly(['cpf','filiacao','telefone','endereco','escola_id','criado_por']) &&
+      dadosPrivadosValidos(request.resource.data) &&
       request.resource.data.criado_por == request.auth.uid;
     allow update: if (manage() || specialistIn(resource.data.escola_id)) &&
-      request.resource.data.keys().hasOnly(['cpf','filiacao','telefone','endereco','escola_id','criado_por']) &&
+      dadosPrivadosValidos(request.resource.data) &&
       request.resource.data.escola_id == resource.data.escola_id &&
       request.resource.data.criado_por == resource.data.criado_por;
+    allow delete: if false;
+  }
+  // Registro de ciência dos termos de uso e responsabilidade; NÃO é consentimento
+  // parental nem base legal de tratamento de dados de crianças e adolescentes.
+  match /termos_aceites/{uid} {
+    allow get: if logged() && request.auth.uid == uid;
+    allow list: if false;
+    allow create,update: if logged() && request.auth.uid == uid &&
+      request.resource.data.keys().hasOnly(['uid','versao','aceito_em','tipo']) &&
+      request.resource.data.uid == uid &&
+      request.resource.data.versao == '2026-10-28-v1' &&
+      request.resource.data.tipo == 'ciencia_termos_uso' &&
+      request.resource.data.aceito_em == request.time;
     allow delete: if false;
   }
 
