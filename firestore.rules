@@ -178,6 +178,26 @@ service cloud.firestore {
       getAfter(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)).data.revisao == request.resource.data.versao;
     allow update,delete: if false;
   }
+  // Frequência declaratória: carimbos de entrada/saída são definidos pelo servidor.
+  // Não substitui homologação administrativa da jornada funcional.
+  match /frequencias/{id} {
+    allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
+    allow create: if specialistIn(request.resource.data.escola_id) &&
+      request.resource.data.keys().hasOnly(['uid','escola_id','vinculo_id','entrada','saida','status','dia']) &&
+      request.resource.data.uid == request.auth.uid &&
+      linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
+      id == request.auth.uid + '_' + request.resource.data.escola_id + '_' + request.resource.data.dia &&
+      request.resource.data.entrada == request.time &&
+      request.resource.data.saida == null &&
+      request.resource.data.status == 'aberta';
+    allow update: if specialist() && resource.data.uid == request.auth.uid &&
+      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['saida','status']) &&
+      resource.data.status == 'aberta' &&
+      resource.data.saida == null &&
+      request.resource.data.saida == request.time &&
+      request.resource.data.status == 'fechada';
+    allow delete: if false;
+  }
   match /{document=**} { allow read,write: if false; }
  }
 }
