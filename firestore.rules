@@ -85,9 +85,55 @@ service cloud.firestore {
       request.resource.data.aluno_id == resource.data.aluno_id;
   }
 
+  // Pré-autorização pela gestão. O convite somente é consumido por uma
+  // conta Google com e-mail verificado igual ao e-mail autorizado.
+  function convitePath() {
+    return /databases/$(database)/documents/convites_usuarios/$(request.auth.token.email);
+  }
+  function conviteAprovado(d) {
+    let c = get(convitePath()).data;
+    return request.auth.token.email_verified == true &&
+      request.auth.token.firebase.sign_in_provider == 'google.com' &&
+      exists(convitePath()) &&
+      c.ativo == true &&
+      c.email == request.auth.token.email &&
+      c.perfil == 'especialista' &&
+      c.escolas is list &&
+      c.escolas.size() > 0 &&
+      d.perfil == c.perfil &&
+      d.escolas == c.escolas &&
+      d.ativo == true &&
+      d.gerenciar == false;
+  }
+  match /convites_usuarios/{email} {
+    allow get: if manage() ||
+      (logged() && request.auth.token.email_verified == true &&
+       request.auth.token.firebase.sign_in_provider == 'google.com' &&
+       request.auth.token.email == email);
+    allow list: if manage();
+    allow create,update: if manage() &&
+      request.resource.data.keys().hasOnly([
+        'nome','email','perfil','escolas','ativo','criado_por','criado_em'
+      ]) &&
+      request.resource.data.email == email &&
+      request.resource.data.nome is string &&
+      request.resource.data.nome.size() >= 3 &&
+      request.resource.data.nome.size() <= 180 &&
+      request.resource.data.email is string &&
+      request.resource.data.email.size() <= 180 &&
+      request.resource.data.perfil == 'especialista' &&
+      request.resource.data.escolas is list &&
+      request.resource.data.escolas.size() > 0 &&
+      request.resource.data.escolas.size() <= 100 &&
+      request.resource.data.ativo is bool &&
+      request.resource.data.criado_por is string &&
+      request.resource.data.criado_por == (resource == null ? request.auth.uid : resource.data.criado_por) &&
+      (resource != null || request.resource.data.criado_em == request.time) &&
+      (resource == null || request.resource.data.criado_em == resource.data.criado_em);
+    allow delete: if false;
+  }
   match /usuarios/{uid} {
-    // Especialistas podem consultar pontualmente a conta de colegas ativos
-    // da mesma escola para vincular agendamentos e preparar avisos, sem listagem geral.
+    // Especialistas podem consultar pontualmente colegas ativos da mesma escola.
     allow get: if logged() && (uid == request.auth.uid || manage() ||
       (specialist() && resource.data.ativo == true &&
        resource.data.perfil == 'especialista' &&
@@ -95,11 +141,14 @@ service cloud.firestore {
     allow list: if manage();
     allow create: if logged() && uid == request.auth.uid &&
       request.resource.data.keys().hasOnly(['nome','email','ativo','perfil','escolas','gerenciar','criado_em']) &&
-      request.resource.data.perfil == 'pendente' &&
-      request.resource.data.ativo == false &&
-      request.resource.data.gerenciar == false &&
-      request.resource.data.escolas == [] &&
-      request.resource.data.email == request.auth.token.email;
+      request.resource.data.email == request.auth.token.email &&
+      (
+       (request.resource.data.perfil == 'pendente' &&
+        request.resource.data.ativo == false &&
+        request.resource.data.gerenciar == false &&
+        request.resource.data.escolas == []) ||
+       conviteAprovado(request.resource.data)
+      );
     allow update: if admin() &&
       (uid != request.auth.uid || (request.resource.data.perfil == 'superadmin' && request.resource.data.ativo == true));
     allow update: if seduc() && me().get('gerenciar',false) == true &&
