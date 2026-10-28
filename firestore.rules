@@ -195,10 +195,7 @@ service cloud.firestore {
   // Informações escolares sensíveis ficam fora do cadastro geral de alunos.
   // A direção escolar não pode acessar esta coleção.
   match /alunos_necessidades/{id} {
-    allow get,list: if admin() ||
-      (specialistIn(resource.data.escola_id) &&
-        exists(/databases/$(database)/documents/alunos/$(id)) &&
-        get(/databases/$(database)/documents/alunos/$(id)).data.escola_id == resource.data.escola_id);
+    allow get,list: if admin() || specialistIn(resource.data.escola_id);
     allow create: if admin() &&
       request.resource.data.keys().hasOnly([
         'aluno_id','escola_id','turma','registro_escolar','ano_letivo',
