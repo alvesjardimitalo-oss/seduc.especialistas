@@ -311,3 +311,33 @@ code{background:#eef5f7;color:#375568;padding:3px 6px;border-radius:5px;overflow
 .privacy-tutorial .privacy-list{max-height:none;background:#f5fcfa}
 .privacy-storage-warning{margin:0 0 20px}
 @media(max-width:640px){#back>.modal:has(.cadastro-secao){padding:19px 17px}.cadastro-cep{grid-template-columns:1fr}.cadastro-cep>button{width:100%}.privacy-list{max-height:43vh}.privacy-actions>.btn{flex:1}}
+
+/* Agenda interativa e histórico de auditoria: sem consulta extra ao navegar nos meses. */
+.agenda-calendar{overflow:hidden;padding:23px;margin-bottom:16px}
+.agenda-calendar-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.agenda-calendar-header h3{font-size:21px;margin:3px 0 4px}
+.agenda-calendar-header p{font-size:11px;margin:0;max-width:460px}
+.agenda-calendar-actions{display:flex;align-items:center;gap:10px}
+.agenda-calendar-actions strong{font-size:13px;text-transform:capitalize;min-width:130px;text-align:center;color:#214657}
+.agenda-calendar-actions .btn{min-height:35px;width:35px;padding:3px;font-size:21px}
+.agenda-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px}
+.agenda-weekday{text-align:center;padding:9px 2px;color:#8193a3;font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.04em}
+.agenda-calendar-spacer{min-height:62px}
+.agenda-calendar-day{display:flex;align-items:flex-start;justify-content:space-between;gap:3px;text-align:left;min-height:62px;padding:10px;border:1px solid #e6eef1;border-radius:10px;background:#fafcfd;color:#294658;font-size:12px;font-weight:750}
+.agenda-calendar-day:hover{background:#f0faf7;border-color:#99d9cc}
+.agenda-calendar-day.today{border-color:#69bcae}
+.agenda-calendar-day.selected{background:#0e897b;border-color:#0e897b;color:white;box-shadow:0 5px 12px #09968728}
+.agenda-calendar-day small{display:grid;place-items:center;flex:none;min-width:20px;height:20px;padding:0 4px;border-radius:7px;background:#dff2ee;color:#177b73;font-size:10px}
+.agenda-calendar-day.selected small{background:#ffffff40;color:white}
+.agenda-calendar-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:15px;margin-top:17px;border-top:1px solid #edf1f4;color:#7990a1;font-size:11px}
+.agenda-calendar-footer .btn{min-height:35px}
+.agenda-main-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.agenda-active-user{margin-left:auto;color:#667e8b;font-size:11px;background:#e9f7f3;padding:9px 12px;border-radius:9px}
+.appointment-audit{border-top:1px solid #e5ecef;padding-top:17px;margin-top:18px}
+.appointment-audit h3{font-size:13px;color:#365364}
+.audit-event{display:flex;gap:12px;align-items:flex-start;padding:11px 4px;border-bottom:1px solid #f0f3f5}
+.audit-event-mark{display:block;flex:none;width:8px;height:8px;border-radius:100%;background:#0c9b8b;box-shadow:0 0 0 4px #def5ee;margin:6px 2px}
+.audit-event>div{display:flex;flex-direction:column;gap:3px}
+.audit-event strong{font-size:12px;color:#254151}
+.audit-event small{font-size:10px;color:#8797a2}
+@media(max-width:640px){.agenda-calendar{padding:13px}.agenda-calendar-day{min-height:47px;padding:7px 5px;border-radius:7px;font-size:11px;flex-direction:column}.agenda-calendar-day small{font-size:9px;height:15px;min-width:15px}.agenda-calendar-grid{gap:4px}.agenda-calendar-spacer{min-height:47px}.agenda-calendar-actions{width:100%;justify-content:space-between}.agenda-active-user{margin-left:0;width:100%}}
