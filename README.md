@@ -7,7 +7,8 @@ Sistema Municipal de Atendimentos Especializados da Rede Municipal de Ensino de 
 ## O que já existe no MVP
 - Interface baseada na identidade visual do SISDIFI (projeto e dados independentes).
 - Login Google com contas pendentes até aprovação.
-- Escolas, profissionais, vínculos e jornadas de trabalho.
+- Escolas, quadro de servidores importados, fichas profissionais, vínculos e jornadas de trabalho.
+- A aba **Profissionais** reúne os servidores importados e as fichas de especialistas em uma única lista. Servidores importados não recebem automaticamente permissão de atendimento.
 - Cadastro, edição e arquivamento de alunos sem apagar registros históricos.
 - Agenda com reservas atômicas de 30 ou 60 minutos, verificação da jornada no Firestore e cancelamento com liberação de horários.
 - Atendimento imediato com data/hora automática, texto de até 1.000 caracteres e histórico.
