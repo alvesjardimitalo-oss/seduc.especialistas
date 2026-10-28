@@ -85,3 +85,15 @@ npm run test:rules
 4. Ao entrar com Google pela primeira vez, uma pessoa ainda não aprovada aparece como `pendente`, com seu UID visível na tela. O acesso aos cadastros continua bloqueado.
 5. Confirme a identidade do administrador e altere **manualmente apenas seu documento** para `perfil: superadmin` e `ativo: true`. O primeiro visitante nunca recebe administração automaticamente.
 6. Cadastre apenas as escolas e usuários fictícios para testar telas e permissões; não inclua dados de crianças neste estágio.
+
+## 10. Quadro de servidores 2026 (importação local e privada)
+A planilha de funcionários por escola de 2026 foi convertida para um JSON privado com **248 servidores e 6 instituições**, não enviado ao GitHub. A instituição **Wilma Glória** é corretamente classificada como **Creche Municipal Wilma Glória Nunes Mourão** (79 servidores), mesmo que a planilha a chame de escola ou ensino infantil. A **Creche Sebastiana Duarte Cabral** é a sexta instituição (19 servidores). O nome original da instituição permanece registrado no campo `escola_origem`, mas o vínculo aponta ao cadastro normalizado da creche.
+
+Com conta `superadmin` ou de Secretaria com delegação de gestão:
+1. Atualize a versão de testes da branch `feature/mvp-especialistas`; confirme a publicação das regras `firestore.rules` mais recentes no Firestore, pois as novas coleções só serão autorizadas após a publicação dessas regras.
+2. Acesse **Escolas → Adicionar escolas iniciais**. Serão criadas as seis instituições; as duas creches receberão `tipo: "creche"`. Para creche Wilma Glória já criada com ID correto, a função também ajusta seu tipo.
+3. Acesse **Servidores → Importar arquivo de servidores (JSON)**; selecione o arquivo privado `seduc_servidores_2026_importacao_revisada.json` entregue fora do repositório.
+4. Revise a contagem exibida (248 servidores; 79 na Wilma Glória) e confirme. A importação usa lotes pequenos com documentos de ID estável, pula servidores já existentes e separa o nome/cargo dos contatos `servidores_privado`.
+5. Se houver erro de conexão, selecione o mesmo arquivo novamente; os registros existentes serão preservados e serão inseridos somente os faltantes.
+
+**Segurança:** a importação **não cria contas Google**, não concede privilégios e não transforma todo servidor escolar em especialista de atendimento. A agenda profissional continua exigindo um vínculo cadastrado à parte e liberação de acesso. Nomes e telefones de servidores não podem ser armazenados no GitHub público. A planilha enviada contém funcionários, **não alunos**; a importação de alunos dependerá de outro arquivo, revisão jurídica/LGPD e homologação de acesso.
