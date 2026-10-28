@@ -390,3 +390,13 @@ code{background:#eef5f7;color:#375568;padding:3px 6px;border-radius:5px;overflow
 .jornada-summary strong{font-size:19px;color:#146a63}
 .jornada-summary small{font-size:11px;color:#5c8580}
 @media(max-width:660px){#back>.modal:has(.jornada-editor){padding:16px}.jornada-heading{flex-direction:column;align-items:flex-start}.jornada-tools{width:100%}.jornada-turno{gap:7px}.jornada-days{gap:7px}.jornada-day{padding:12px}}
+
+/* Pré-autorização de profissionais por e-mail verificado. */
+.users-onboarding{display:flex;align-items:center;justify-content:space-between;gap:18px;border:1px solid #cde8e1;background:linear-gradient(115deg,#f0fbf7,#fff)}
+.users-onboarding h2{margin:5px 0 9px;font-size:19px;letter-spacing:-.02em;color:#214251}
+.users-onboarding p{font-size:12px;color:#6c8392;line-height:1.7;max-width:610px;margin:0}
+.users-onboarding .actions{flex:none}
+.school-permission-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0;padding:15px;border:1px solid #dce9ea;border-radius:12px;background:#f8fcfc;max-height:250px;overflow-y:auto}
+.school-permission-list .check-school{display:flex;align-items:flex-start;gap:9px;margin:0;padding:9px;border:1px solid #e2eded;border-radius:9px;background:#fff;font-size:12px;line-height:1.5}
+.school-permission-list input[type=checkbox]{flex:none;width:17px;height:17px;min-width:17px;margin:0;accent-color:#0b837b}
+@media(max-width:740px){.users-onboarding{flex-direction:column;align-items:flex-start}.users-onboarding .actions{width:100%}.users-onboarding .actions .btn{width:100%}.school-permission-list{grid-template-columns:1fr}}
