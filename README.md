@@ -9,7 +9,8 @@ Sistema Municipal de Atendimentos Especializados da Rede Municipal de Ensino de 
 - Login Google com contas pendentes até aprovação.
 - Escolas, profissionais, vínculos e jornadas de trabalho.
 - Cadastro, edição e arquivamento de alunos sem apagar registros históricos.
-- Agendamentos, atendimentos com 1.000 caracteres e histórico.
+- Agenda com reservas atômicas de 30 ou 60 minutos, verificação da jornada no Firestore e cancelamento com liberação de horários.
+- Atendimento imediato com data/hora automática, texto de até 1.000 caracteres e histórico.
 - Notas privadas com versões de edição, frequência declaratória e relatórios agregados.
 - Gestão de permissões, inclusive delegação para a Secretaria da Educação.
 
@@ -23,4 +24,4 @@ Consulte o [guia de implantação e homologação](docs/IMPLANTACAO-MVP.md) e a 
 ## Testes de desenvolvimento
 O GitHub Actions executa validações de sintaxe, regras de negócio e permissões com dados fictícios no emulador Firestore.
 
-> **LGPD:** nunca adicionar aqui CPF, filiação, endereço de alunos, dados de saúde, contas de serviço ou credenciais administrativas. O repositório é público apenas para código. Ainda faltam validações de jornada/agendamento no backend e revisão formal de segurança antes da produção.
+> **LGPD:** nunca adicionar aqui CPF, filiação, endereço de alunos, dados de saúde, contas de serviço ou credenciais administrativas. O repositório é público apenas para código. A sobreposição e a jornada dos agendamentos já são verificadas no Firestore. Ainda faltam revisão formal de segurança, auditoria de acessos, tratamento de afastamentos e validação de atendimentos imediatos antes da produção.
