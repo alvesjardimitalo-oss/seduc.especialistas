@@ -463,9 +463,7 @@ service cloud.firestore {
       validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
       vinculoAgendamento(request.resource.data.vinculo_id,request.resource.data.escola_id,request.resource.data.autor_uid) &&
       jornadaAutorizada(request.resource.data.vinculo_id,request.resource.data.inicio,request.resource.data.duracao_min) &&
-      // Gestores confirmam a reserva na transação: locks validam o agendamento.
-      // Evita avaliação circular getAfter(agendamento) <-> getAfter(slot).
-      (manage() || appointmentHasSlots(id,request.resource.data,'reservado')) &&
+      appointmentHasSlots(id,request.resource.data,'reservado') &&
       (!request.resource.data.keys().hasAny(['remarcado_de']) ||
         (request.resource.data.remarcado_de is string &&
           request.resource.data.remarcado_de != id &&
@@ -537,15 +535,23 @@ service cloud.firestore {
     allow list: if false;
     allow create: if (specialistIn(request.resource.data.escola_id) || manage()) &&
       request.resource.data.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
-      (
-        request.resource.data.autor_uid == request.auth.uid ||
-        (manage() && existsAfter(appointmentPath(request.resource.data.agendamento_id)) &&
-          getAfter(appointmentPath(request.resource.data.agendamento_id)).data.get('agendado_por_uid','') == request.auth.uid)
-      ) &&
       request.resource.data.inicio is timestamp &&
-      id == request.auth.uid + '_' + string(request.resource.data.inicio.toMillis()) &&
+      id == request.resource.data.autor_uid + '_' + string(request.resource.data.inicio.toMillis()) &&
       request.resource.data.status == 'reservado' &&
-      validSlotBooking(request.resource.data);
+      (
+        (request.resource.data.autor_uid == request.auth.uid &&
+          specialistIn(request.resource.data.escola_id) &&
+          validSlotBooking(request.resource.data))
+        ||
+        // Gestores autorizados só reservam horários para especialistas ativos.
+        // A integridade do vínculo agendamento/slot é exigida no documento
+        // de agendamento, evitando consulta recursiva ao getAfter.
+        (manage() &&
+          get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.ativo == true &&
+          get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.perfil == 'especialista' &&
+          request.resource.data.escola_id in
+           get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.get('escolas', []))
+      );
     allow update: if specialist() && resource.data.autor_uid == request.auth.uid &&
       id == request.auth.uid + '_' + string(resource.data.inicio.toMillis()) &&
       (
