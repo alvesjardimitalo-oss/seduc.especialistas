@@ -1,4 +1,5 @@
 import {firebaseConfig} from './firebase-config.js';
+import {conferirImportacao,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
@@ -6,11 +7,11 @@ import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,write
 
 const root=document.getElementById('app');
 const configured=firebaseConfig.projectId==='seduc-especialistas' && firebaseConfig.authDomain==='seduc-especialistas.firebaseapp.com' && !Object.values(firebaseConfig).some(v=>!v||String(v)==='CONFIGURAR');
-const schoolNames=['Escola Municipal Doutor João de Souza Lima','Escola Municipal Professora Terezinha Sarmento de Oliveira','Creche Municipal Wilma Glória Nunes Mourão','Escola Municipal Prefeito José Pedro da Silva','Escola Municipal Monteiro Lobato'];
+const schoolNames=['Escola Municipal Doutor João de Souza Lima','Escola Municipal Professora Terezinha Sarmento de Oliveira','Creche Municipal Wilma Glória Nunes Mourão','Escola Municipal Prefeito José Pedro da Silva','Escola Municipal Monteiro Lobato','Creche Sebastiana Duarte Cabral'];
 const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formatDate=x=>{if(!x)return '—';const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR')};
 const dataMs=x=>{if(!x)return 0;const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?0:d.getTime()};
-let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[]};
+let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[]};
 const canManage=()=>profile?.perfil==='superadmin'||(profile?.perfil==='secretaria'&&profile?.gerenciar===true);
 const canWrite=()=>profile?.perfil==='especialista';
 const mySchools=()=>profile?.perfil==='superadmin'||profile?.perfil==='secretaria'?cache.escolas:cache.escolas.filter(e=>(profile?.escolas||[]).includes(e.id));
@@ -42,11 +43,11 @@ async function refresh(){
  const manager=canManage();
  const schools=(manager||profile.perfil==='secretaria')?(await getDocs(collection(db,'escolas'))).docs.map(d=>({id:d.id,...d.data()})):(await Promise.all((profile.escolas||[]).map(async id=>{try{const s=await getDoc(doc(db,'escolas',id));return s.exists()?{id:s.id,...s.data()}:null}catch{return null}}))).filter(Boolean);
  const ids=schools.map(x=>x.id);
- const out={escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[]};
+ const out={escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[]};
  for(const key of Object.keys(out).filter(x=>x!=='escolas')){
   try{
    if(manager){const r=await getDocs(collection(db,key));out[key]=r.docs.map(d=>({id:d.id,...d.data()}));continue}
-   if(key==='profissionais'||key==='usuarios'||(key==='notas_atendimento'&&profile.perfil!=='especialista')){continue}
+   if(key==='profissionais'||key==='usuarios'||key==='servidores'||(key==='notas_atendimento'&&profile.perfil!=='especialista')){continue}
    // Firestore rules don't filter query results. Restrict every read to authorized school IDs.
    for(let i=0;i<ids.length;i+=10){
     const chunk=ids.slice(i,i+10);if(!chunk.length)continue;
@@ -59,16 +60,24 @@ async function refresh(){
  cache=out;
  for(const a of cache.atendimentos){a.texto=cache.notas_atendimento.find(n=>n.id===a.id)?.texto||''}
 }
-function layout(content){const items=['Painel','Escolas','Profissionais','Alunos','Agenda','Atendimentos','Frequência','Relatórios'];if(canManage())items.push('Usuários');root.innerHTML='<div class="shell"><aside class="side"><div class="brand">SEDUC Especialistas<small>Rede Municipal de Ensino</small></div><nav class="menu">'+items.map(n=>'<button class="'+(tab===n?'active':'')+'" data-tab="'+safe(n)+'">'+safe(n)+'</button>').join('')+'</nav></aside><section><div class="homolog-notice">AMBIENTE DE TESTES — NÃO INSERIR DADOS REAIS DE ALUNOS</div><header class="top"><span>'+safe(tab)+'</span><span>'+safe(profile.nome||user.email)+' &nbsp; <button class="btn secondary" id="logout">Sair</button></span></header><main class="body">'+content+'</main></section></div>';document.getElementById('logout').onclick=()=>signOut(auth);document.querySelectorAll('[data-tab]').forEach(n=>n.onclick=()=>{tab=n.dataset.tab;render()})}
+function layout(content){const items=['Painel','Escolas','Profissionais','Alunos','Agenda','Atendimentos','Frequência','Relatórios'];if(canManage())items.push('Servidores','Usuários');root.innerHTML='<div class="shell"><aside class="side"><div class="brand">SEDUC Especialistas<small>Rede Municipal de Ensino</small></div><nav class="menu">'+items.map(n=>'<button class="'+(tab===n?'active':'')+'" data-tab="'+safe(n)+'">'+safe(n)+'</button>').join('')+'</nav></aside><section><div class="homolog-notice">AMBIENTE DE TESTES — NÃO INSERIR DADOS REAIS DE ALUNOS</div><header class="top"><span>'+safe(tab)+'</span><span>'+safe(profile.nome||user.email)+' &nbsp; <button class="btn secondary" id="logout">Sair</button></span></header><main class="body">'+content+'</main></section></div>';document.getElementById('logout').onclick=()=>signOut(auth);document.querySelectorAll('[data-tab]').forEach(n=>n.onclick=()=>{tab=n.dataset.tab;render()})}
 function title(name,subtitle){return '<h1>'+name+'</h1><p class="sub">'+subtitle+'</p>'}
 function table(headers,rows){return '<div class="card tablewrap"><table><thead><tr>'+headers.map(x=>'<th>'+safe(x)+'</th>').join('')+'</tr></thead><tbody>'+(rows.length?rows.join(''):'<tr><td colspan="'+headers.length+'" class="muted">Nenhum registro encontrado.</td></tr>')+'</tbody></table></div>'}
 function render(){if(!profile?.ativo)return;let html=title(tab,'Acompanhamento de atendimentos especializados');const students=cache.alunos;const appointments=cache.agendamentos;const visits=cache.atendimentos;if(tab==='Painel'){html+='<div class="grid">'+[['Alunos cadastrados',students.length],['Atendimentos realizados',visits.filter(x=>x.status!=='cancelado').length],['Agendamentos',appointments.filter(x=>x.status==='agendado').length],['Instituições',mySchools().length]].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div>';if(canWrite())html+='<div class="actions"><button class="btn" data-action="atendimento">+ Atendimento imediato</button><button class="btn secondary" data-action="agendar">Agendar consulta</button></div>';html+='<div class="card"><h3>Últimos atendimentos</h3>'+history(visits.slice().sort((a,b)=>dataMs(b.data)-dataMs(a.data)).slice(0,10))+'</div>'}
 if(tab==='Escolas'){
  if(canManage())html+='<div class="actions"><button class="btn" data-action="escola">+ Cadastrar escola</button><button class="btn secondary" id="seed-schools">Adicionar escolas iniciais</button></div>';
- html+=table(['Instituição','INEP','Telefone','Endereço','Ações'],mySchools().map(x=>'<tr><td>'+safe(x.nome)+'</td><td>'+safe(x.inep)+'</td><td>'+safe(x.telefone)+'</td><td>'+safe(x.endereco)+'</td><td>'+(canManage()?'<button class="btn secondary" data-edit-escola="'+safe(x.id)+'">Editar</button>':'—')+'</td></tr>'));
+ html+=table(['Instituição','Tipo','INEP','Telefone','Endereço','Ações'],mySchools().map(x=>'<tr><td>'+safe(x.nome)+'</td><td>'+safe(x.tipo==='creche'?'Creche':'Escola')+'</td><td>'+safe(x.inep)+'</td><td>'+safe(x.telefone)+'</td><td>'+safe(x.endereco)+'</td><td>'+(canManage()?'<button class="btn secondary" data-edit-escola="'+safe(x.id)+'">Editar</button>':'—')+'</td></tr>'));
  if(!cache.escolas.length&&canManage())html+='<div class="alert">Cadastre as escolas. Os nomes iniciais sugeridos estão disponíveis no formulário.</div>';
 }
 if(tab==='Profissionais'){if(canManage())html+='<div class="actions"><button class="btn" data-action="profissional">+ Cadastrar profissional</button><button class="btn secondary" data-action="vinculo">+ Adicionar vínculo</button></div>';html+=table(['Nome','Especialidade','Escolas / cargo'],cache.profissionais.map(p=>'<tr><td>'+safe(p.nome)+'</td><td>'+safe(p.especialidade)+'</td><td>'+cache.vinculos.filter(v=>v.profissional_id===p.id).map(v=>safe(schoolName(v.escola_id))+' · '+safe(v.cargo)+' ('+safe(v.jornada)+')').join('<br>')+'</td></tr>'))}
+if(tab==='Servidores'&&canManage()){
+ html+='<div class="alert">Quadro de servidores da Educação. Estes cadastros não concedem acesso ao sistema nem criam agenda profissional.</div>';
+ html+='<div class="actions"><button class="btn" id="importar-servidores">Importar arquivo de servidores (JSON)</button></div>';
+ const total=cache.servidores.length;
+ html+='<div class="grid"><div class="metric"><span>Servidores cadastrados</span><b>'+total+'</b></div><div class="metric"><span>Creche Wilma Glória</span><b>'+cache.servidores.filter(x=>x.escola_id==='creche-wilma-gloria').length+'</b></div></div>';
+ html+=table(['Servidor','Cargo/Função','Instituição','Ano'],cache.servidores.slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(x=>
+ '<tr><td>'+safe(x.nome)+'</td><td>'+safe(x.cargo)+'</td><td>'+safe(schoolName(x.escola_id))+'</td><td>'+safe(x.ano)+'</td></tr>'));
+}
 if(tab==='Alunos'){
  if(canWrite()||canManage())html+='<div class="actions"><button class="btn" data-action="aluno">+ Cadastrar aluno</button></div>';
  html+=table(['Aluno','Nascimento','Escola','Situação','Ações'],students.map(a=>
@@ -105,7 +114,7 @@ if(tab==='Relatórios'){
  html+='<div class="card"><p class="muted">Os relatórios apresentam quantidades, sem divulgar CPF, filiação ou observações confidenciais. Filtros por período, profissional e especialidade serão incluídos na etapa de homologação.</p></div>';
 }
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
-layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools}
+layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores}
 function history(records){return records.length?records.map(a=>'<details class="history" data-visit="'+safe(a.id)+'" data-student="'+safe(a.aluno_id)+'"><summary><b>'+safe(cache.alunos.find(s=>s.id===a.aluno_id)?.nome||'Aluno')+'</b> · '+safe(formatDate(a.data))+' · '+safe(a.autor_nome||professionalName(a.autor_uid))+' <span class="badge">'+safe(a.status||'realizado')+'</span></summary><p style="white-space:pre-wrap">'+((profile.perfil==='especialista'||profile.perfil==='superadmin')?safe(a.texto):'<em>Observações restritas aos especialistas autorizados.</em>')+'</p><small>'+safe(a.especialidade||'Atendimento especializado')+'</small>'+(a.autor_uid===user.uid||profile.perfil==='superadmin'?'<p><button class="btn secondary" data-edit="'+safe(a.id)+'">Editar / cancelar</button></p>':'')+'</details>').join(''):'<p class="muted">Ainda não há atendimentos registrados.</p>'}
 function field(name,label,type='text',extra=''){return '<label>'+label+'<input name="'+name+'" type="'+type+'" '+extra+'></label>'}
 function select(name,label,options){return '<label>'+label+'<select name="'+name+'" required><option value="">Selecione</option>'+options.map(([id,n])=>'<option value="'+safe(id)+'">'+safe(n)+'</option>').join('')+'</select></label>'}
@@ -168,7 +177,7 @@ function openForm(kind){
   });
   return;
  }
- if(kind==='escola'){modal('Cadastrar escola',select('nome','Nome da instituição',schoolNames.map(n=>[n,n]))+field('inep','Código INEP')+field('telefone','Telefone')+field('endereco','Endereço')+field('email','E-mail','email'),d=>addDoc(collection(db,'escolas'),d));return}
+ if(kind==='escola'){modal('Cadastrar escola',select('nome','Nome da instituição',schoolNames.map(n=>[n,n]))+field('inep','Código INEP')+field('telefone','Telefone')+field('endereco','Endereço')+field('email','E-mail','email')+select('tipo','Tipo da instituição',[['escola','Escola'],['creche','Creche']]),d=>addDoc(collection(db,'escolas'),d));return}
 if(kind==='profissional'){modal('Cadastrar profissional',field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date')+field('cpf','CPF (quando necessário)')+field('telefone','Telefone')+field('endereco','Endereço')+field('especialidade','Especialidade')+field('email','E-mail','email')+field('uid','UID do usuário Google (após aprovação)'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'profissionais'));const batch=writeBatch(db);const {cpf,telefone,endereco,nascimento,email,...base}=d;batch.set(id,{...base,uid:d.uid||'',escolas:[]});batch.set(doc(db,'profissionais_privado',id.id),{cpf,telefone,endereco,nascimento,email});await batch.commit()});return}
 if(kind==='vinculo'){modal('Vincular profissional',select('profissional_id','Profissional',cache.profissionais.map(p=>[p.id,p.nome]))+schoolSelect()+field('cargo','Cargo','text','required')+field('jornada','Jornada semanal (ex.: 20 horas)')+field('uid','UID do usuário Google da profissional','text','required')+field('horarios_texto','Dias e horários (ex.: 1 08:00-12:00; 3 13:00-17:00)','text','required'),async d=>{const horarios=lerHorarios(d.horarios_texto);delete d.horarios_texto;await addDoc(collection(db,'vinculos'),{...d,horarios,slots_semana:gerarSlotsSemana(horarios),ativo:true})});return}
 if(kind==='aluno'){modal('Cadastrar aluno',schoolSelect()+field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date','required')+field('cpf','CPF (quando necessário)')+field('matricula','Matrícula')+field('filiacao','Filiação / responsável')+field('telefone','Telefone do responsável')+field('endereco','Endereço'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'alunos'));const batch=writeBatch(db);const {cpf,filiacao,telefone,endereco,...base}=d;batch.set(id,{...base,criado_por:user.uid,ativo:true});batch.set(doc(db,'alunos_privado',id.id),{cpf,filiacao,telefone,endereco,escola_id:d.escola_id,criado_por:user.uid});await batch.commit()});return}
@@ -182,14 +191,64 @@ if(kind==='atendimento'||kind==='agendar'){if(!cache.alunos.length){alert('Cadas
    if(!isAgenda){entrada.readOnly=true;entrada.title='Hora efetiva do registro será definida ao salvar';}
  }
  return}}
+function abrirImportadorServidores(){
+ if(!canManage())return;
+ const conteudo='<p>Selecione o JSON privado de importação revisada. Nenhum dado é enviado ao GitHub. A gravação só ocorrerá depois da sua confirmação.</p>'+
+ '<label>Arquivo de servidores 2026 (.json)<input type="file" id="arquivo-servidores" accept=".json,application/json"></label>'+
+ '<p class="muted" id="import-status">Aguardando seleção do arquivo.</p>'+
+ '<button type="button" class="btn" id="confirmar-importacao" disabled>Importar no Firestore</button>';
+ document.body.insertAdjacentHTML('beforeend','<div class="modalback" id="import-back"><div class="modal"><button type="button" class="btn secondary close" id="fechar-importacao">Fechar</button><h2>Importação de servidores</h2>'+conteudo+'</div></div>');
+ const back=document.getElementById('import-back'),status=document.getElementById('import-status'),botao=document.getElementById('confirmar-importacao');
+ const close=()=>back.remove();document.getElementById('fechar-importacao').onclick=close;
+ let verificado=null;
+ document.getElementById('arquivo-servidores').onchange=async ev=>{
+  verificado=null;botao.disabled=true;
+  const file=ev.target.files?.[0];if(!file)return;
+  if(file.size>3_000_000){status.textContent='Arquivo acima do limite de 3 MB.';return}
+  try{
+   const data=JSON.parse(await file.text());
+   verificado=conferirImportacao(data);
+   const escolasAusentes=verificado.escolas.filter(e=>!cache.escolas.some(s=>s.id===e.id));
+   if(escolasAusentes.length)throw Error('Antes de importar, cadastre as seis instituições pela opção Escolas → Adicionar escolas iniciais. Faltam: '+escolasAusentes.map(x=>x.nome).join('; '));
+   status.textContent='Arquivo validado: '+verificado.total+' servidores; '+(verificado.contagens['creche-wilma-gloria']||0)+' vinculados à Creche Wilma Glória. Nenhum aluno incluído. Registros existentes serão preservados.';
+   botao.disabled=false;
+  }catch(err){status.textContent='Não foi possível validar: '+err.message}
+ };
+ botao.onclick=async()=>{
+  if(!verificado||!canManage())return;
+  if(!confirm('Confirmar importação de '+verificado.total+' servidores ao Firestore? Os cadastros existentes serão preservados.'))return;
+  botao.disabled=true;
+  try{
+   const atuais=await getDocs(collection(db,'servidores'));
+   const ids=new Set(atuais.docs.map(d=>d.id));
+   const novos=verificado.registros.filter(x=>!ids.has(x.id));
+   if(!novos.length){status.textContent='Todos os servidores deste arquivo já estão cadastrados.';return}
+   // Lotes pequenos: Firestore limita acessos a documentos nas regras de operações agrupadas.
+   for(let i=0;i<novos.length;i+=6){
+    const batch=writeBatch(db),bloco=novos.slice(i,i+6);
+    for(const linha of bloco){
+     batch.set(doc(db,'servidores',linha.id),linha.publico);
+     batch.set(doc(db,'servidores_privado',linha.id),linha.privado);
+    }
+    await batch.commit();
+    status.textContent='Importados '+Math.min(i+6,novos.length)+' de '+novos.length+' novos servidores...';
+   }
+   status.textContent='Concluído: '+novos.length+' novos servidores; '+(verificado.total-novos.length)+' já existentes. Dados protegidos no Firestore.';
+   await refresh();
+   alert('Importação concluída. '+novos.length+' novos servidores foram cadastrados.');
+   close();render();
+  }catch(e){status.textContent='Importação interrompida: '+e.message+' Para retomar, selecione o mesmo arquivo e tente novamente.';botao.disabled=false}
+ };
+}
 async function seedSchools(){
  if(!canManage())return;
- if(!confirm('Adicionar as cinco escolas iniciais sem inventar endereço, telefone ou INEP?'))return;
- const ids=['doutor-joao-souza-lima','professora-terezinha-sarmento','creche-wilma-gloria','prefeito-jose-pedro','monteiro-lobato'];
+ if(!confirm('Adicionar as seis instituições iniciais sem inventar endereço, telefone ou INEP?'))return;
+ const ids=['doutor-joao-souza-lima','professora-terezinha-sarmento','creche-wilma-gloria','prefeito-jose-pedro','monteiro-lobato','creche-sebastiana-duarte-cabral'];
  const batch=writeBatch(db);
  for(let i=0;i<schoolNames.length;i++){
   const found=cache.escolas.some(e=>e.nome===schoolNames[i]||e.id===ids[i]);
-  if(!found)batch.set(doc(db,'escolas',ids[i]),{nome:schoolNames[i],inep:'',telefone:'',endereco:'',email:''});
+  if(!found && cache.escolas.some(e=>e.nome.toLowerCase().includes(i===2?'wilma glória':i===5?'sebastiana duarte':'[nenhum outro similar]')))throw Error('Já existe cadastro semelhante de creche com identificador diferente. Corrija antes de criar outro.');
+  if(!found)batch.set(doc(db,'escolas',ids[i]),{nome:schoolNames[i],tipo:i===2||i===5?'creche':'escola',inep:'',telefone:'',endereco:'',email:''});
  }
  try{await batch.commit();await refresh();render()}catch(e){showError(e)}
 }
@@ -203,9 +262,9 @@ async function editSchool(id){
  const s=cache.escolas.find(e=>e.id===id);if(!s)return;
  modal('Cadastro da instituição',field('nome','Nome oficial','text','required')+
   field('inep','Código INEP')+field('telefone','Telefone')+field('endereco','Endereço')+
-  field('email','E-mail institucional','email'),async d=>{await updateDoc(doc(db,'escolas',id),d)});
+  field('email','E-mail institucional','email')+select('tipo','Tipo da instituição',[['escola','Escola'],['creche','Creche']]),async d=>{await updateDoc(doc(db,'escolas',id),d)});
  const form=document.getElementById('entry');
- for(const key of ['nome','inep','telefone','endereco','email'])form.elements.namedItem(key).value=s[key]||'';
+ for(const key of ['nome','inep','telefone','endereco','email','tipo'])form.elements.namedItem(key).value=s[key]||(key==='tipo'?'escola':'');
 }
 async function editStudent(id){
  if(!(canManage()||canWrite()))return;
