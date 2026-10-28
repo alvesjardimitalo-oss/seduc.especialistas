@@ -227,8 +227,8 @@ function abrirImportadorServidores(){
    for(let i=0;i<novos.length;i+=6){
     const batch=writeBatch(db),bloco=novos.slice(i,i+6);
     for(const linha of bloco){
-     batch.set(doc(db,'servidores',linha.id),linha.publico);
-     batch.set(doc(db,'servidores_privado',linha.id),linha.privado);
+     batch.set(doc(db,'servidores',linha.id),{...linha.publico,escola_id:encontrarEscola(linha.publico.escola_id,cache.escolas)});
+     batch.set(doc(db,'servidores_privado',linha.id),{...linha.privado,escola_id:encontrarEscola(linha.publico.escola_id,cache.escolas)});
     }
     await batch.commit();
     status.textContent='Importados '+Math.min(i+6,novos.length)+' de '+novos.length+' novos servidores...';
