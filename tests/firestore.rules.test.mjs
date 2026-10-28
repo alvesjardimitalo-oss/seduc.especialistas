@@ -123,3 +123,49 @@ test('dados privados só são gravados junto do aluno público autorizado',async
  await assertFails(getDoc(doc(contexto('dirA'),'alunos_privado/novoAluno')));
  await assertSucceeds(updateDoc(doc(db,'alunos/novoAluno'),{ativo:false}));
 });
+
+
+const slotId=(uid,data)=>uid+'_'+data.getTime();
+const novoAgendamento=(id,inicio,duracao=30)=>({
+ escola_id:'a',aluno_id:'alunoA',vinculo_id:'vinculoA',
+ inicio,duracao_min:duracao,especialidade:'Atendimento fictício',
+ autor_uid:'espA',autor_nome:'Especialista A',criado_em:serverTimestamp(),status:'agendado'
+});
+function addLocks(db,batch,id,inicio,duracao){
+ for(const t of [inicio,...(duracao===60?[new Date(inicio.getTime()+1800000)]:[])]){
+  batch.set(doc(db,'agenda_slots',slotId('espA',t)),{autor_uid:'espA',escola_id:'a',agendamento_id:id,inicio:t,status:'reservado'});
+ }
+}
+test('agendamento sem reservas transacionais é proibido',async()=>{
+ const inicio=new Date('2027-11-01T12:00:00.000Z');
+ await assertFails(setDoc(doc(contexto('espA'),'agendamentos/semLocks'),novoAgendamento('semLocks',inicio)));
+});
+test('cria reserva de 60 minutos com dois locks na mesma transação',async()=>{
+ const db=contexto('espA'),inicio=new Date('2027-11-01T12:00:00.000Z'),batch=writeBatch(db);
+ batch.set(doc(db,'agendamentos/seguro60'),novoAgendamento('seguro60',inicio,60));
+ addLocks(db,batch,'seguro60',inicio,60);
+ await assertSucceeds(batch.commit());
+});
+test('a mesma profissional não consegue sobrepor intervalos reservados',async()=>{
+ const db=contexto('espA'),inicio=new Date('2027-11-01T12:30:00.000Z'),batch=writeBatch(db);
+ batch.set(doc(db,'agendamentos/choque'),novoAgendamento('choque',inicio));
+ addLocks(db,batch,'choque',inicio,30);
+ await assertFails(batch.commit());
+});
+test('cancelamento libera ambos os slots e permite novo agendamento',async()=>{
+ const db=contexto('espA'),inicio=new Date('2027-11-01T12:00:00.000Z');
+ const liberar=writeBatch(db);
+ liberar.update(doc(db,'agendamentos/seguro60'),{status:'cancelado'});
+ for(const t of [inicio,new Date(inicio.getTime()+1800000)]){
+  liberar.update(doc(db,'agenda_slots',slotId('espA',t)),{status:'liberado'});
+ }
+ await assertSucceeds(liberar.commit());
+ const novo=writeBatch(db);
+ novo.set(doc(db,'agendamentos/reagendado'),novoAgendamento('reagendado',inicio,30));
+ addLocks(db,novo,'reagendado',inicio,30);
+ await assertSucceeds(novo.commit());
+});
+test('slots não podem ser liberados sem cancelar o agendamento',async()=>{
+ const db=contexto('espA'),inicio=new Date('2027-11-01T12:00:00.000Z');
+ await assertFails(updateDoc(doc(db,'agenda_slots',slotId('espA',inicio)),{status:'liberado'}));
+});
