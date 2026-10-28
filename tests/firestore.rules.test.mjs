@@ -65,6 +65,19 @@ test('CPF não é aceito no cadastro público do aluno',async()=>{
   nome:'Aluno fictício',escola_id:'a',nascimento:'2017-01-01',criado_por:'espA',ativo:true,cpf:'00000000000'
  }));
 });
+test('logs de login são imutáveis e somente a gestão pode consultá-los',async()=>{
+ const db=contexto('espA'),registro=doc(db,'acessos_sistema','loginAuditoria01');
+ await assertSucceeds(setDoc(registro,{
+  uid:'espA',perfil:'especialista',evento:'login_confirmado',em:serverTimestamp()
+ }));
+ await assertSucceeds(getDoc(doc(contexto('admin'),'acessos_sistema','loginAuditoria01')));
+ await assertFails(getDoc(doc(contexto('espA'),'acessos_sistema','loginAuditoria01')));
+ await assertFails(setDoc(doc(contexto('espB'),'acessos_sistema','loginImpostor'),{
+  uid:'espA',perfil:'especialista',evento:'login_confirmado',em:serverTimestamp()
+ }));
+ await assertFails(updateDoc(registro,{evento:'outro'}));
+ await assertFails(deleteDoc(registro));
+});
 test('cadastro familiar completo permanece privado e editável somente na escola autorizada',async()=>{
  const db=contexto('espA');
  const ficha={
