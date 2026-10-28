@@ -230,3 +230,35 @@ code{background:#eef5f7;color:#375568;padding:3px 6px;border-radius:5px;overflow
 .consult-info strong{font-size:14px;color:#214853}
 .consult-info span{font-size:12px;color:#607a83}
 @media(max-width:520px){.appointment-summary{grid-template-columns:1fr;padding:15px}.appointment-actions .btn{width:100%}}
+
+/* Ficha do aluno, histórico expandido, relatório e tutorial orientado. */
+.student-history{padding:0;overflow:hidden}
+.student-history>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;list-style:none;cursor:pointer;padding:19px 21px}
+.student-history>summary::-webkit-details-marker{display:none}
+.student-history-heading{display:flex;align-items:center;gap:13px;min-width:0}
+.student-avatar{height:44px;width:44px;border-radius:13px;display:grid;place-items:center;flex:none;background:#e6f7f2;color:#088d7e;font-size:20px;font-weight:800}
+.student-history-heading>div:last-child{display:flex;flex-direction:column;gap:2px;min-width:0}
+.student-history-heading strong{font-size:14px;color:#233a4d}
+.student-history-heading small{color:#7c92a4;font-size:11px}
+.student-history-arrow{font-size:26px;color:#90a3b2;transition:transform .2s}
+.student-history[open] .student-history-arrow{transform:rotate(180deg)}
+.student-history-content{border-top:1px solid #e9eff3;padding:20px 21px;background:#fbfdfd}
+.student-history-content .history{background:#fff}
+.summary-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+.summary-stats>div{padding:14px;border-radius:12px;border:1px solid #e6eff0;background:#f7fcfa;display:grid;gap:2px}
+.summary-stats strong{font-size:25px;color:#0d8379}
+.summary-stats span{font-size:11px;color:#6c8593}
+.summary-evolution{border-top:1px solid #e8eef2;margin-top:19px;padding-top:18px}
+.summary-evolution h3{font-size:15px}
+.summary-evolution p{font-size:12px;line-height:1.65}
+.onboarding-guide{display:flex;justify-content:space-between;align-items:center;gap:19px;border-color:#cfe8e4;background:linear-gradient(105deg,#f1fbf8,#fff)}
+.onboarding-guide h3{font-size:17px;margin:5px 0}
+.onboarding-guide p{margin:0;font-size:12px;color:#7b8d99}
+.onboarding-guide .actions{margin:0;justify-content:flex-end}
+.tutorial-settings{border-color:#d5ebe6;background:#f4fcf9}
+.tutorial-settings h2{margin-bottom:9px}
+.report-actions{padding-top:17px;margin-top:18px;border-top:1px solid #eaf0f3}
+.report-summary-grid{margin:12px 0 19px}
+.report-summary-grid .metric b{margin-bottom:0}
+@media(max-width:800px){.onboarding-guide{align-items:flex-start;flex-direction:column}.onboarding-guide .actions{justify-content:flex-start}}
+@media(max-width:520px){.summary-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.student-history>summary,.student-history-content{padding:14px}.student-history-heading small{font-size:10px}}
