@@ -1,3 +1,4 @@
+import {resumirRelatorio} from './relatorios.mjs';
 import {firebaseConfig} from './firebase-config.js';
 import {montarListaProfissionais} from './profissionais-visao.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
@@ -13,6 +14,7 @@ const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'
 const formatDate=x=>{if(!x)return '—';const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR')};
 const dataMs=x=>{if(!x)return 0;const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?0:d.getTime()};
 let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[]};
+let filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};
 const canManage=()=>profile?.perfil==='superadmin'||(profile?.perfil==='secretaria'&&profile?.gerenciar===true);
 const canWrite=()=>profile?.perfil==='especialista';
 const mySchools=()=>profile?.perfil==='superadmin'||profile?.perfil==='secretaria'?cache.escolas:cache.escolas.filter(e=>(profile?.escolas||[]).includes(e.id));
@@ -116,25 +118,39 @@ if(tab==='Frequência'){
  '<tr><td>'+safe(formatDate(f.entrada))+'</td><td>'+safe(formatDate(f.saida))+'</td><td>'+safe(schoolName(f.escola_id))+'</td><td>'+safe(f.uid)+'</td><td>'+safe(f.status)+'</td><td>'+((f.uid===user.uid&&f.status==='aberta')?'<button class="btn secondary" data-exit="'+safe(f.id)+'">Registrar saída</button>':'—')+'</td></tr>'));
 }
 if(tab==='Relatórios'){
- const schools=mySchools();
- html+='<div class="grid">'+[
-  ['Alunos cadastrados',students.filter(a=>a.ativo!==false).length],
-  ['Atendimentos realizados',visits.filter(a=>a.status==='realizado').length],
-  ['Agendamentos pendentes',appointments.filter(a=>a.status==='agendado').length],
-  ['Registros de frequência',cache.frequencias.length]
- ].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div>';
- html+='<h3>Indicadores por instituição</h3>';
- html+=table(['Escola','Alunos ativos','Atendimentos','Agendados','Ausências de alunos'],schools.map(e=>{
-  const a=students.filter(x=>x.escola_id===e.id&&x.ativo!==false).length;
-  const v=visits.filter(x=>x.escola_id===e.id&&x.status==='realizado').length;
-  const ag=appointments.filter(x=>x.escola_id===e.id&&x.status==='agendado').length;
-  const falta=appointments.filter(x=>x.escola_id===e.id&&x.status==='falta_aluno').length;
-  return '<tr><td>'+safe(e.nome)+'</td><td>'+a+'</td><td>'+v+'</td><td>'+ag+'</td><td>'+falta+'</td></tr>';
- }));
- html+='<div class="card"><p class="muted">Os relatórios apresentam quantidades, sem divulgar CPF, filiação ou observações confidenciais. Filtros por período, profissional e especialidade serão incluídos na etapa de homologação.</p></div>';
+ const f=filtrosRelatorio,schools=mySchools();
+ const registros=[...visits,...appointments];
+ const profissionais=[...new Map(registros.filter(r=>r.autor_uid).map(r=>[r.autor_uid,r.autor_nome||'Profissional'])).entries()].sort((a,b)=>a[1].localeCompare(b[1],'pt-BR'));
+ const especialidades=[...new Set(registros.map(r=>r.especialidade).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+ const filtroSelect=(key,label,opcoes)=>'<label>'+label+'<select data-relatorio="'+key+'"><option value="">Todos</option>'+opcoes.map(([id,nome])=>'<option value="'+safe(id)+'" '+(f[key]===id?'selected':'')+'>'+safe(nome)+'</option>').join('')+'</select></label>';
+ html+='<div class="card"><div class="grid">'+
+  '<label>Data inicial<input type="date" data-relatorio="de" value="'+safe(f.de)+'"></label>'+
+  '<label>Data final<input type="date" data-relatorio="ate" value="'+safe(f.ate)+'"></label>'+
+  filtroSelect('escola','Instituição',schools.map(e=>[e.id,e.nome]))+
+  filtroSelect('profissional','Profissional',profissionais)+
+  filtroSelect('especialidade','Especialidade',especialidades.map(e=>[e,e]))+
+  '</div><button class="btn secondary" id="limpar-relatorio">Limpar filtros</button><p class="muted">Período pelo horário de Brasília. Os filtros se aplicam aos atendimentos e agendamentos disponíveis para sua conta.</p></div>';
+ if(f.de&&f.ate&&f.de>f.ate){
+  html+='<div class="alert" role="alert">A data final deve ser igual ou posterior à inicial.</div>';
+ }else{
+  const resumo=resumirRelatorio(visits,appointments,f);
+  html+='<div class="grid">'+[
+   ['Alunos com atendimento realizado',resumo.alunos],
+   ['Atendimentos realizados',resumo.realizados],
+   ['Agendamentos pendentes',resumo.agendados],
+   ['Ausências de alunos',resumo.faltas]
+  ].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div>';
+  html+='<h3>Indicadores por instituição</h3>';
+  html+=table(['Escola','Alunos atendidos','Atendimentos realizados','Agendados','Ausências de alunos'],schools.filter(e=>!f.escola||e.id===f.escola).map(e=>{
+   const r=resumirRelatorio(visits,appointments,{...f,escola:e.id});
+   return '<tr><td>'+safe(e.nome)+'</td><td>'+r.alunos+'</td><td>'+r.realizados+'</td><td>'+r.agendados+'</td><td>'+r.faltas+'</td></tr>';
+  }));
+  if(!resumo.realizados&&!resumo.agendados&&!resumo.faltas)html+='<p class="muted" role="status">Nenhum atendimento realizado, agendamento pendente ou ausência para os filtros selecionados.</p>';
+ }
+ html+='<p class="muted">Cada aluno é contado uma vez no total e uma vez por instituição em que foi atendido. Os indicadores apresentam apenas quantidades.</p>';
 }
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
-layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
+layout(html);document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
 function history(records){return records.length?records.map(a=>'<details class="history" data-visit="'+safe(a.id)+'" data-student="'+safe(a.aluno_id)+'"><summary><b>'+safe(cache.alunos.find(s=>s.id===a.aluno_id)?.nome||'Aluno')+'</b> · '+safe(formatDate(a.data))+' · '+safe(a.autor_nome||professionalName(a.autor_uid))+' <span class="badge">'+safe(a.status||'realizado')+'</span></summary><p style="white-space:pre-wrap">'+((profile.perfil==='especialista'||profile.perfil==='superadmin')?safe(a.texto):'<em>Observações restritas aos especialistas autorizados.</em>')+'</p><small>'+safe(a.especialidade||'Atendimento especializado')+'</small>'+(a.autor_uid===user.uid||profile.perfil==='superadmin'?'<p><button class="btn secondary" data-edit="'+safe(a.id)+'">Editar / cancelar</button></p>':'')+'</details>').join(''):'<p class="muted">Ainda não há atendimentos registrados.</p>'}
 function field(name,label,type='text',extra=''){return '<label>'+label+'<input name="'+name+'" type="'+type+'" '+extra+'></label>'}
 function select(name,label,options){return '<label>'+label+'<select name="'+name+'" required><option value="">Selecione</option>'+options.map(([id,n])=>'<option value="'+safe(id)+'">'+safe(n)+'</option>').join('')+'</select></label>'}

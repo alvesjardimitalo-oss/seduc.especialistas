@@ -106,3 +106,9 @@ Com conta `superadmin` ou de Secretaria com delegação de gestão:
 - **Publicar as regras `firestore.rules` mais recentes no Console Firebase antes de usar os botões de importação.** Alterações somente no GitHub não alteram as permissões já publicadas no Firestore.
 - Os dados dos arquivos privados **não foram enviados ao GitHub**, e a atualização do código **não representa importação executada no banco**. Essa importação usa a sessão Google autorizada pelo Firebase no navegador, exige confirmação e depende da publicação das regras.
 - Não utilizar os registros educacionais importados como diagnóstico médico ou laudo clínico. A produção com dados pessoais de menores demanda homologação da política institucional de LGPD e de acesso.
+
+## 12. Relatórios filtrados
+- Filtros combinados por data inicial/final, instituição, profissional e especialidade, com opção de limpar.
+- Datas inclusivas no horário municipal (America/Sao_Paulo), inclusive quando o Firestore retorna Timestamp.
+- Indicadores e tabela por instituição seguem a mesma seleção; alunos são contados de forma distinta nos atendimentos realizados. Cancelamentos não entram nos realizados.
+- Os relatórios utilizam apenas os registros já disponíveis para a conta, sem novas permissões de leitura. A homologação visual com uma sessão autorizada ainda é necessária.
