@@ -191,6 +191,98 @@ if(kind==='atendimento'||kind==='agendar'){if(!cache.alunos.length){alert('Cadas
    if(!isAgenda){entrada.readOnly=true;entrada.title='Hora efetiva do registro será definida ao salvar';}
  }
  return}}
+
+function abrirImportadorAlunos(){
+ if(profile?.perfil!=='superadmin')return;
+ document.body.insertAdjacentHTML('beforeend',
+  '<div class="modalback" id="alunos-import-back"><div class="modal">'+
+  '<button class="btn secondary close" id="alunos-import-close">Fechar</button>'+
+  '<h2>Importar alunos especiais — 2026</h2>'+
+  '<p>Os dados são lidos localmente no navegador. Confira as escolas antes de gravar os registros no Firestore.</p>'+
+  '<div class="alert">Contém informações pessoais sensíveis de crianças. A importação exige autorização institucional e não envia os dados ao GitHub.</div>'+
+  '<label>Arquivo JSON privado<input type="file" id="arquivo-alunos-json" accept=".json,application/json"></label>'+
+  '<p class="muted" id="alunos-import-status">Selecione o arquivo para validar a estrutura.</p>'+
+  '<div id="alunos-import-schools"></div>'+
+  '<div class="actions"><button class="btn" id="alunos-import-start" type="button" disabled>Confirmar importação</button></div>'+
+  '</div></div>');
+ const back=document.getElementById('alunos-import-back');
+ const status=document.getElementById('alunos-import-status'),area=document.getElementById('alunos-import-schools');
+ const start=document.getElementById('alunos-import-start');
+ document.getElementById('alunos-import-close').onclick=()=>back.remove();
+ let verificado=null;
+ const mapping=()=>Object.fromEntries([...area.querySelectorAll('select[data-origem]')].map(x=>[x.dataset.origem,x.value]));
+ function checarSelecoes(){
+  const mapa=mapping();
+  const choices=Object.values(mapa).filter(Boolean);
+  const valido=verificado&&Object.keys(mapa).length===verificado.escolas.length&&
+    choices.length===verificado.escolas.length&&new Set(choices).size===choices.length;
+  start.disabled=!valido;
+  if(verificado)status.textContent=verificado.total+' alunos no arquivo. '+(valido?'Correspondência de escolas confirmada.':'Selecione uma escola diferente para cada origem.');
+ }
+ document.getElementById('arquivo-alunos-json').onchange=async ev=>{
+  verificado=null;start.disabled=true;area.innerHTML='';
+  const file=ev.target.files?.[0];if(!file)return;
+  if(file.size>3000000){status.textContent='Arquivo acima do limite de 3 MB.';return}
+  try{
+   const dados=JSON.parse(await file.text());
+   const validado=conferirAlunosEspeciais(dados);
+   if(validado.total!==74)throw Error('O relatório esperado contém 74 registros; este arquivo tem '+validado.total+'.');
+   verificado=validado;
+   area.innerHTML='<h3>Correspondência das escolas</h3>'+
+    verificado.escolas.map(escolaId=>{
+     const school=Object.values(escolasImportacao).find(x=>x.id===escolaId);
+     const sugestao=encontrarEscola(escolaId,cache.escolas);
+     return '<label>'+safe(school?.nome||escolaId)+
+      '<select data-origem="'+safe(escolaId)+'">'+
+      '<option value="">Selecione uma escola cadastrada</option>'+
+      cache.escolas.map(e=>'<option value="'+safe(e.id)+'"'+(e.id===sugestao?' selected':'')+'>'+safe(e.nome)+'</option>').join('')+
+      '</select></label>';
+    }).join('');
+   area.querySelectorAll('select').forEach(x=>x.onchange=checarSelecoes);
+   checarSelecoes();
+  }catch(e){status.textContent='Arquivo não validado: '+e.message;verificado=null}
+ };
+ start.onclick=async()=>{
+  if(start.disabled||!verificado||profile?.perfil!=='superadmin')return;
+  const map=mapping();
+  if(!confirm('Confirmar inclusão dos alunos de 2026 e seus registros escolares restritos? Documentos já existentes serão preservados.'))return;
+  start.disabled=true;
+  try{
+   const presentes=await getDocs(collection(db,'alunos'));
+   const ids=new Set(presentes.docs.map(d=>d.id));
+   const novos=verificado.registros.filter(r=>!ids.has(r.id));
+   const nomeNormal=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+   const nomesAtuais=new Set(presentes.docs.map(d=>nomeNormal(d.data().nome)+'|'+d.data().escola_id));
+   const possiveisDuplicados=novos.filter(r=>nomesAtuais.has(nomeNormal(r.publico.nome)+'|'+map[r.publico.escola_id]));
+   if(possiveisDuplicados.length)throw Error('Foram encontrados '+possiveisDuplicados.length+' possíveis cadastros duplicados pelo nome e escola. Revise esses cadastros antes de importar.');
+   for(let i=0;i<novos.length;i+=3){
+    const lote=writeBatch(db);
+    for(const item of novos.slice(i,i+3)){
+     const escolaId=map[item.publico.escola_id];
+     if(!escolaId)throw Error('Uma escola não foi associada.');
+     lote.set(doc(db,'alunos',item.id),{
+      nome:item.publico.nome,nascimento:'',matricula:'',escola_id:escolaId,
+      criado_por:user.uid,ativo:true
+     });
+     lote.set(doc(db,'alunos_privado',item.id),{
+      cpf:'',filiacao:'',telefone:'',endereco:'',escola_id:escolaId,
+      criado_por:user.uid
+     });
+     lote.set(doc(db,'alunos_necessidades',item.id),{
+      aluno_id:item.id,escola_id:escolaId,turma:item.publico.turma,
+      registro_escolar:item.privado.deficiencia,ano_letivo:2026,
+      origem:'relatorio_escolar_2026',importado_por:user.uid,criado_em:serverTimestamp()
+     });
+    }
+    await lote.commit();
+    status.textContent='Gravados '+Math.min(i+3,novos.length)+' de '+novos.length+' novos alunos.';
+   }
+   status.textContent='Importação concluída: '+novos.length+' novos alunos; '+(verificado.total-novos.length)+' já existentes.';
+   await refresh();alert(status.textContent);back.remove();render();
+  }catch(e){status.textContent='Importação interrompida: '+e.message+' Os lotes anteriores permanecem gravados. Selecione o arquivo novamente para continuar.';start.disabled=false}
+ };
+}
+
 function abrirImportadorServidores(){
  if(!canManage())return;
  const conteudo='<p>Selecione o JSON privado de importação revisada. Nenhum dado é enviado ao GitHub. A gravação só ocorrerá depois da sua confirmação.</p>'+
