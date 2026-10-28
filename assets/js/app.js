@@ -117,12 +117,13 @@ async function mostrarTermosSeguranca(){
 
 function showSetup(){root.innerHTML='<div class="login"><div class="card"><h1>SEDUC Especialistas</h1><div class="alert">Ambiente ainda não configurado. Nenhum dado real pode ser registrado.</div><p>Configure um projeto Firebase exclusivo em <code>assets/js/firebase-config.js</code> e publique as regras de segurança do arquivo <code>firestore.rules</code>.</p><p class="muted">Não utilize o Firebase do SISDIFI. O acesso inicial do superadministrador deve ser provisionado de modo seguro.</p></div></div>'}
 async function initialize(){if(!configured){showSetup();return}const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;if(!u){profile=null;termosSessaoConfirmados=false;showLogin();return}try{const ref=doc(db,'usuarios',u.uid);let s=await getDoc(ref);if(!s.exists()){await setDoc(ref,{nome:u.displayName||u.email,email:u.email,ativo:false,perfil:'pendente',escolas:[],gerenciar:false,criado_em:serverTimestamp()});s=await getDoc(ref)}profile={id:s.id,...s.data()};if(!profile.ativo){showLogin('Sua conta foi registrada e está aguardando liberação da Secretaria de Educação.');return}termosSessaoConfirmados=false;await mostrarTermosSeguranca()}catch(e){showLogin('Não foi possível verificar a autorização: '+e.message)}})}
-async function refresh(){
+async function refresh(colecoes=null){
+ const parcial=Array.isArray(colecoes)&&colecoes.length>0;
  const manager=canManage();erroRelatorios=false;erroMetas=false;errosCarregamento=[];
- const schools=(manager||profile.perfil==='secretaria')?(await getDocs(collection(db,'escolas'))).docs.map(d=>({id:d.id,...d.data()})):(await Promise.all((profile.escolas||[]).map(async id=>{try{const s=await getDoc(doc(db,'escolas',id));return s.exists()?{id:s.id,...s.data()}:null}catch{return null}}))).filter(Boolean);
+ const schools=parcial?cache.escolas:(manager||profile.perfil==='secretaria')?(await getDocs(collection(db,'escolas'))).docs.map(d=>({id:d.id,...d.data()})):(await Promise.all((profile.escolas||[]).map(async id=>{try{const s=await getDoc(doc(db,'escolas',id));return s.exists()?{id:s.id,...s.data()}:null}catch{return null}}))).filter(Boolean);
  const ids=schools.map(x=>x.id);
- const out={escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[],metas_alunos:[],revisoes_metas:[]};
- for(const key of Object.keys(out).filter(x=>x!=='escolas')){
+ const out=parcial?{...cache}:{escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[],metas_alunos:[],revisoes_metas:[]};
+ for(const key of (parcial?colecoes:Object.keys(out).filter(x=>x!=='escolas'))){
   try{
    if(profile.perfil==='secretaria'&&['profissionais','vinculos','alunos','agendamentos','atendimentos','frequencias','relatorios_alunos','metas_alunos','revisoes_metas'].includes(key)){const r=await getDocs(collection(db,key));out[key]=r.docs.map(d=>({id:d.id,...d.data()}));continue}
    if(['relatorios_alunos','metas_alunos','revisoes_metas'].includes(key)&&!['superadmin','especialista','secretaria'].includes(profile.perfil))continue;
@@ -136,7 +137,7 @@ async function refresh(){
    }
   }catch(e){if(key==='relatorios_alunos')erroRelatorios=true;if(['metas_alunos','revisoes_metas'].includes(key))erroMetas=true;errosCarregamento.push(key);console.warn('Falha ao carregar '+key,e.code||e.message)}
  }
- if(manager){try{const r=await getDocs(collection(db,'usuarios'));out.usuarios=r.docs.map(d=>({id:d.id,...d.data()}))}catch(e){console.warn('Sem acesso a usuários:',e.message)}}
+ if(manager&&!parcial){try{const r=await getDocs(collection(db,'usuarios'));out.usuarios=r.docs.map(d=>({id:d.id,...d.data()}))}catch(e){console.warn('Sem acesso a usuários:',e.message)}}
  cache=out;
  for(const a of cache.atendimentos){a.texto=cache.notas_atendimento.find(n=>n.id===a.id)?.texto||''}
 }
@@ -706,7 +707,7 @@ async function salvarCadastroCompletoAluno(d,{existente=null,privadoAnterior={}}
  }
 }
 
-function modal(name,form,submit){document.body.insertAdjacentHTML('beforeend','<div class="modalback" id="back"><div class="modal"><button class="btn secondary close" id="close">Fechar</button><h2>'+name+'</h2><form id="entry"><div class="formgrid">'+form+'</div><p class="actions" style="justify-content:flex-end;margin-top:20px"><button class="btn" type="submit">Salvar</button></p></form></div></div>');document.getElementById('close').onclick=()=>document.getElementById('back').remove();document.getElementById('entry').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('[type=submit]');button.disabled=true;try{const data=Object.fromEntries(new FormData(event.target));await submit(data);document.getElementById('back').remove();await refresh();render()}catch(e){showError(e)}finally{button.disabled=false}}}
+function modal(name,form,submit,colecoes=null){document.body.insertAdjacentHTML('beforeend','<div class="modalback" id="back"><div class="modal"><button class="btn secondary close" id="close">Fechar</button><h2>'+name+'</h2><form id="entry"><div class="formgrid">'+form+'</div><p class="actions" style="justify-content:flex-end;margin-top:20px"><button class="btn" type="submit">Salvar</button></p></form></div></div>');document.getElementById('close').onclick=()=>document.getElementById('back').remove();document.getElementById('entry').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('[type=submit]');button.disabled=true;try{const data=Object.fromEntries(new FormData(event.target));await submit(data);document.getElementById('back').remove();await refresh(colecoes);render()}catch(e){showError(e)}finally{button.disabled=false}}}
 function fromInputDate(s){const d=new Date(s);if(!s||isNaN(d))throw Error('Data inválida');return d}
 function horarioLocal(d){
  const p=n=>String(n).padStart(2,'0');
@@ -829,7 +830,7 @@ function abrirRegistroFalta(id){
   '<p class="wide muted">Aluno: '+safe(cache.alunos.find(x=>x.id===a.aluno_id)?.nome)+' · '+safe(formatDate(a.inicio))+'. O motivo ficará documentado no histórico.</p>'+
   select('tipo','Tipo de ausência',[['falta_aluno','Falta do aluno'],['falta_profissional','Falta da profissional']])+
   '<label class="wide">Descrição / justificativa<textarea name="motivo" maxlength="500" required placeholder="Registre o ocorrido."></textarea></label>',
-  async d=>registrarFaltaAgendamento(id,d.tipo,d.motivo));
+  async d=>registrarFaltaAgendamento(id,d.tipo,d.motivo),['agendamentos']);
 }
 async function registrarFaltaAgendamento(id,tipo,motivo){
  if(!canWrite()||!['falta_aluno','falta_profissional'].includes(tipo))throw Error('Tipo de ausência inválido.');
@@ -860,7 +861,7 @@ function abrirReagendamento(id){
   '. A data anterior e as justificativas permanecerão no histórico.</p>'+
   field('inicio','Nova data e hora','datetime-local','required')+
   '<label class="wide">Motivo do reagendamento<textarea name="motivo" required maxlength="500" placeholder="Descreva o motivo da alteração."></textarea></label>',
-  async d=>reagendarAgendamento(id,d.inicio,d.motivo));
+  async d=>reagendarAgendamento(id,d.inicio,d.motivo),['agendamentos']);
  const hora=document.querySelector('#entry [name=inicio]');
  if(hora){const agora=new Date();agora.setSeconds(0,0);agora.setMinutes(Math.floor(agora.getMinutes()/30)*30+30);hora.value=horarioLocal(agora)}
 }
@@ -916,7 +917,7 @@ async function iniciarConsultaAgendada(id){
   tx.update(ref,{status:'em_atendimento',iniciado_em:serverTimestamp()});
   registrarEvento(tx,'agendamento',id,'iniciado',a,'agendado','em_atendimento');
  });
- await refresh();render();
+ await refresh(['agendamentos']);render();
 }
 function abrirConsultaAgendada(id){
  const a=cache.agendamentos.find(x=>x.id===id);
@@ -928,7 +929,7 @@ function abrirConsultaAgendada(id){
   '<div class="wide consult-info"><strong>'+safe(aluno?.nome||'Aluno')+'</strong><span>'+safe(schoolName(a.escola_id))+' · '+safe(a.especialidade)+' · '+safe(formatDate(a.inicio))+'</span></div>'+
   camposRegistroConsulta()+
   '<p class="wide muted">Ao finalizar, o registro será salvo e vinculado à consulta. Se fechar sem concluir, a consulta continuará em andamento; textos não finalizados não são salvos.</p>',
-  async d=>finalizarConsultaAgendada(id,registroConsultaTexto(d),d.evolucao_observada));
+  async d=>finalizarConsultaAgendada(id,registroConsultaTexto(d),d.evolucao_observada),['agendamentos','atendimentos','notas_atendimento']);
 
  const botao=document.querySelector('#entry [type=submit]');
  if(botao)botao.textContent='Finalizar consulta e salvar';
@@ -973,7 +974,7 @@ async function cancelarAgendamento(id){
    tx.update(ref,{status:'cancelado'});refs.forEach(r=>tx.update(r,{status:'liberado'}));
    registrarEvento(tx,'agendamento',id,'cancelado',ag,'agendado','cancelado');
   });
-  await refresh();render();
+  await refresh(['agendamentos']);render();
  }catch(err){showError(err)}
 }
 function eligible(slot,school,duracaoMin=30){
@@ -1020,7 +1021,7 @@ function openForm(kind){
  if(kind==='escola'){modal('Cadastrar escola',select('nome','Nome da instituição',schoolNames.map(n=>[n,n]))+field('inep','Código INEP')+field('telefone','Telefone')+field('endereco','Endereço')+field('email','E-mail','email')+select('tipo','Tipo da instituição',[['escola','Escola'],['creche','Creche']]),d=>addDoc(collection(db,'escolas'),d));return}
 if(kind==='profissional'){modal('Cadastrar profissional',field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date')+field('cpf','CPF (quando necessário)')+field('telefone','Telefone')+field('endereco','Endereço')+field('especialidade','Especialidade')+field('email','E-mail','email')+field('uid','UID do usuário Google (após aprovação)'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'profissionais'));const batch=writeBatch(db);const {cpf,telefone,endereco,nascimento,email,...base}=d;batch.set(id,{...base,uid:d.uid||'',escolas:[]});batch.set(doc(db,'profissionais_privado',id.id),{cpf,telefone,endereco,nascimento,email});await batch.commit()});return}
 if(kind==='vinculo'){modal('Vincular profissional',select('profissional_id','Profissional',cache.profissionais.map(p=>[p.id,p.nome]))+schoolSelect()+field('cargo','Cargo','text','required')+field('jornada','Jornada semanal (ex.: 20 horas)')+field('uid','UID do usuário Google da profissional','text','required')+field('horarios_texto','Dias e horários (ex.: 1 08:00-12:00; 3 13:00-17:00)','text','required'),async d=>{const horarios=lerHorarios(d.horarios_texto);delete d.horarios_texto;await addDoc(collection(db,'vinculos'),{...d,horarios,slots_semana:gerarSlotsSemana(horarios),ativo:true})});return}
-if(kind==='aluno'){modal('Cadastrar aluno',camposCadastroCompletoAluno(true),d=>salvarCadastroCompletoAluno(d));configurarFormularioCompletoAluno();return}
+if(kind==='aluno'){modal('Cadastrar aluno',camposCadastroCompletoAluno(true),d=>salvarCadastroCompletoAluno(d),['alunos']);configurarFormularioCompletoAluno();return}
 if(kind==='usuario'){modal('Autorizar usuário',field('uid','UID do usuário pendente','text','required')+select('perfil','Perfil',[['especialista','Especialista'],['direcao','Direção escolar'],['secretaria','Secretaria de Educação']])+field('escolas','IDs das escolas autorizadas, separados por vírgula') ,async d=>{const ref=doc(db,'usuarios',d.uid);const current=await getDoc(ref);if(!current.exists())throw Error('O usuário deve fazer login com Google antes da autorização.');if(current.data().perfil==='superadmin')throw Error('Não é permitido alterar o superadministrador.');await updateDoc(ref,{perfil:d.perfil,escolas:d.escolas.split(',').map(s=>s.trim()).filter(Boolean),ativo:true})});return}
 if(kind==='atendimento'||kind==='agendar'){
  if(!canWrite()){showError(Error('Somente especialistas autorizadas podem registrar consultas.'));return}
@@ -1053,7 +1054,7 @@ if(kind==='atendimento'||kind==='agendar'){
    registrarEvento(batch,'atendimento',ref.id,'atendimento_avulso',payload,'','realizado');
    await batch.commit();
   }
- });
+ },isAgenda?['agendamentos']:['atendimentos','notas_atendimento']);
  ativarBuscaAlunosDoFormulario();
  const entrada=document.querySelector('#entry [name=inicio]');
  if(entrada){
@@ -1274,7 +1275,7 @@ async function editStudent(id){
   if(ref.exists())anterior={...ref.data(),_exists:true};
  }catch(e){showError(e);return}
  modal('Editar cadastro do aluno',camposCadastroCompletoAluno(false),
-  d=>salvarCadastroCompletoAluno(d,{existente:aluno,privadoAnterior:anterior}));
+  d=>salvarCadastroCompletoAluno(d,{existente:aluno,privadoAnterior:anterior}),['alunos']);
  configurarFormularioCompletoAluno({...aluno,...anterior});
 }
 async function archiveStudent(id){
