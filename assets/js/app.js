@@ -47,7 +47,15 @@ function table(headers,rows){return '<div class="card tablewrap"><table><thead><
 function render(){if(!profile?.ativo)return;let html=title(tab,'Acompanhamento de atendimentos especializados');const students=cache.alunos;const appointments=cache.agendamentos;const visits=cache.atendimentos;if(tab==='Painel'){html+='<div class="grid">'+[['Alunos cadastrados',students.length],['Atendimentos realizados',visits.filter(x=>x.status!=='cancelado').length],['Agendamentos',appointments.filter(x=>x.status==='agendado').length],['Instituições',mySchools().length]].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div>';if(canWrite())html+='<div class="actions"><button class="btn" data-action="atendimento">+ Atendimento imediato</button><button class="btn secondary" data-action="agendar">Agendar consulta</button></div>';html+='<div class="card"><h3>Últimos atendimentos</h3>'+history(visits.slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,10))+'</div>'}
 if(tab==='Escolas'){if(canManage())html+='<div class="actions"><button class="btn" data-action="escola">+ Cadastrar escola</button><button class="btn secondary" id="seed-schools">Adicionar escolas iniciais</button></div>';html+=table(['Instituição','INEP','Telefone','Endereço'],mySchools().map(x=>'<tr><td>'+safe(x.nome)+'</td><td>'+safe(x.inep)+'</td><td>'+safe(x.telefone)+'</td><td>'+safe(x.endereco)+'</td></tr>'));if(!cache.escolas.length&&canManage())html+='<div class="alert">Cadastre as escolas. Os nomes iniciais sugeridos estão disponíveis no formulário.</div>'}
 if(tab==='Profissionais'){if(canManage())html+='<div class="actions"><button class="btn" data-action="profissional">+ Cadastrar profissional</button><button class="btn secondary" data-action="vinculo">+ Adicionar vínculo</button></div>';html+=table(['Nome','Especialidade','Escolas / cargo'],cache.profissionais.map(p=>'<tr><td>'+safe(p.nome)+'</td><td>'+safe(p.especialidade)+'</td><td>'+cache.vinculos.filter(v=>v.profissional_id===p.id).map(v=>safe(schoolName(v.escola_id))+' · '+safe(v.cargo)+' ('+safe(v.jornada)+')').join('<br>')+'</td></tr>'))}
-if(tab==='Alunos'){if(canWrite()||canManage())html+='<div class="actions"><button class="btn" data-action="aluno">+ Cadastrar aluno</button></div>';html+=table(['Aluno','Nascimento','Escola','Histórico'],students.map(a=>'<tr><td>'+safe(a.nome)+'</td><td>'+safe(a.nascimento)+'</td><td>'+safe(schoolName(a.escola_id))+'</td><td><button class="btn secondary" data-student="'+safe(a.id)+'">Ver atendimentos</button></td></tr>'))}
+if(tab==='Alunos'){
+ if(canWrite()||canManage())html+='<div class="actions"><button class="btn" data-action="aluno">+ Cadastrar aluno</button></div>';
+ html+=table(['Aluno','Nascimento','Escola','Situação','Ações'],students.map(a=>
+ '<tr><td>'+safe(a.nome)+'</td><td>'+safe(a.nascimento)+'</td><td>'+safe(schoolName(a.escola_id))+'</td><td>'+safe(a.ativo===false?'Arquivado':'Ativo')+'</td><td>'+
+ '<button class="btn secondary" data-student="'+safe(a.id)+'">Histórico</button> '+
+ ((canWrite()||canManage())?'<button class="btn secondary" data-edit-aluno="'+safe(a.id)+'">Editar</button> ':'')+
+ ((canWrite()||canManage())&&a.ativo!==false?'<button class="btn secondary" data-archive-aluno="'+safe(a.id)+'">Arquivar</button>':'')+
+ '</td></tr>'));
+}
 if(tab==='Agenda'){if(canWrite())html+='<div class="actions"><button class="btn" data-action="agendar">+ Agendar consulta</button></div>';html+=table(['Data','Aluno','Escola','Profissional','Situação'],appointments.sort((a,b)=>String(a.inicio).localeCompare(String(b.inicio))).map(a=>'<tr><td>'+safe(formatDate(a.inicio))+'</td><td>'+safe(students.find(s=>s.id===a.aluno_id)?.nome)+'</td><td>'+safe(schoolName(a.escola_id))+'</td><td>'+safe(a.autor_nome)+'</td><td>'+safe(a.status)+'</td></tr>'))}
 if(tab==='Atendimentos'){if(canWrite())html+='<div class="actions"><button class="btn" data-action="atendimento">+ Atendimento imediato</button></div>';html+='<div class="card">'+history(visits.slice().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))))+'</div>'}
 if(tab==='Frequência'){
@@ -58,7 +66,7 @@ if(tab==='Frequência'){
 }
 if(tab==='Relatórios'){html+='<div class="grid">'+[['Alunos cadastrados',students.length],['Atendimentos',visits.length],['Agendamentos',appointments.length],['Profissionais',cache.profissionais.length]].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div><div class="card"><p>Indicadores de acompanhamento no escopo de acesso do usuário. Exportações com dados pessoais permanecerão desativadas nesta primeira versão.</p></div>'}
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
-layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools}
+layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools}
 function history(records){return records.length?records.map(a=>'<details class="history" data-visit="'+safe(a.id)+'" data-student="'+safe(a.aluno_id)+'"><summary><b>'+safe(cache.alunos.find(s=>s.id===a.aluno_id)?.nome||'Aluno')+'</b> · '+safe(formatDate(a.data))+' · '+safe(a.autor_nome||professionalName(a.autor_uid))+' <span class="badge">'+safe(a.status||'realizado')+'</span></summary><p style="white-space:pre-wrap">'+((profile.perfil==='especialista'||profile.perfil==='superadmin')?safe(a.texto):'<em>Observações restritas aos especialistas autorizados.</em>')+'</p><small>'+safe(a.especialidade||'Atendimento especializado')+'</small>'+(a.autor_uid===user.uid||profile.perfil==='superadmin'?'<p><button class="btn secondary" data-edit="'+safe(a.id)+'">Editar / cancelar</button></p>':'')+'</details>').join(''):'<p class="muted">Ainda não há atendimentos registrados.</p>'}
 function field(name,label,type='text',extra=''){return '<label>'+label+'<input name="'+name+'" type="'+type+'" '+extra+'></label>'}
 function select(name,label,options){return '<label>'+label+'<select name="'+name+'" required><option value="">Selecione</option>'+options.map(([id,n])=>'<option value="'+safe(id)+'">'+safe(n)+'</option>').join('')+'</select></label>'}
@@ -104,6 +112,32 @@ async function registerExit(id){
  const f=cache.frequencias.find(x=>x.id===id);if(!f||f.uid!==user.uid||f.status!=='aberta')return;
  if(!confirm('Registrar saída do trabalho neste momento?'))return;
  try{await updateDoc(doc(db,'frequencias',id),{saida:serverTimestamp(),status:'fechada'});await refresh();render()}catch(e){showError(e)}
+}
+async function editStudent(id){
+ if(!(canManage()||canWrite()))return;
+ const a=cache.alunos.find(s=>s.id===id);if(!a)return;
+ let privateData={};
+ try{const details=await getDoc(doc(db,'alunos_privado',id));if(details.exists())privateData=details.data()}
+ catch(e){showError(e);return}
+ modal('Editar cadastro do aluno',
+  field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date','required')+
+  field('matricula','Matrícula')+field('cpf','CPF (quando necessário)')+
+  field('filiacao','Filiação / responsável')+field('telefone','Telefone')+field('endereco','Endereço'),
+  async d=>{
+   if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');
+   const batch=writeBatch(db);const {cpf,filiacao,telefone,endereco,...base}=d;
+   batch.update(doc(db,'alunos',id),base);
+   batch.update(doc(db,'alunos_privado',id),{cpf,filiacao,telefone,endereco});
+   await batch.commit();
+  });
+ const form=document.getElementById('entry');
+ for(const [key,val] of Object.entries({...a,...privateData})){const el=form.elements.namedItem(key);if(el&&typeof val==='string')el.value=val}
+}
+async function archiveStudent(id){
+ if(!(canManage()||canWrite()))return;
+ const a=cache.alunos.find(s=>s.id===id);if(!a||a.ativo===false)return;
+ if(!confirm('Arquivar o cadastro de '+a.nome+'? O histórico de consultas será preservado. Novos agendamentos serão bloqueados.'))return;
+ try{await updateDoc(doc(db,'alunos',id),{ativo:false});await refresh();render()}catch(e){showError(e)}
 }
 function openUser(uid){
  const u=cache.usuarios.find(x=>x.id===uid);if(!u||u.perfil==='superadmin')return;
