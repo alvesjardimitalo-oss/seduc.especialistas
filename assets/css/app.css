@@ -7,3 +7,5 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 button:disabled{cursor:not-allowed;opacity:.6}
 .card p{line-height:1.55}
 @media(max-width:800px){.check-school{flex-direction:row!important}}
+
+.homolog-notice{background:#f7edd8;color:#6b4700;padding:9px 22px;font-size:12px;font-weight:700;letter-spacing:.02em;border-bottom:1px solid #c2912e}
