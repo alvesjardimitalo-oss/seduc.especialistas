@@ -25,7 +25,7 @@ test('contabiliza consultas do dia usando somente registros já carregados',()=>
 test('navegação de calendário usa dados do cache e tem trilha de auditoria',()=>{
  const esperados=[
   'function calendarioAgenda(lista)','data-agenda-mes','data-agenda-dia',
-  'data-action="atendimento"','Profissional logada','agendaDiaSelecionado',
+  'data-action="atendimento"','agenda-active-user','agendaDiaSelecionado',
   'function registrarEvento(','registrarEvento(tx,\'agendamento\',id,\'reagendado\'',
   'async function mostrarHistoricoAgendamento','cacheHistoricos.has(id)',
   'async function refresh(colecoes=null)',"await refresh(['agendamentos'])"
