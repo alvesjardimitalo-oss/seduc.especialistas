@@ -226,16 +226,16 @@ service cloud.firestore {
   }
   // Registro de ciência dos termos de uso e responsabilidade; NÃO é consentimento
   // parental nem base legal de tratamento de dados de crianças e adolescentes.
-  match /termos_aceites/{uid} {
-    allow get: if logged() && request.auth.uid == uid;
-    allow list: if false;
-    allow create,update: if logged() && request.auth.uid == uid &&
+  match /termos_aceites/{id} {
+    allow get: if logged() && (manage() || id == request.auth.uid + '_2026-10-28-v1');
+    allow list: if manage();
+    allow create: if logged() && id == request.auth.uid + '_2026-10-28-v1' &&
       request.resource.data.keys().hasOnly(['uid','versao','aceito_em','tipo']) &&
-      request.resource.data.uid == uid &&
+      request.resource.data.uid == request.auth.uid &&
       request.resource.data.versao == '2026-10-28-v1' &&
       request.resource.data.tipo == 'ciencia_termos_uso' &&
       request.resource.data.aceito_em == request.time;
-    allow delete: if false;
+    allow update,delete: if false;
   }
 
   // Informações escolares sensíveis ficam fora do cadastro geral de alunos.
