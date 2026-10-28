@@ -212,3 +212,21 @@ code{background:#eef5f7;color:#375568;padding:3px 6px;border-radius:5px;overflow
 /* Estados de inicialização e configuração. */
 .app-loading,.login{display:grid;place-items:center;min-height:100vh;padding:28px;background:radial-gradient(circle at 25% 15%,#e1f7f2,transparent 40%),var(--bg);color:var(--ink);font-weight:650}
 .login .card{width:min(460px,100%);padding:30px}
+
+/* Fluxo integrado: abrir agendamento, iniciar, continuar e finalizar consulta. */
+.appointment-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 18px;margin:16px 0 22px;padding:20px;border:1px solid var(--line);border-radius:15px;background:#f9fcfd}
+.appointment-summary>.status-pill{grid-column:1/-1;justify-self:start}
+.appointment-summary>div{display:grid;gap:4px;min-width:0}
+.appointment-summary>div>span{font-size:11px;font-weight:700;color:#8698aa}
+.appointment-summary>div>strong{font-size:13px;color:#234153;overflow-wrap:anywhere}
+.appointment-actions{margin-bottom:0}
+.appointment-tip{padding:12px 14px;border-radius:11px;border:1px solid #c4eae3;background:#edfaf7;color:#0a7669;font-size:12px}
+.status-pill{display:inline-flex;align-items:center;justify-content:center;border-radius:99px;padding:6px 11px;white-space:nowrap;background:#edf3f8;color:#60798d;font-weight:800;font-size:11px}
+.status-agendado{background:#e9f0ff;color:#4269c2}
+.status-em_atendimento{background:#e0f8ef;color:#078266}
+.status-realizado{background:#e9f8f1;color:#168253}
+.status-cancelado{background:#fceceb;color:#ad4b45}
+.consult-info{display:grid;gap:5px;padding:15px 17px;background:#f0f8f8;border:1px solid #d6eae8;border-radius:12px;margin-bottom:5px}
+.consult-info strong{font-size:14px;color:#214853}
+.consult-info span{font-size:12px;color:#607a83}
+@media(max-width:520px){.appointment-summary{grid-template-columns:1fr;padding:15px}.appointment-actions .btn{width:100%}}
