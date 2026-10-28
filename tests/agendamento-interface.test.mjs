@@ -12,3 +12,5 @@ test('reservas de meia hora usam transação do Firestore',()=>{
  assert.match(source,/runTransaction\(db,async tx=>/);
  assert.match(source,/agenda_slots/);
 });
+
+test('atendimento imediato não exige data futura no validador de agenda',()=>{assert.match(source,/if\(isAgenda\)eligible\(date,d\.escola_id,Number\(d\.duracao_min\)\)/);});
