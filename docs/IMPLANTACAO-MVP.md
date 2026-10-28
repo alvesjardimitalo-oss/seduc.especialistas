@@ -97,3 +97,12 @@ Com conta `superadmin` ou de Secretaria com delegação de gestão:
 5. Se houver erro de conexão, selecione o mesmo arquivo novamente; os registros existentes serão preservados e serão inseridos somente os faltantes.
 
 **Segurança:** a importação **não cria contas Google**, não concede privilégios e não transforma todo servidor escolar em especialista de atendimento. A agenda profissional continua exigindo um vínculo cadastrado à parte e liberação de acesso. Nomes e telefones de servidores não podem ser armazenados no GitHub público. A planilha enviada contém funcionários, **não alunos**; a importação de alunos dependerá de outro arquivo, revisão jurídica/LGPD e homologação de acesso.
+
+## 11. Correção de importação e alunos especiais (homologação)
+- A importação dos 248 servidores passou a reconhecer o nome das escolas existentes mesmo quando seus IDs do Firestore foram gerados automaticamente. A gravação usa o ID real encontrado, sem recriar ou excluir a escola.
+- A aba **Alunos** agora oferece **Importar alunos (JSON)** apenas para o `superadmin`. O arquivo local `seduc_alunos_especiais_2026_importacao_privada.json` contém 74 alunos de quatro instituições. A importação mostra o mapeamento das escolas antes de qualquer gravação.
+- O documento básico `alunos/{id}` armazena somente dados mínimos para identificação; `alunos_privado/{id}` guarda campos familiares privados, e `alunos_necessidades/{id}` guarda os registros educacionais específicos separados dos relatórios gerenciais. As regras permitem a leitura dessa última coleção apenas para o superadmin e especialistas autorizados na instituição.
+- Cada aluno novo é criado por lote com seus documentos separados; IDs já existentes são preservados, possíveis colisões de nome/escola geram alerta, e a importação pode ser retomada caso haja interrupção.
+- **Publicar as regras `firestore.rules` mais recentes no Console Firebase antes de usar os botões de importação.** Alterações somente no GitHub não alteram as permissões já publicadas no Firestore.
+- Os dados dos arquivos privados **não foram enviados ao GitHub**, e a atualização do código **não representa importação executada no banco**. Essa importação usa a sessão Google autorizada pelo Firebase no navegador, exige confirmação e depende da publicação das regras.
+- Não utilizar os registros educacionais importados como diagnóstico médico ou laudo clínico. A produção com dados pessoais de menores demanda homologação da política institucional de LGPD e de acesso.
