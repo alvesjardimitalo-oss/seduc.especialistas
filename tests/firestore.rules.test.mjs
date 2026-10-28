@@ -187,3 +187,25 @@ test('frequência não pode ser registrada com data falsificada',async()=>{
   dia:'2025-01-01',entrada:serverTimestamp(),saida:null,status:'aberta'
  }));
 });
+
+test('superadmin cadastra servidor com contato protegido; direção não lê quadro',async()=>{
+ const db=contexto('admin'),batch=writeBatch(db);
+ batch.set(doc(db,'servidores/srv_abcdef12345678901234'),{
+  nome:'Funcionário fictício',cargo:'Auxiliar',escola_id:'a',
+  ano:2026,escola_origem:'Escola de Teste',linha_origem:9,ativo:true
+ });
+ batch.set(doc(db,'servidores_privado/srv_abcdef12345678901234'),{
+  celular:'',telefone:'',escola_id:'a'
+ });
+ await assertSucceeds(batch.commit());
+ await assertSucceeds(getDoc(doc(db,'servidores/srv_abcdef12345678901234')));
+ await assertFails(getDoc(doc(contexto('dirA'),'servidores/srv_abcdef12345678901234')));
+ await assertFails(getDoc(doc(contexto('espA'),'servidores_privado/srv_abcdef12345678901234')));
+});
+test('especialista não pode importar servidor nem dados privados',async()=>{
+ const db=contexto('espA');
+ await assertFails(setDoc(doc(db,'servidores/srv_aaaaaaaaaaaaaaaaaaaa'),{
+  nome:'Teste bloqueado',cargo:'Auxiliar',escola_id:'a',
+  ano:2026,escola_origem:'Escola A',linha_origem:1,ativo:true
+ }));
+});
