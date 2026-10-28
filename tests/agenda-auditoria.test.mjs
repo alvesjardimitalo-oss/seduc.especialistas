@@ -22,17 +22,13 @@ test('contabiliza consultas do dia usando somente registros já carregados',()=>
  assert.equal(dia.faltas,1);
  assert.equal(diaLocal(new Date(2026,9,28,9)),'2026-10-28');
 });
-test('navegação de calendário e botões não disparam consultas ao banco',()=>{
- assert.match(sourceApp,/function calendarioAgenda\\(lista\\)/);
- assert.match(sourceApp,/data-agenda-mes/);
- assert.match(sourceApp,/data-agenda-dia/);
- assert.match(sourceApp,/data-action="atendimento"/);
- assert.match(sourceApp,/Profissional logada/);
- assert.match(sourceApp,/agendaDiaSelecionado/);
- assert.match(sourceApp,/function registrarEvento\\(/);
- assert.match(sourceApp,/registrarEvento\\(tx,'agendamento',id,'reagendado'/);
- assert.match(sourceApp,/async function mostrarHistoricoAgendamento/);
- assert.match(sourceApp,/cacheHistoricos\\.has\\(id\\)/);
- assert.match(sourceApp,/async function refresh\\(colecoes=null\\)/);
- assert.match(sourceApp,/await refresh\\(\\['agendamentos'\\]\\)/);
+test('navegação de calendário usa dados do cache e tem trilha de auditoria',()=>{
+ const esperados=[
+  'function calendarioAgenda(lista)','data-agenda-mes','data-agenda-dia',
+  'data-action="atendimento"','Profissional logada','agendaDiaSelecionado',
+  'function registrarEvento(','registrarEvento(tx,\'agendamento\',id,\'reagendado\'',
+  'async function mostrarHistoricoAgendamento','cacheHistoricos.has(id)',
+  'async function refresh(colecoes=null)',"await refresh(['agendamentos'])"
+ ];
+ for(const trecho of esperados)assert.ok(sourceApp.includes(trecho),'Trecho ausente: '+trecho);
 });
