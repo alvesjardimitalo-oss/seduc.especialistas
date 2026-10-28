@@ -491,13 +491,17 @@ function abrirAgendamento(id){
  if(!a)return showError(Error('Agendamento não encontrado. Atualize a agenda.'));
  const estudante=cache.alunos.find(x=>x.id===a.aluno_id);
  const dono=canWrite()&&a.autor_uid===user.uid;
- const situacao={agendado:'Agendado',em_atendimento:'Em atendimento',realizado:'Realizado',cancelado:'Cancelado'}[a.status]||a.status||'Não informada';
+ const situacao={agendado:'Agendado',em_atendimento:'Em atendimento',realizado:'Realizado',cancelado:'Cancelado',remarcado:'Remarcado',falta_aluno:'Falta do aluno',falta_profissional:'Falta profissional'}[a.status]||a.status||'Não informada';
  const acoes=dono&&a.status==='agendado'
-  ?'<button type="button" class="btn" id="iniciar-consulta">Iniciar consulta</button><button type="button" class="btn secondary" id="cancelar-consulta">Cancelar agendamento</button>'
+  ?'<button type="button" class="btn" id="iniciar-consulta">Iniciar consulta</button><button type="button" class="btn secondary" id="reagendar-consulta">Reagendar</button>'+(dataMs(a.inicio)<=Date.now()?'<button type="button" class="btn secondary" id="registrar-falta">Registrar falta</button>':'')+'<button type="button" class="btn secondary" id="cancelar-consulta">Cancelar</button>'
   :dono&&a.status==='em_atendimento'
   ?'<button type="button" class="btn" id="continuar-consulta">Continuar consulta</button>'
   :a.status==='realizado'
   ?'<button type="button" class="btn secondary" id="ver-consulta-realizada">Ver no histórico de atendimentos</button>'
+  :dono&&['falta_aluno','falta_profissional'].includes(a.status)&&!a.novo_agendamento_id
+  ?'<button type="button" class="btn" id="reagendar-consulta">Reagendar após falta</button>'
+  :a.novo_agendamento_id
+  ?'<button type="button" class="btn secondary" id="ver-novo-agendamento">Ver novo agendamento</button>'
   :'';
  document.body.insertAdjacentHTML('beforeend','<div class="modalback" id="detalhe-agendamento"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="titulo-agendamento">'+
   '<button type="button" class="btn secondary close" id="fechar-agendamento">Fechar</button><span class="eyebrow">AGENDA · CONSULTA</span><h2 id="titulo-agendamento">Detalhes do agendamento</h2>'+
@@ -508,6 +512,8 @@ function abrirAgendamento(id){
   '<div><span>Data e horário</span><strong>'+safe(formatDate(a.inicio))+' · '+safe(a.duracao_min)+' minutos</strong></div>'+
   '<div><span>Especialidade</span><strong>'+safe(a.especialidade||'Não informada')+'</strong></div></div>'+
   (a.status==='em_atendimento'?'<p class="appointment-tip">Atendimento iniciado. Você pode continuar e registrar a evolução da consulta.</p>':'')+
+  (a.motivo_falta?'<p class="appointment-tip"><strong>Justificativa de ausência:</strong> '+safe(a.motivo_falta)+'</p>':'')+
+  (a.motivo_remarcacao?'<p class="appointment-tip"><strong>Motivo da remarcação:</strong> '+safe(a.motivo_remarcacao)+'</p>':'')+
   '<div class="actions appointment-actions">'+acoes+'</div></section></div>');
  const back=document.getElementById('detalhe-agendamento');
  back.querySelector('#fechar-agendamento').onclick=()=>back.remove();
@@ -517,9 +523,96 @@ function abrirAgendamento(id){
  if(continuar)continuar.onclick=()=>{back.remove();abrirConsultaAgendada(id)};
  const cancelar=back.querySelector('#cancelar-consulta');
  if(cancelar)cancelar.onclick=async()=>{back.remove();await cancelarAgendamento(id)};
+ const falta=back.querySelector('#registrar-falta');
+ if(falta)falta.onclick=()=>{back.remove();abrirRegistroFalta(id)};
+ const reagendar=back.querySelector('#reagendar-consulta');
+ if(reagendar)reagendar.onclick=()=>{back.remove();abrirReagendamento(id)};
+ const novo=back.querySelector('#ver-novo-agendamento');
+ if(novo)novo.onclick=()=>{const novoId=a.novo_agendamento_id;back.remove();abrirAgendamento(novoId)};
  const historico=back.querySelector('#ver-consulta-realizada');
  if(historico)historico.onclick=()=>{back.remove();filtrosAtendimentos={nome:estudante?.nome||''};tab='Atendimentos';render()};
 }
+
+function abrirRegistroFalta(id){
+ const a=cache.agendamentos.find(x=>x.id===id);
+ if(!a||a.status!=='agendado'||a.autor_uid!==user.uid||!canWrite())return;
+ if(dataMs(a.inicio)>Date.now()){showError(Error('Uma ausência só pode ser registrada após o início do horário previsto.'));return}
+ modal('Registrar ausência no agendamento',
+  '<p class="wide muted">Aluno: '+safe(cache.alunos.find(x=>x.id===a.aluno_id)?.nome)+' · '+safe(formatDate(a.inicio))+'. O motivo ficará documentado no histórico.</p>'+
+  select('tipo','Tipo de ausência',[['falta_aluno','Falta do aluno'],['falta_profissional','Falta da profissional']])+
+  '<label class="wide">Descrição / justificativa<textarea name="motivo" maxlength="500" required placeholder="Registre o ocorrido."></textarea></label>',
+  async d=>registrarFaltaAgendamento(id,d.tipo,d.motivo));
+}
+async function registrarFaltaAgendamento(id,tipo,motivo){
+ if(!canWrite()||!['falta_aluno','falta_profissional'].includes(tipo))throw Error('Tipo de ausência inválido.');
+ const texto=String(motivo||'').trim();
+ if(!texto||texto.length>500)throw Error('Informe a justificativa em até 500 caracteres.');
+ const ref=doc(db,'agendamentos',id);
+ await runTransaction(db,async tx=>{
+  const snap=await tx.get(ref);
+  if(!snap.exists())throw Error('Agendamento não encontrado.');
+  const a=snap.data();
+  if(a.status!=='agendado'||a.autor_uid!==user.uid||dataMs(a.inicio)>Date.now())throw Error('Esta ausência não pode ser registrada.');
+  const inicio=a.inicio.toDate(),tempos=[inicio,...(a.duracao_min===60?[new Date(inicio.getTime()+1800000)]:[])];
+  const locks=tempos.map(t=>doc(db,'agenda_slots',slotId(user.uid,t)));
+  const dados=await Promise.all(locks.map(x=>tx.get(x)));
+  if(dados.some(x=>!x.exists()||x.data().agendamento_id!==id||x.data().status!=='reservado'))throw Error('Reserva de horário inconsistente.');
+  tx.update(ref,{status:tipo,motivo_falta:texto,falta_registrada_em:serverTimestamp()});
+  locks.forEach(x=>tx.update(x,{status:'liberado'}));
+ });
+}
+function abrirReagendamento(id){
+ const a=cache.agendamentos.find(x=>x.id===id);
+ if(!a||a.autor_uid!==user.uid||!canWrite()||!['agendado','falta_aluno','falta_profissional'].includes(a.status)||a.novo_agendamento_id){
+  showError(Error('Este agendamento não está disponível para remarcação.'));return;
+ }
+ modal('Reagendar consulta',
+  '<p class="wide muted">Aluno: '+safe(cache.alunos.find(x=>x.id===a.aluno_id)?.nome)+' · '+safe(schoolName(a.escola_id))+
+  '. A data anterior e as justificativas permanecerão no histórico.</p>'+
+  field('inicio','Nova data e hora','datetime-local','required')+
+  '<label class="wide">Motivo do reagendamento<textarea name="motivo" required maxlength="500" placeholder="Descreva o motivo da alteração."></textarea></label>',
+  async d=>reagendarAgendamento(id,d.inicio,d.motivo));
+ const hora=document.querySelector('#entry [name=inicio]');
+ if(hora){const agora=new Date();agora.setSeconds(0,0);agora.setMinutes(Math.floor(agora.getMinutes()/30)*30+30);hora.value=horarioLocal(agora)}
+}
+async function reagendarAgendamento(id,novoHorario,motivo){
+ if(!canWrite())throw Error('Somente a profissional responsável pode reagendar.');
+ const texto=String(motivo||'').trim();
+ if(!texto||texto.length>500)throw Error('Informe o motivo em até 500 caracteres.');
+ const inicio=fromInputDate(novoHorario);
+ if(inicio.getSeconds()!==0||inicio.getMinutes()%30!==0||inicio<=new Date())throw Error('Escolha data futura em hora cheia ou meia hora.');
+ const atual=cache.agendamentos.find(x=>x.id===id);
+ if(!atual||atual.autor_uid!==user.uid||!['agendado','falta_aluno','falta_profissional'].includes(atual.status)||atual.novo_agendamento_id)throw Error('Agendamento indisponível.');
+ eligible(inicio,atual.escola_id,Number(atual.duracao_min));
+ const vinculo=cache.vinculos.find(v=>v.id===atual.vinculo_id&&v.uid===user.uid&&v.ativo===true);
+ if(!vinculo||!dentroDaJornada(inicio,Number(atual.duracao_min),vinculo.horarios))throw Error('A nova data está fora da jornada ou não possui vínculo ativo.');
+ const novo=doc(collection(db,'agendamentos')),origem=doc(db,'agendamentos',id);
+ const novaGrade=[inicio,...(atual.duracao_min===60?[new Date(inicio.getTime()+1800000)]:[])];
+ await runTransaction(db,async tx=>{
+  const snap=await tx.get(origem);
+  if(!snap.exists())throw Error('Consulta original não encontrada.');
+  const velho=snap.data();
+  if(velho.autor_uid!==user.uid||!['agendado','falta_aluno','falta_profissional'].includes(velho.status)||velho.novo_agendamento_id)throw Error('O agendamento já foi alterado. Atualize a tela.');
+  const antigoInicio=velho.inicio.toDate();
+  const antigaGrade=velho.status==='agendado'?[antigoInicio,...(velho.duracao_min===60?[new Date(antigoInicio.getTime()+1800000)]:[])]:[];
+  const antigos=antigaGrade.map(t=>doc(db,'agenda_slots',slotId(user.uid,t)));
+  const novos=novaGrade.map(t=>doc(db,'agenda_slots',slotId(user.uid,t)));
+  const [antigosDocs,novosDocs]=await Promise.all([
+   Promise.all(antigos.map(x=>tx.get(x))),Promise.all(novos.map(x=>tx.get(x)))
+  ]);
+  if(antigosDocs.some(x=>!x.exists()||x.data().status!=='reservado'||x.data().agendamento_id!==id))throw Error('A reserva anterior foi alterada.');
+  if(novosDocs.some(x=>x.exists()&&x.data().status!=='liberado'))throw Error('O novo horário já está ocupado.');
+  tx.update(origem,{status:velho.status==='agendado'?'remarcado':velho.status,novo_agendamento_id:novo.id,remarcado_em:serverTimestamp(),motivo_remarcacao:texto});
+  antigos.forEach(x=>tx.update(x,{status:'liberado'}));
+  tx.set(novo,{
+   escola_id:velho.escola_id,aluno_id:velho.aluno_id,vinculo_id:velho.vinculo_id,
+   inicio,duracao_min:velho.duracao_min,especialidade:velho.especialidade,
+   autor_uid:user.uid,autor_nome:velho.autor_nome,criado_em:serverTimestamp(),status:'agendado',remarcado_de:id
+  });
+  novos.forEach((x,i)=>tx.set(x,{autor_uid:user.uid,escola_id:velho.escola_id,agendamento_id:novo.id,inicio:novaGrade[i],status:'reservado'}));
+ });
+}
+
 async function iniciarConsultaAgendada(id){
  if(!canWrite())throw Error('Apenas profissionais especialistas podem iniciar consultas.');
  const ref=doc(db,'agendamentos',id);
