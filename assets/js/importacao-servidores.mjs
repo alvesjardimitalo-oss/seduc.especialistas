@@ -33,8 +33,8 @@ export function conferirImportacao(dados) {
 
 export function nomeComparavel(x){
  return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
- .replace(/\\b(escola|municipal|creche|professora|professor|doutor|dr)\\b/g,' ')
- .replace(/[^a-z0-9 ]/g,' ').replace(/\\s+/g,' ').trim();
+ .replace(/\b(escola|municipal|creche|professora|professor|doutor|dr)\b/g,' ')
+ .replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
 }
 export function encontrarEscola(canonica, cadastradas){
  const canonical=Object.values(escolasImportacao).find(x=>x.id===canonica);
