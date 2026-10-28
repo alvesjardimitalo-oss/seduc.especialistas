@@ -541,13 +541,14 @@ function abrirConsultaAgendada(id){
  const aluno=cache.alunos.find(x=>x.id===a.aluno_id);
  modal('Consulta em andamento',
   '<div class="wide consult-info"><strong>'+safe(aluno?.nome||'Aluno')+'</strong><span>'+safe(schoolName(a.escola_id))+' · '+safe(a.especialidade)+' · '+safe(formatDate(a.inicio))+'</span></div>'+
-  '<label class="wide">Registro do atendimento<textarea name="texto" maxlength="1000" rows="8" required placeholder="Descreva as atividades realizadas, observações e orientações relevantes."></textarea></label>'+
-  '<p class="wide muted">Ao finalizar, o registro ficará vinculado a este agendamento e disponível no histórico. Se fechar sem finalizar, a consulta permanecerá em andamento, mas o texto digitado não será salvo.</p>',
-  async d=>finalizarConsultaAgendada(id,d.texto));
+  camposRegistroConsulta()+
+  '<p class="wide muted">Ao finalizar, o registro será salvo e vinculado à consulta. Se fechar sem concluir, a consulta continuará em andamento; textos não finalizados não são salvos.</p>',
+  async d=>finalizarConsultaAgendada(id,registroConsultaTexto(d),d.evolucao_observada));
+
  const botao=document.querySelector('#entry [type=submit]');
  if(botao)botao.textContent='Finalizar consulta e salvar';
 }
-async function finalizarConsultaAgendada(id,observacao){
+async function finalizarConsultaAgendada(id,observacao,evolucao='nao_avaliada'){
  if(!canWrite())throw Error('Apenas especialistas podem concluir consultas.');
  const texto=String(observacao||'').trim();
  if(!texto||texto.length>1000)throw Error('Registre o atendimento em até 1.000 caracteres.');
@@ -563,7 +564,7 @@ async function finalizarConsultaAgendada(id,observacao){
    escola_id:a.escola_id,aluno_id:a.aluno_id,vinculo_id:a.vinculo_id,
    inicio:a.inicio,duracao_min:a.duracao_min,especialidade:a.especialidade,
    autor_uid:a.autor_uid,autor_nome:a.autor_nome,criado_em:serverTimestamp(),
-   data:serverTimestamp(),status:'realizado',agendamento_id:id
+   data:serverTimestamp(),status:'realizado',agendamento_id:id,evolucao_observada:evolucao
   });
   tx.set(nota,{escola_id:a.escola_id,autor_uid:a.autor_uid,atendimento_id:atendimento.id,texto,revisao:1});
   tx.update(ref,{status:'realizado',finalizado_em:serverTimestamp(),atendimento_id:atendimento.id});
@@ -634,15 +635,62 @@ if(kind==='profissional'){modal('Cadastrar profissional',field('nome','Nome comp
 if(kind==='vinculo'){modal('Vincular profissional',select('profissional_id','Profissional',cache.profissionais.map(p=>[p.id,p.nome]))+schoolSelect()+field('cargo','Cargo','text','required')+field('jornada','Jornada semanal (ex.: 20 horas)')+field('uid','UID do usuário Google da profissional','text','required')+field('horarios_texto','Dias e horários (ex.: 1 08:00-12:00; 3 13:00-17:00)','text','required'),async d=>{const horarios=lerHorarios(d.horarios_texto);delete d.horarios_texto;await addDoc(collection(db,'vinculos'),{...d,horarios,slots_semana:gerarSlotsSemana(horarios),ativo:true})});return}
 if(kind==='aluno'){modal('Cadastrar aluno',schoolSelect()+field('nome','Nome completo','text','required')+field('nascimento','Nascimento','date','required')+field('cpf','CPF (quando necessário)')+field('matricula','Matrícula')+field('filiacao','Filiação / responsável')+field('telefone','Telefone do responsável')+field('endereco','Endereço'),async d=>{if(d.cpf&&!cpfValido(d.cpf))throw Error('CPF inválido.');const id=doc(collection(db,'alunos'));const batch=writeBatch(db);const {cpf,filiacao,telefone,endereco,...base}=d;batch.set(id,{...base,criado_por:user.uid,ativo:true});batch.set(doc(db,'alunos_privado',id.id),{cpf,filiacao,telefone,endereco,escola_id:d.escola_id,criado_por:user.uid});await batch.commit()});return}
 if(kind==='usuario'){modal('Autorizar usuário',field('uid','UID do usuário pendente','text','required')+select('perfil','Perfil',[['especialista','Especialista'],['direcao','Direção escolar'],['secretaria','Secretaria de Educação']])+field('escolas','IDs das escolas autorizadas, separados por vírgula') ,async d=>{const ref=doc(db,'usuarios',d.uid);const current=await getDoc(ref);if(!current.exists())throw Error('O usuário deve fazer login com Google antes da autorização.');if(current.data().perfil==='superadmin')throw Error('Não é permitido alterar o superadministrador.');await updateDoc(ref,{perfil:d.perfil,escolas:d.escolas.split(',').map(s=>s.trim()).filter(Boolean),ativo:true})});return}
-if(kind==='atendimento'||kind==='agendar'){if(!cache.alunos.length){alert('Cadastre primeiro o aluno na escola correspondente.');return}const isAgenda=kind==='agendar';modal(isAgenda?'Agendar consulta':'Atendimento imediato',schoolSelect()+select('aluno_id','Aluno',cache.alunos.map(a=>[a.id,a.nome+' — '+schoolName(a.escola_id)]))+field('inicio','Data e hora','datetime-local','required')+select('duracao_min','Duração',[[30,'30 minutos'],[60,'60 minutos']])+field('especialidade','Especialidade','text','required')+(isAgenda?'': '<label class="wide">Registro do atendimento (máximo 1.000 caracteres)<textarea name="texto" maxlength="1000" required></textarea></label>'),async d=>{if(!isAgenda)d.inicio=horarioLocal(new Date());const student=cache.alunos.find(a=>a.id===d.aluno_id);if(student.escola_id!==d.escola_id)throw Error('Aluno não pertence à escola selecionada.');const date=fromInputDate(d.inicio);if(isAgenda)eligible(date,d.escola_id,Number(d.duracao_min));const vinculo=cache.vinculos.find(v=>v.escola_id===d.escola_id&&v.uid===user.uid&&v.ativo===true&&dentroDaJornada(new Date(d.inicio),Number(d.duracao_min),v.horarios));if(!vinculo)throw Error('Vínculo e jornada inválidos.');const payload={...d,vinculo_id:vinculo.id,inicio:date,duracao_min:Number(d.duracao_min),autor_uid:user.uid,autor_nome:profile.nome||user.displayName,criado_em:serverTimestamp()};if(isAgenda){delete payload.texto;await salvarAgendamento(payload)}else{const ref=doc(collection(db,'atendimentos'));const batch=writeBatch(db);const {texto,...meta}=payload;batch.set(ref,{...meta,data:date,status:'realizado'});batch.set(doc(db,'notas_atendimento',ref.id),{escola_id:d.escola_id,autor_uid:user.uid,texto:texto||'',atendimento_id:ref.id,revisao:1});await batch.commit()}});
+if(kind==='atendimento'||kind==='agendar'){
+ if(!canWrite()){showError(Error('Somente especialistas autorizadas podem registrar consultas.'));return}
+ if(!cache.alunos.length){alert('Cadastre primeiro o aluno na escola correspondente.');return}
+ const isAgenda=kind==='agendar';
+ const fields=schoolSelect()+select('aluno_id','Aluno',cache.alunos.filter(a=>a.ativo!==false).map(a=>[a.id,a.nome+' — '+schoolName(a.escola_id)]))+
+ field('inicio',isAgenda?'Data e hora do agendamento':'Data e hora da consulta realizada','datetime-local','required')+
+ select('duracao_min','Duração',[[30,'30 minutos'],[60,'60 minutos']])+
+ field('especialidade','Especialidade','text','required maxlength="150"');
+ modal(isAgenda?'Agendar consulta':'Registrar consulta sem agendamento',fields+
+ (isAgenda?'<p class="wide muted">Ao iniciar a consulta pela agenda, o registro será vinculado automaticamente ao aluno.</p>':camposRegistroConsulta()),
+ async d=>{
+  const student=cache.alunos.find(a=>a.id===d.aluno_id);
+  if(!student||student.ativo===false||student.escola_id!==d.escola_id)throw Error('Selecione um aluno ativo da instituição.');
+  const date=fromInputDate(d.inicio),duracao=Number(d.duracao_min);
+  if(isAgenda)eligible(date,d.escola_id,duracao);
+  else if(date.getTime()>Date.now()+60000)throw Error('A consulta avulsa deve ter ocorrido hoje ou em data anterior. Para consultas futuras, utilize a agenda.');
+  const vinculo=cache.vinculos.find(v=>v.escola_id===d.escola_id&&v.uid===user.uid&&v.ativo===true&&dentroDaJornada(date,duracao,v.horarios));
+  if(!vinculo)throw Error('Não existe vínculo ativo e jornada autorizada para este aluno, escola e horário.');
+  const {descricao,atividades,observacoes,orientacoes,evolucao_observada,...campos}=d;
+  const payload={...campos,vinculo_id:vinculo.id,inicio:date,duracao_min:duracao,
+   autor_uid:user.uid,autor_nome:profile.nome||user.displayName,criado_em:serverTimestamp()};
+  if(isAgenda)await salvarAgendamento(payload);
+  else{
+   const texto=registroConsultaTexto({descricao,atividades,observacoes,orientacoes});
+   const ref=doc(collection(db,'atendimentos')),batch=writeBatch(db);
+   batch.set(ref,{...payload,data:date,status:'realizado',evolucao_observada:evolucao_observada||'nao_avaliada'});
+   batch.set(doc(db,'notas_atendimento',ref.id),{escola_id:d.escola_id,autor_uid:user.uid,texto,atendimento_id:ref.id,revisao:1});
+   await batch.commit();
+  }
+ });
  const entrada=document.querySelector('#entry [name=inicio]');
  if(entrada){
-   const agora=new Date();
-   if(isAgenda){agora.setSeconds(0,0);agora.setMinutes(Math.floor(agora.getMinutes()/30)*30+30)}
-   entrada.value=horarioLocal(agora);
-   if(!isAgenda){entrada.readOnly=true;entrada.title='Hora efetiva do registro será definida ao salvar';}
+  const agora=new Date();
+  if(isAgenda){agora.setSeconds(0,0);agora.setMinutes(Math.floor(agora.getMinutes()/30)*30+30)}
+  entrada.value=horarioLocal(agora);
  }
- return}}
+ return;
+}
+function camposRegistroConsulta(){
+ return '<label class="wide">Motivo / objetivo do atendimento<textarea name="descricao" maxlength="1200" required placeholder="Por que a consulta foi realizada?"></textarea></label>'+
+ '<label class="wide">Atividades, intervenções e procedimentos<textarea name="atividades" maxlength="1200" placeholder="O que foi realizado durante o atendimento?"></textarea></label>'+
+ '<label class="wide">Observações, resposta e comportamento identificado<textarea name="observacoes" maxlength="1200" placeholder="Registre fatos observados e contexto, sem inferir diagnósticos."></textarea></label>'+
+ '<label class="wide">Orientações, encaminhamentos e próximos passos<textarea name="orientacoes" maxlength="1200" placeholder="Quais orientações e ações ficaram definidas?"></textarea></label>'+
+ select('evolucao_observada','Evolução observada pela profissional',[
+  ['nao_avaliada','Não avaliada nesta consulta'],['avanco_observado','Avanço observado'],
+  ['sem_mudanca_observada','Sem mudança observada'],['reavaliacao_necessaria','Reavaliação necessária']])+
+ '<p class="wide muted">A evolução é uma declaração da profissional responsável. O sistema não realiza avaliações clínicas automáticas.</p>';
+}
+function registroConsultaTexto(campos){
+ const partes=[['Motivo / objetivo',campos.descricao],['Atividades e procedimentos',campos.atividades],['Observações e resposta',campos.observacoes],['Orientações e encaminhamentos',campos.orientacoes]];
+ const texto=partes.filter(([,v])=>String(v||'').trim()).map(([titulo,valor])=>titulo+':\n'+String(valor).trim()).join('\n\n');
+ if(!String(campos.descricao||'').trim())throw Error('Descreva o motivo ou objetivo da consulta.');
+ if(texto.length>5000)throw Error('O registro excedeu o limite de 5.000 caracteres.');
+ return texto;
+}
+
 
 function mostrarAcompanhamento(id){
  if(profile?.perfil!=='superadmin'&&profile?.perfil!=='especialista')return;
@@ -865,5 +913,5 @@ function openUser(uid){
  });
  const form=document.getElementById('entry');form.querySelector('[name=perfil]').value=u.perfil;form.querySelector('[name=ativo]').value=String(u.ativo===true);if(form.querySelector('[name=gerenciar]'))form.querySelector('[name=gerenciar]').value=String(u.gerenciar===true);
 }
-function openEdit(id){const a=cache.atendimentos.find(x=>x.id===id);if(!a||!(a.autor_uid===user.uid||profile.perfil==='superadmin'))return;modal('Editar / cancelar atendimento','<label class="wide">Observações<textarea name="texto" maxlength="1000" required>'+safe(a.texto)+'</textarea></label>'+select('status','Situação',[['realizado','Realizado'],['cancelado','Cancelado']])+field('motivo','Justificativa da alteração','text','required'),async d=>{const batch=writeBatch(db);batch.update(doc(db,'atendimentos',id),{status:d.status,motivo_ultima_alteracao:d.motivo,alterado_por:user.uid,alterado_em:serverTimestamp()});const revision=Number(cache.notas_atendimento.find(n=>n.id===id)?.revisao||1)+1;batch.update(doc(db,'notas_atendimento',id),{texto:d.texto,revisao:revision,atualizado_em:serverTimestamp()});batch.set(doc(db,'notas_versoes',id+'-'+revision),{atendimento_id:id,escola_id:a.escola_id,autor_uid:a.autor_uid,editado_por:user.uid,texto_anterior:a.texto||'',texto_novo:d.texto,justificativa:d.motivo,versao:revision,em:serverTimestamp()});await batch.commit()});document.querySelector('#entry [name=status]').value=a.status||'realizado'}
+function openEdit(id){const a=cache.atendimentos.find(x=>x.id===id);if(!a||!(a.autor_uid===user.uid||profile.perfil==='superadmin'))return;modal('Editar / cancelar atendimento','<label class="wide">Observações<textarea name="texto" maxlength="5000" required>'+safe(a.texto)+'</textarea></label>'+select('status','Situação',[['realizado','Realizado'],['cancelado','Cancelado']])+field('motivo','Justificativa da alteração','text','required'),async d=>{const batch=writeBatch(db);batch.update(doc(db,'atendimentos',id),{status:d.status,motivo_ultima_alteracao:d.motivo,alterado_por:user.uid,alterado_em:serverTimestamp()});const revision=Number(cache.notas_atendimento.find(n=>n.id===id)?.revisao||1)+1;batch.update(doc(db,'notas_atendimento',id),{texto:d.texto,revisao:revision,atualizado_em:serverTimestamp()});batch.set(doc(db,'notas_versoes',id+'-'+revision),{atendimento_id:id,escola_id:a.escola_id,autor_uid:a.autor_uid,editado_por:user.uid,texto_anterior:a.texto||'',texto_novo:d.texto,justificativa:d.motivo,versao:revision,em:serverTimestamp()});await batch.commit()});document.querySelector('#entry [name=status]').value=a.status||'realizado'}
 initialize();
