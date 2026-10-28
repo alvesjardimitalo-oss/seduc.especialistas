@@ -256,6 +256,13 @@ service cloud.firestore {
       getAfter(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)).data.revisao == request.resource.data.versao;
     allow update,delete: if false;
   }
+  function doisDigitos(n) {
+    return n < 10 ? '0' + string(n) : string(n);
+  }
+  function dataMunicipal() {
+    let local = request.time - duration.value(3, 'h');
+    return string(local.year()) + '-' + doisDigitos(local.month()) + '-' + doisDigitos(local.day());
+  }
   // Frequência declaratória: carimbos de entrada/saída são definidos pelo servidor.
   // Não substitui homologação administrativa da jornada funcional.
   match /frequencias/{id} {
@@ -265,6 +272,7 @@ service cloud.firestore {
       request.resource.data.uid == request.auth.uid &&
       linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
       id == request.auth.uid + '_' + request.resource.data.escola_id + '_' + request.resource.data.dia &&
+      request.resource.data.dia == dataMunicipal() &&
       request.resource.data.entrada == request.time &&
       request.resource.data.saida == null &&
       request.resource.data.status == 'aberta';
