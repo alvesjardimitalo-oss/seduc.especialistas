@@ -233,6 +233,13 @@ test('admin agenda para especialista habilitada preservando autoria e trava do h
   status:'em_atendimento',iniciado_em:serverTimestamp()
  }));
 });
+test('gestao nao pode criar agendamento sem reserva do horario',async()=>{
+ const db=contexto('admin'),inicio=new Date('2027-11-22T11:00:00.000Z');
+ await assertFails(setDoc(doc(db,'agendamentos/semHorarioGestao'),{
+  ...novoAgendamento('semHorarioGestao',inicio),
+  autor_uid:'espA',autor_nome:'Especialista A',agendado_por_uid:'admin'
+ }));
+});
 test('contas sem delegacao e profissionais de outra escola nao criam agendas em nome de terceiros',async()=>{
  const inicio=new Date('2027-11-15T11:00:00Z');
  const dados={...novoAgendamento('negadoGestao',inicio),agendado_por_uid:'secview'};
