@@ -28,6 +28,32 @@ service cloud.firestore {
       get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.escola_id == escolaId &&
       get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.ativo == true;
   }
+  function slotPath(uid, instante) {
+    return /databases/$(database)/documents/agenda_slots/$(uid + '_' + string(instante.toMillis()));
+  }
+  function appointmentPath(id) {
+    return /databases/$(database)/documents/agendamentos/$(id);
+  }
+  function slotStatus(uid, instante, agendamentoId, escolaId, estado) {
+    return existsAfter(slotPath(uid, instante)) &&
+      getAfter(slotPath(uid, instante)).data.agendamento_id == agendamentoId &&
+      getAfter(slotPath(uid, instante)).data.escola_id == escolaId &&
+      getAfter(slotPath(uid, instante)).data.status == estado;
+  }
+  function appointmentHasSlots(id, d, estado) {
+    return slotStatus(d.autor_uid, d.inicio, id, d.escola_id, estado) &&
+      (d.duracao_min == 30 ||
+        slotStatus(d.autor_uid, d.inicio + duration.value(30, 'm'), id, d.escola_id, estado));
+  }
+  function validSlotBooking(d) {
+    return existsAfter(appointmentPath(d.agendamento_id)) &&
+      getAfter(appointmentPath(d.agendamento_id)).data.autor_uid == d.autor_uid &&
+      getAfter(appointmentPath(d.agendamento_id)).data.escola_id == d.escola_id &&
+      getAfter(appointmentPath(d.agendamento_id)).data.status == 'agendado' &&
+      (getAfter(appointmentPath(d.agendamento_id)).data.inicio == d.inicio ||
+        (getAfter(appointmentPath(d.agendamento_id)).data.duracao_min == 60 &&
+          getAfter(appointmentPath(d.agendamento_id)).data.inicio + duration.value(30, 'm') == d.inicio));
+  }
   function sameAuthorAndScope() {
     return request.resource.data.autor_uid == resource.data.autor_uid &&
       request.resource.data.escola_id == resource.data.escola_id &&
@@ -112,6 +138,8 @@ service cloud.firestore {
       request.resource.data.criado_por == resource.data.criado_por;
     allow delete: if false;
   }
+  // Dois horários de 30 minutos formam uma consulta de 60 minutos.
+  // A reserva e os locks são obrigatórios na mesma transação Firestore.
   match /agendamentos/{id} {
     allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
     allow create: if specialistIn(request.resource.data.escola_id) &&
@@ -119,13 +147,47 @@ service cloud.firestore {
       request.resource.data.autor_uid == request.auth.uid &&
       request.resource.data.status == 'agendado' &&
       request.resource.data.inicio is timestamp &&
+      request.resource.data.inicio > request.time &&
+      request.resource.data.inicio.minutes() % 30 == 0 &&
+      request.resource.data.inicio.seconds() == 0 &&
       request.resource.data.duracao_min in [30,60] &&
       validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
-      linked(request.resource.data.vinculo_id,request.resource.data.escola_id);
+      linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
+      appointmentHasSlots(id,request.resource.data,'reservado');
     allow update: if specialist() && resource.data.autor_uid == request.auth.uid &&
-      sameAuthorAndScope() &&
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','inicio']) &&
-      request.resource.data.status in ['agendado','cancelado','remarcado','falta_aluno','falta_profissional','realizado'];
+      sameAuthorAndScope() && resource.data.status == 'agendado' &&
+      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+      request.resource.data.status == 'cancelado' &&
+      appointmentHasSlots(id,resource.data,'liberado');
+    allow delete: if false;
+  }
+  match /agenda_slots/{id} {
+    allow get: if admin() || (specialist() && resource.data.autor_uid == request.auth.uid);
+    allow list: if false;
+    allow create: if specialistIn(request.resource.data.escola_id) &&
+      request.resource.data.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
+      request.resource.data.autor_uid == request.auth.uid &&
+      request.resource.data.inicio is timestamp &&
+      id == request.auth.uid + '_' + string(request.resource.data.inicio.toMillis()) &&
+      request.resource.data.status == 'reservado' &&
+      validSlotBooking(request.resource.data);
+    allow update: if specialist() && resource.data.autor_uid == request.auth.uid &&
+      id == request.auth.uid + '_' + string(resource.data.inicio.toMillis()) &&
+      (
+        (resource.data.status == 'reservado' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+          request.resource.data.status == 'liberado' &&
+          existsAfter(appointmentPath(resource.data.agendamento_id)) &&
+          getAfter(appointmentPath(resource.data.agendamento_id)).data.status == 'cancelado')
+        ||
+        (resource.data.status == 'liberado' &&
+          request.resource.data.autor_uid == resource.data.autor_uid &&
+          request.resource.data.inicio == resource.data.inicio &&
+          request.resource.data.escola_id is string &&
+          request.resource.data.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
+          request.resource.data.status == 'reservado' &&
+          validSlotBooking(request.resource.data))
+      );
     allow delete: if false;
   }
   match /atendimentos/{id} {
