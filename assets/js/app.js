@@ -36,11 +36,14 @@ function showError(err){
 }
 function showLogin(message=''){
  const pendente=Boolean(user&&profile&&!profile.ativo);
- root.innerHTML='<div class="login"><div class="card"><h1>SEDUC Especialistas</h1><p class="muted">Sistema Municipal de Atendimentos Especializados</p>'+
- '<div class="alert">Ambiente de testes: utilize somente dados fictícios.</div>'+
- (message?'<div class="alert">'+safe(message)+'</div>':'')+
- (pendente?'<p>Conta: <strong>'+safe(user.email)+'</strong></p><p class="muted">Identificador do usuário no Firebase:</p><code style="display:block;overflow-wrap:anywhere">'+safe(user.uid)+'</code><p class="muted">A Secretaria poderá usar este identificador para liberar sua conta.</p><button class="btn secondary" id="trocar">Sair e trocar conta</button>':'<button class="btn" id="google">Entrar com Google</button>')+
- '<p class="muted">Acesso exclusivo a profissionais autorizados.</p></div></div>';
+ const brasao='https://alvesjardimitalo-oss.github.io/sisdifi/assets/img/brasao.png';
+ root.innerHTML='<div class="login login-fundo com-capa">'+
+  '<div class="login-capa"><img src="'+brasao+'" alt="Brasão municipal"><strong>SEDUC</strong><p>Sistema Municipal de Atendimentos Especializados. Organização, cuidado e acompanhamento da rede de ensino.</p></div>'+
+  '<div class="card login-caixa"><div class="marca-login"><img src="'+brasao+'" alt=""><span>Secretaria Municipal de Educação<small>SEDUC Especialistas</small></span></div><h1>Bem-vindo</h1><p class="muted">Entre com sua conta Google autorizada.</p>'+
+  '<div class="alert">Ambiente de testes: utilize somente dados fictícios.</div>'+
+  (message?'<div class="alert">'+safe(message)+'</div>':'')+
+  (pendente?'<p>Conta: <strong>'+safe(user.email)+'</strong></p><p class="muted">Identificador do usuário no Firebase:</p><code style="display:block;overflow-wrap:anywhere">'+safe(user.uid)+'</code><p class="muted">A Secretaria poderá usar este identificador para liberar sua conta.</p><button class="btn secondary" id="trocar">Sair e trocar conta</button>':'<button class="btn btn-google" id="google">Entrar com Google</button>')+
+  '<p class="rodape-login">Acesso exclusivo a profissionais autorizados.</p></div></div>';
  if(pendente)document.getElementById('trocar').onclick=()=>signOut(auth).catch(showError);
  else document.getElementById('google').onclick=()=>signInWithPopup(auth,new GoogleAuthProvider()).catch(showError);
 }
@@ -69,7 +72,21 @@ async function refresh(){
  cache=out;
  for(const a of cache.atendimentos){a.texto=cache.notas_atendimento.find(n=>n.id===a.id)?.texto||''}
 }
-function layout(content){const items=['Painel','Escolas','Profissionais','Alunos','Agenda','Atendimentos','Frequência','Relatórios','Tutorial'];if(canManage())items.push('Servidores','Usuários');root.innerHTML='<div class="shell"><aside class="side"><div class="brand">SEDUC Especialistas<small>Rede Municipal de Ensino</small></div><nav class="menu">'+items.map(n=>'<button class="'+(tab===n?'active':'')+'" data-tab="'+safe(n)+'">'+safe(n)+'</button>').join('')+'</nav></aside><section><div class="homolog-notice">AMBIENTE DE TESTES — NÃO INSERIR DADOS REAIS DE ALUNOS</div><header class="top"><span>'+safe(tab)+'</span><span>'+safe(profile.nome||user.email)+' &nbsp; <button class="btn secondary" id="logout">Sair</button></span></header><main class="body">'+(errosCarregamento.length?'<div class="alert" role="alert">Não foi possível carregar todos os módulos do Firestore: '+safe([...new Set(errosCarregamento)].join(', '))+'. Verifique as regras e os vínculos da sua conta.</div>':'')+content+'</main></section></div>';document.getElementById('logout').onclick=()=>signOut(auth);document.querySelectorAll('[data-tab]').forEach(n=>n.onclick=()=>{tab=n.dataset.tab;render()})}
+function layout(content){
+ const items=['Painel','Escolas','Profissionais','Alunos','Agenda','Atendimentos','Frequência','Relatórios','Tutorial'];
+ if(canManage())items.push('Servidores','Usuários');
+ const icons={Painel:'▦',Escolas:'⌂',Profissionais:'♙',Alunos:'♧',Agenda:'▤',Atendimentos:'✚','Frequência':'◷',Relatórios:'▥',Tutorial:'?',Servidores:'♙',Usuários:'♙'};
+ const brasao='https://alvesjardimitalo-oss.github.io/sisdifi/assets/img/brasao.png';
+ root.innerHTML='<div class="shell layout"><aside class="side lateral">'+
+  '<div class="brand marca"><img src="'+brasao+'" alt="Brasão municipal"><span>SEDUC Especialistas<small>Rede Municipal de Ensino</small></span></div>'+
+  '<nav class="menu">'+items.map(n=>'<button class="'+(tab===n?'active':'')+'" data-tab="'+safe(n)+'"><span class="menu-ico" aria-hidden="true">'+safe(icons[n]||'•')+'</span>'+safe(n)+'</button>').join('')+'</nav>'+
+  '<div class="menu-rodape">Secretaria Municipal de Educação</div></aside>'+
+  '<section class="principal"><header class="top topo"><span class="topo-titulo">'+safe(tab)+'</span><div class="usuario"><span class="usuario-nome">'+safe(profile.nome||user.email)+'<small>'+safe(profile.perfil||'')+'</small></span><button class="btn secondary" id="logout">Sair</button></div></header>'+
+  '<div class="homolog-notice">AMBIENTE DE TESTES — NÃO INSERIR DADOS REAIS DE ALUNOS</div>'+
+  '<main class="body">'+(errosCarregamento.length?'<div class="alert" role="alert">Não foi possível carregar todos os módulos do Firestore: '+safe([...new Set(errosCarregamento)].join(', '))+'. Verifique as regras e os vínculos da sua conta.</div>':'')+content+'</main></section></div>';
+ document.getElementById('logout').onclick=()=>signOut(auth);
+ document.querySelectorAll('[data-tab]').forEach(n=>n.onclick=()=>{tab=n.dataset.tab;render()});
+}
 function title(name,subtitle){return '<h1>'+name+'</h1><p class="sub">'+subtitle+'</p>'}
 function table(headers,rows){return '<div class="card tablewrap"><table><thead><tr>'+headers.map(x=>'<th>'+safe(x)+'</th>').join('')+'</tr></thead><tbody>'+(rows.length?rows.join(''):'<tr><td colspan="'+headers.length+'" class="muted">Nenhum registro encontrado.</td></tr>')+'</tbody></table></div>'}
 function render(){if(!profile?.ativo)return;let html=title(tab,'Acompanhamento de atendimentos especializados');const students=cache.alunos;const appointments=tab==='Agenda'?filtrarConsultas(cache.agendamentos,students,filtrosAgenda):cache.agendamentos;const visits=tab==='Atendimentos'?filtrarConsultas(cache.atendimentos,students,filtrosAtendimentos):cache.atendimentos;if(tab==='Painel'){html+='<div class="grid">'+[['Alunos cadastrados',students.length],['Atendimentos realizados',visits.filter(x=>x.status!=='cancelado').length],['Agendamentos',appointments.filter(x=>x.status==='agendado').length],['Instituições',mySchools().length]].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div>';if(canWrite())html+='<div class="actions"><button class="btn" data-action="atendimento">+ Atendimento imediato</button><button class="btn secondary" data-action="agendar">Agendar consulta</button></div>';html+='<div class="card"><h3>Últimos atendimentos</h3>'+history(visits.slice().sort((a,b)=>dataMs(b.data)-dataMs(a.data)).slice(0,10))+'</div>'}
