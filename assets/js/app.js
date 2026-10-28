@@ -1,5 +1,5 @@
 import {firebaseConfig} from './firebase-config.js';
-import {conferirImportacao,escolasImportacao} from './importacao-servidores.mjs';
+import {conferirImportacao,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
@@ -208,7 +208,7 @@ function abrirImportadorServidores(){
   try{
    const data=JSON.parse(await file.text());
    verificado=conferirImportacao(data);
-   const escolasAusentes=verificado.escolas.filter(e=>!cache.escolas.some(s=>s.id===e.id));
+   const escolasAusentes=verificado.escolas.filter(e=>!encontrarEscola(e.id,cache.escolas));
    if(escolasAusentes.length)throw Error('Antes de importar, cadastre as seis instituições pela opção Escolas → Adicionar escolas iniciais. Faltam: '+escolasAusentes.map(x=>x.nome).join('; '));
    status.textContent='Arquivo validado: '+verificado.total+' servidores; '+(verificado.contagens['creche-wilma-gloria']||0)+' vinculados à Creche Wilma Glória. Nenhum aluno incluído. Registros existentes serão preservados.';
    botao.disabled=false;
