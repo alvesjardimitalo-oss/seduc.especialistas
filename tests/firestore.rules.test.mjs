@@ -65,6 +65,37 @@ test('CPF não é aceito no cadastro público do aluno',async()=>{
   nome:'Aluno fictício',escola_id:'a',nascimento:'2017-01-01',criado_por:'espA',ativo:true,cpf:'00000000000'
  }));
 });
+test('cadastro familiar completo permanece privado e editável somente na escola autorizada',async()=>{
+ const db=contexto('espA');
+ const ficha={
+  cpf:'',filiacao:'Mãe / Pai',telefone:'(33) 99999-9999',endereco:'Rua Fictícia, Centro',
+  escola_id:'a',criado_por:'espA',mae_nome:'Mãe Exemplo',pai_nome:'',pai_nao_declarado:true,
+  responsavel_nome:'Mãe Exemplo',responsavel_parentesco:'Mae',
+  responsavel_telefone:'(33) 99999-9999',responsavel_telefone_alternativo:'',
+  responsavel_email:'',cep:'35170-000',logradouro:'Rua Fictícia',numero:'12',
+  complemento:'',bairro:'Centro',cidade:'Cidade Teste',uf:'MG',referencia:''
+ };
+ await assertSucceeds(setDoc(doc(db,'alunos_privado/alunoA'),ficha));
+ await assertSucceeds(getDoc(doc(db,'alunos_privado/alunoA')));
+ await assertFails(getDoc(doc(contexto('dirA'),'alunos_privado/alunoA')));
+ await assertFails(getDoc(doc(contexto('espB'),'alunos_privado/alunoA')));
+ await assertFails(updateDoc(doc(contexto('espB'),'alunos_privado/alunoA'),{mae_nome:'Alteração não autorizada'}));
+ await assertSucceeds(updateDoc(doc(db,'alunos_privado/alunoA'),{numero:'13'}));
+ await assertFails(updateDoc(doc(db,'alunos_privado/alunoA'),{escola_id:'b'}));
+ await assertFails(updateDoc(doc(db,'alunos/alunoA'),{cpf:'12345678909'}));
+});
+test('registro de ciência dos termos é versionado, exclusivo e imutável',async()=>{
+ const id='espA_2026-10-28-v1',dados={
+  uid:'espA',versao:'2026-10-28-v1',tipo:'ciencia_termos_uso',aceito_em:serverTimestamp()
+ };
+ await assertFails(setDoc(doc(contexto('espB'),'termos_aceites/'+id),dados));
+ await assertSucceeds(setDoc(doc(contexto('espA'),'termos_aceites/'+id),dados));
+ await assertSucceeds(getDoc(doc(contexto('espA'),'termos_aceites/'+id)));
+ await assertSucceeds(getDoc(doc(contexto('admin'),'termos_aceites/'+id)));
+ await assertFails(getDoc(doc(contexto('espB'),'termos_aceites/'+id)));
+ await assertFails(updateDoc(doc(contexto('espA'),'termos_aceites/'+id),{tipo:'outra_aceitacao'}));
+ await assertFails(deleteDoc(doc(contexto('espA'),'termos_aceites/'+id)));
+});
 test('especialista não agenda consulta na escola errada',async()=>{
  await assertFails(setDoc(doc(contexto('espB'),'agendamentos/fora'),{
   escola_id:'a',aluno_id:'alunoA',vinculo_id:'vinculoA',
