@@ -141,6 +141,7 @@ function render(){if(!profile?.ativo)return;let html=title(tab,'Acompanhamento d
  [['Alunos','Fichas e acompanhamento'],['Profissionais','Equipes e jornadas'],['Atendimentos','Histórico de consultas'],['Relatórios','Dados e indicadores']].map(([label,desc])=>'<button class="shortcut-item" data-go="'+safe(label)+'">'+uiIcon(label)+'<span><strong>'+safe(label)+'</strong><small>'+safe(desc)+'</small></span>'+uiIcon('chevron','shortcut-arrow')+'</button>').join('')+'</div></section></div>'+
  '<section class="card recent-card"><div class="card-heading"><div><span class="eyebrow">ACOMPANHAMENTO</span><h3>Atendimentos recentes</h3><p>Últimos registros disponíveis</p></div><button class="text-button" data-go="Atendimentos">Ver todos '+uiIcon('arrow')+'</button></div>'+history(visits.slice().sort((a,b)=>dataMs(b.data)-dataMs(a.data)).slice(0,5))+'</section>';
 }
+if(tab==='Painel'&&tutorialAtivo()){html+='<section class="card onboarding-guide"><div><span class="eyebrow">GUIA DE INÍCIO</span><h3>Conheça os principais fluxos do sistema</h3><p>Cadastre o aluno, agende ou registre a consulta, acompanhe a evolução e emita relatórios.</p></div><div class="actions"><button class="btn secondary" data-go="Tutorial">Abrir tutorial</button><button class="btn secondary" id="ocultar-tutorial">Não mostrar novamente</button></div></section>';}
 if(tab==='Escolas'){
  if(canManage())html+='<div class="actions"><button class="btn" data-action="escola">+ Cadastrar escola</button><button class="btn secondary" id="seed-schools">Adicionar escolas iniciais</button></div>';
  html+=table(['Instituição','Tipo','INEP','Telefone','Endereço','Ações'],mySchools().map(x=>'<tr><td>'+safe(x.nome)+'</td><td>'+safe(x.tipo==='creche'?'Creche':'Escola')+'</td><td>'+safe(x.inep)+'</td><td>'+safe(x.telefone)+'</td><td>'+safe(x.endereco)+'</td><td>'+(canManage()?'<button class="btn secondary" data-edit-escola="'+safe(x.id)+'">Editar</button>':'—')+'</td></tr>'));
@@ -251,6 +252,52 @@ if(tab==='Relatórios'){
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
 if(tab==='Ficha do aluno')html=title('Ficha do aluno','Consultas, acompanhamento e relatórios individuais')+fichaAluno();
 layout(html);document.querySelectorAll('[data-print-aluno]').forEach(b=>b.onclick=()=>imprimirAluno(b.dataset.printAluno));const imprimG=document.getElementById('imprimir-gerencial');if(imprimG)imprimG.onclick=imprimirGerencial;const tutorialToggle=document.getElementById('alternar-tutorial');if(tutorialToggle)tutorialToggle.onclick=alternarTutorial;const introOff=document.getElementById('ocultar-tutorial');if(introOff)introOff.onclick=alternarTutorial;document.querySelectorAll('[data-abrir-agendamento]').forEach(b=>b.onclick=()=>abrirAgendamento(b.dataset.abrirAgendamento));document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{tab=el.dataset.go;render()});const novaMeta=document.getElementById('nova-meta');if(novaMeta)novaMeta.onclick=()=>definirMeta();document.querySelectorAll('[data-evolucao-meta]').forEach(b=>b.onclick=()=>registrarEvolucao(b.dataset.evolucaoMeta));document.querySelectorAll('[data-redefinir-meta]').forEach(b=>b.onclick=()=>definirMeta(b.dataset.redefinirMeta));document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};tab='Ficha do aluno';render()});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
+
+
+function painelResumoAluno(alunoId){
+ const r=resumirAluno(alunoId,cache.atendimentos,cache.agendamentos,cache.revisoes_metas);
+ const ev=r.evolucao;
+ return '<div class="card student-summary"><div class="section-heading"><div><h2>Resumo do acompanhamento</h2><p>Calculado a partir do histórico disponível.</p></div></div>'+
+ '<div class="summary-stats"><div><strong>'+r.consultas+'</strong><span>Consultas realizadas</span></div><div><strong>'+r.faltasAluno+'</strong><span>Faltas do aluno</span></div><div><strong>'+r.remarcados+'</strong><span>Remarcações</span></div><div><strong>'+ev.avaliacoes+'</strong><span>Avaliações registradas</span></div></div>'+
+ '<p><strong>Profissionais:</strong> '+safe(r.profissionais.join(', ')||'Ainda não registrados')+'</p>'+
+ '<p><strong>Especialidades:</strong> '+safe(r.especialidades.join(', ')||'Não registradas')+'</p>'+
+ '<p><strong>Primeira consulta:</strong> '+safe(formatDate(r.primeiraConsulta))+' · <strong>Última consulta:</strong> '+safe(formatDate(r.ultimaConsulta))+'</p>'+
+ '<div class="summary-evolution"><h3>Evolução documentada</h3><p>Avanço observado: <b>'+ev.avancos+'</b> · Sem mudança observada: <b>'+ev.semMudanca+'</b> · Reavaliação indicada: <b>'+ev.reavaliacao+'</b> · Revisões de metas: <b>'+ev.revisoes+'</b>.</p><p class="muted">'+safe(ev.descricao)+'</p></div></div>';
+}
+function tutorialAtivo(){
+ try{return localStorage.getItem('seduc-tutorial-oculto')!=='1'}catch{return true}
+}
+function alternarTutorial(){
+ try{localStorage.setItem('seduc-tutorial-oculto',tutorialAtivo()?'1':'0')}catch{}
+ render();
+}
+function imprimirDocumento(html){
+ const popup=window.open('','_blank');
+ if(!popup){showError(Error('O navegador bloqueou a janela de impressão. Autorize pop-ups para este site e tente novamente.'));return}
+ popup.document.open();popup.document.write(html);popup.document.close();popup.focus();
+}
+function imprimirAluno(alunoId){
+ const aluno=cache.alunos.find(a=>a.id===alunoId);
+ if(!aluno){showError(Error('Aluno não disponível para sua conta.'));return}
+ if(!confirm('O documento contém dados pessoais escolares. Confirme que utilizará a impressão em ambiente autorizado.'))return;
+ const podeLerNotas=['especialista','superadmin'].includes(profile.perfil);
+ imprimirDocumento(montarDocumentoAluno({
+  aluno,atendimentos:cache.atendimentos,agendamentos:cache.agendamentos,revisoes:cache.revisoes_metas,
+  relatorios:podeLerNotas?cache.relatorios_alunos:[],
+  emissor:profile.nome||user.email,escola:schoolName(aluno.escola_id),incluirNotas:podeLerNotas
+ }));
+}
+function imprimirGerencial(){
+ const f=filtrosRelatorio;
+ if(f.de&&f.ate&&f.de>f.ate){showError(Error('Corrija o período do relatório.'));return}
+ const visitas=filtrarRegistros(cache.atendimentos,f);
+ const agenda=filtrarRegistros(cache.agendamentos,f);
+ imprimirDocumento(montarDocumentoGerencial({
+  atendimentos:visitas,agendamentos:agenda,escolas:mySchools(),
+  emissor:profile.nome||user.email,
+  referencia:[f.de||'Início',f.ate||'Até hoje',f.escola?schoolName(f.escola):'Todas as escolas',f.especialidade||'Todas as especialidades'].join(' · ')
+ }));
+}
 
 function fichaAluno(){
  const aluno=cache.alunos.find(a=>a.id===alunoSelecionado);
@@ -399,6 +446,10 @@ function registrarEvolucao(metaId){
 }
 function tutorialSistema(){
  return title('Tutorial e acompanhamento','Um roteiro de trabalho para a equipe e a Secretaria')+
+ '<div class="card tutorial-settings"><h2>Guia de orientação</h2><p>O guia pode ser ocultado no painel inicial a qualquer momento. Ele continuará disponível neste menu.</p><button class="btn secondary" id="alternar-tutorial">'+(tutorialAtivo()?'Desativar guia do painel':'Ativar guia do painel')+'</button></div>'+
+ '<div class="card"><h2>Consulta sem agendamento</h2><p>Acesse Atendimentos e escolha Registrar consulta sem agendamento. Informe escola, aluno, data, especialidade, atividades, observações e a classificação da evolução feita pela profissional.</p></div>'+
+ '<div class="card"><h2>Agendamento, faltas e reagendamento</h2><p>Abra um agendamento para iniciar a consulta, marcar falta ou reagendar com nova data e motivo. Os registros anteriores ficam preservados, inclusive o motivo da ausência.</p></div>'+
+ '<div class="card"><h2>Histórico e impressão</h2><p>O histórico agrupa consultas por aluno. Expanda cada consulta para visualizar os detalhes. Na ficha individual ou no menu Relatórios, use Imprimir para gerar um documento A4 ou salvar como PDF pelo navegador.</p></div>'+
  '<div class="card"><h2>1. Organizar a equipe e a agenda</h2><p>A Secretaria com gestão cadastra profissionais e vínculos, define escola/local e jornada. Em Profissionais, use Ver agenda. Consulte por profissional, aluno e período antes de marcar uma consulta.</p></div>'+
  '<div class="card"><h2>2. Conhecer o ponto de partida de cada aluno</h2><p>Abra Alunos → Ficha / consultas / relatórios. Consulte os registros anteriores e descreva observações contextualizadas, os apoios utilizados e as necessidades identificadas pela equipe.</p></div>'+
  '<div class="card"><h2>3. Definir uma meta individual verificável</h2><p>A Secretaria e as especialistas podem definir metas na ficha do aluno. Registre o ponto de partida, o objetivo, o critério observável de alcance e uma data de revisão. Combine esses critérios com a equipe e, quando pertinente, com a família.</p><p>Exemplo de estrutura: em determinada atividade e com os apoios combinados, observar a habilidade escolhida em situações que a equipe tenha definido como suficientes. A equipe preenche a habilidade, os apoios e os critérios; o sistema não impõe marcos universais.</p></div>'+
