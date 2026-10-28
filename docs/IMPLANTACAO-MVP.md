@@ -122,3 +122,12 @@ Com conta `superadmin` ou de Secretaria com delegação de gestão:
 - Redefinir local/jornada encerra o vínculo antigo e cria outro atomicamente. Retirar um vínculo marca-o como inativo. Histórico e relatórios não são apagados; consultas futuras já existentes permanecem no local original e devem ser revistas na agenda.
 - **As novas regras firestore.rules precisam ser publicadas no Firebase antes do uso dos relatórios individuais.** Este commit não publica regras nem altera permissões de contas existentes no banco.
 - As regras adicionadas são protótipos com testes de autorização; dependem de revisão e homologação antes de uso amplo. A validação visual com sessão autorizada continua necessária.
+
+## 14. Metas individuais, gráficos e tutorial
+- A Secretaria com delegação de gestão e as especialistas com vínculo ativo podem definir metas individuais na ficha do aluno. Cada meta tem objetivo, ponto de partida, critério de alcance e prazo de revisão.
+- A evolução é registrada pela equipe ou Secretaria gestora com situação (definida, em desenvolvimento, atingida, requer revisão), evidência, autoria e data do servidor. Metas redefinidas e revisões anteriores permanecem preservadas.
+- Metas e revisões ficam nas coleções protegidas metas_alunos e revisoes_metas. Publicar as regras desta versão antes do uso. Contas da Secretaria sem gestão consultam os dados; não criam metas.
+- Relatórios incluem gráficos de atendimentos por mês, especialidade e profissional. Os filtros permitem selecionar aluno, instituição, profissional e período. A ficha individual também mostra gráficos e a situação das metas.
+- O módulo Tutorial descreve organização da agenda, ponto de partida, critérios individuais, evidências e revisão de planos. Ele orienta o uso do sistema; não prescreve tratamento.
+- Apoio ao acompanhamento é uma análise automática local e explicável de prazos vencidos, metas sem revisão e faltas. Não há envio de dados a modelos externos, geração de diagnóstico clínico nem escala universal de desenvolvimento. A quantidade de consultas não é usada como medida de desenvolvimento.
+- Qualquer futura integração de IA clínica exige definição do serviço, validação profissional, governança dos dados e verificação institucional antes de receber informações de crianças. Referência de supervisão humana: https://www.unesco.org/en/legal-affairs/recommendation-ethics-artificial-intelligence.

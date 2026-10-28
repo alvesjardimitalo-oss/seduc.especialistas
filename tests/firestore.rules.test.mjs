@@ -275,3 +275,45 @@ test('Secretaria com gestão redefine local preservando vínculo anterior e hist
  await assertFails(deleteDoc(doc(db,'vinculos/vinculoA')));
  await assertFails(updateDoc(doc(contexto('secview'),'vinculos/vinculoNovoLocal'),{ativo:false}));
 });
+
+const metaFicticia=()=>({aluno_id:'alunoA',escola_id:'a',vinculo_id:'',substitui_id:'',titulo:'Meta individual fictícia',linha_base:'Ponto de partida fictício',criterio:'Critério definido pela equipe',prazo:new Date('2027-02-01'),autor_uid:'sec',autor_nome:'Gestora',criado_em:serverTimestamp()});
+test('Secretaria com gestão define metas e equipe registra evidências preservadas',async()=>{
+ const db=contexto('sec');
+ await assertSucceeds(setDoc(doc(db,'metas_alunos/metaA'),metaFicticia()));
+ await env.withSecurityRulesDisabled(async ctx=>{await setDoc(doc(ctx.firestore(),'vinculos/vinculoMetas'),{uid:'espA',escola_id:'a',ativo:true})});
+ await assertSucceeds(setDoc(doc(contexto('espA'),'revisoes_metas/revisaoA'),{
+  meta_id:'metaA',aluno_id:'alunoA',escola_id:'a',vinculo_id:'vinculoMetas',
+  status:'em_desenvolvimento',evidencia:'Observação fictícia',autor_uid:'espA',autor_nome:'Especialista A',criado_em:serverTimestamp()
+ }));
+ await assertSucceeds(getDocs(collection(contexto('secview'),'metas_alunos')));
+ await assertSucceeds(getDocs(query(collection(contexto('espA'),'metas_alunos'),where('escola_id','in',['a']))));
+ await assertSucceeds(getDocs(query(collection(contexto('espA'),'revisoes_metas'),where('escola_id','in',['a']))));
+ await assertSucceeds(setDoc(doc(db,'metas_alunos/metaNova'),{...metaFicticia(),substitui_id:'metaA',titulo:'Critério revisto'}));
+ await assertSucceeds(getDoc(doc(db,'metas_alunos/metaA')));
+ for(const uid of ['espB','dirA','pendente']){
+  await assertFails(getDoc(doc(contexto(uid),'metas_alunos/metaA')));
+  await assertFails(getDoc(doc(contexto(uid),'revisoes_metas/revisaoA')));
+ }
+ for(const uid of ['sec','espA']){
+  await assertFails(updateDoc(doc(contexto(uid),'metas_alunos/metaA'),{criterio:'Sobrescrito'}));
+  await assertFails(deleteDoc(doc(contexto(uid),'revisoes_metas/revisaoA')));
+ }
+});
+test('metas e revisões recusam troca de autoria, órfãos, campos inválidos e autoatribuição de gestão',async()=>{
+ const db=contexto('sec');
+ const ataques=[{autor_uid:'espA'},{autor_nome:'Outra pessoa'},{aluno_id:'ausente'},{escola_id:'b'},
+  {substitui_id:'ausente'},{titulo:'x'.repeat(151)},{linha_base:'x'.repeat(1001)},{criterio:5},
+  {extra:true},{prazo:'amanhã'},{criado_em:new Date('2000-01-01')}];
+ for(let i=0;i<ataques.length;i++)await assertFails(setDoc(doc(db,'metas_alunos/ataqueMeta'+i),{...metaFicticia(),...ataques[i]}));
+ const falta=metaFicticia();delete falta.criterio;
+ await assertFails(setDoc(doc(db,'metas_alunos/incompleta'),falta));
+ await assertFails(setDoc(doc(contexto('secview'),'metas_alunos/semGestao'),{...metaFicticia(),autor_uid:'secview',autor_nome:'Secretaria consulta'}));
+ await assertFails(setDoc(doc(contexto('espB'),'metas_alunos/outraEscola'),{...metaFicticia(),autor_uid:'espB',autor_nome:'Especialista B',vinculo_id:'vinculoMetas'}));
+ const revisao={meta_id:'metaA',aluno_id:'alunoA',escola_id:'a',vinculo_id:'',status:'atingida',evidencia:'Evidência fictícia',autor_uid:'sec',autor_nome:'Gestora',criado_em:serverTimestamp()};
+ await assertSucceeds(setDoc(doc(db,'revisoes_metas/secretaria'),revisao));
+ for(const [i,patch]of [{meta_id:'ausente'},{aluno_id:'outro'},{status:'diagnosticado'},{evidencia:'x'.repeat(2001)},{autor_uid:'outro'},{extra:1}].entries()){
+  await assertFails(setDoc(doc(db,'revisoes_metas/ataque'+i),{...revisao,...patch}));
+ }
+ await assertFails(updateDoc(doc(db,'revisoes_metas/secretaria'),{status:'revisar'}));
+ await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'metas_alunos/metaA')));
+});

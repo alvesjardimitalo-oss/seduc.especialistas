@@ -11,6 +11,7 @@ export function diaMunicipal(valor){
 export function filtrarRegistros(registros,filtros={}){
  if(filtros.de&&filtros.ate&&filtros.de>filtros.ate)throw Error('A data final deve ser igual ou posterior à inicial.');
  return registros.filter(r=>{
+  if(filtros.aluno&&r.aluno_id!==filtros.aluno)return false;
   if(filtros.escola&&r.escola_id!==filtros.escola)return false;
   if(filtros.profissional&&r.autor_uid!==filtros.profissional)return false;
   if(filtros.especialidade&&r.especialidade!==filtros.especialidade)return false;

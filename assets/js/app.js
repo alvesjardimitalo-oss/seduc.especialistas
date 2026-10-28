@@ -1,5 +1,6 @@
+import {estadosMeta,indicadoresConsultas,analisarAcompanhamento,validarMeta} from './evolucao.mjs';
 import {consultasDoAluno,validarRelatorio,filtrarConsultas} from './aluno-historico.mjs';
-import {resumirRelatorio} from './relatorios.mjs';
+import {resumirRelatorio,filtrarRegistros} from './relatorios.mjs';
 import {firebaseConfig} from './firebase-config.js';
 import {montarListaProfissionais} from './profissionais-visao.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
@@ -14,10 +15,10 @@ const schoolNames=['Escola Municipal Doutor João de Souza Lima','Escola Municip
 const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formatDate=x=>{if(!x)return '—';const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR')};
 const dataMs=x=>{if(!x)return 0;const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?0:d.getTime()};
-let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[]};
+let auth,db,user,profile,tab='Painel',cache={escolas:[],profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[],metas_alunos:[],revisoes_metas:[]};
 let filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};
 let filtrosAgenda={},filtrosAtendimentos={};
-let alunoSelecionado=null,filtrosConsulta={},erroRelatorios=false;
+let alunoSelecionado=null,filtrosConsulta={},erroRelatorios=false,erroMetas=false;
 const canManage=()=>profile?.perfil==='superadmin'||(profile?.perfil==='secretaria'&&profile?.gerenciar===true);
 const canWrite=()=>profile?.perfil==='especialista';
 const mySchools=()=>profile?.perfil==='superadmin'||profile?.perfil==='secretaria'?cache.escolas:cache.escolas.filter(e=>(profile?.escolas||[]).includes(e.id));
@@ -46,14 +47,14 @@ function showLogin(message=''){
 function showSetup(){root.innerHTML='<div class="login"><div class="card"><h1>SEDUC Especialistas</h1><div class="alert">Ambiente ainda não configurado. Nenhum dado real pode ser registrado.</div><p>Configure um projeto Firebase exclusivo em <code>assets/js/firebase-config.js</code> e publique as regras de segurança do arquivo <code>firestore.rules</code>.</p><p class="muted">Não utilize o Firebase do SISDIFI. O acesso inicial do superadministrador deve ser provisionado de modo seguro.</p></div></div>'}
 async function initialize(){if(!configured){showSetup();return}const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;if(!u){profile=null;showLogin();return}try{const ref=doc(db,'usuarios',u.uid);let s=await getDoc(ref);if(!s.exists()){await setDoc(ref,{nome:u.displayName||u.email,email:u.email,ativo:false,perfil:'pendente',escolas:[],gerenciar:false,criado_em:serverTimestamp()});s=await getDoc(ref)}profile={id:s.id,...s.data()};if(!profile.ativo){showLogin('Sua conta foi registrada e está aguardando liberação da Secretaria de Educação.');return}await refresh();render()}catch(e){showLogin('Não foi possível verificar a autorização: '+e.message)}})}
 async function refresh(){
- const manager=canManage();erroRelatorios=false;
+ const manager=canManage();erroRelatorios=false;erroMetas=false;
  const schools=(manager||profile.perfil==='secretaria')?(await getDocs(collection(db,'escolas'))).docs.map(d=>({id:d.id,...d.data()})):(await Promise.all((profile.escolas||[]).map(async id=>{try{const s=await getDoc(doc(db,'escolas',id));return s.exists()?{id:s.id,...s.data()}:null}catch{return null}}))).filter(Boolean);
  const ids=schools.map(x=>x.id);
- const out={escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[]};
+ const out={escolas:schools,profissionais:[],vinculos:[],alunos:[],agendamentos:[],atendimentos:[],notas_atendimento:[],usuarios:[],frequencias:[],servidores:[],alunos_necessidades:[],relatorios_alunos:[],metas_alunos:[],revisoes_metas:[]};
  for(const key of Object.keys(out).filter(x=>x!=='escolas')){
   try{
-   if(profile.perfil==='secretaria'&&['profissionais','vinculos','alunos','agendamentos','atendimentos','frequencias','relatorios_alunos'].includes(key)){const r=await getDocs(collection(db,key));out[key]=r.docs.map(d=>({id:d.id,...d.data()}));continue}
-   if(key==='relatorios_alunos'&&!['superadmin','especialista','secretaria'].includes(profile.perfil))continue;
+   if(profile.perfil==='secretaria'&&['profissionais','vinculos','alunos','agendamentos','atendimentos','frequencias','relatorios_alunos','metas_alunos','revisoes_metas'].includes(key)){const r=await getDocs(collection(db,key));out[key]=r.docs.map(d=>({id:d.id,...d.data()}));continue}
+   if(['relatorios_alunos','metas_alunos','revisoes_metas'].includes(key)&&!['superadmin','especialista','secretaria'].includes(profile.perfil))continue;
    if(manager){if(key==='alunos_necessidades'&&profile.perfil!=='superadmin')continue;const r=await getDocs(collection(db,key));out[key]=r.docs.map(d=>({id:d.id,...d.data()}));continue}
    if(key==='profissionais'||key==='usuarios'||key==='servidores'||(key==='alunos_necessidades'&&profile.perfil!=='especialista')||(key==='notas_atendimento'&&profile.perfil!=='especialista')){continue}
    // Firestore rules don't filter query results. Restrict every read to authorized school IDs.
@@ -62,13 +63,13 @@ async function refresh(){
     const r=await getDocs(query(collection(db,key),where('escola_id','in',chunk)));
     out[key].push(...r.docs.map(d=>({id:d.id,...d.data()})));
    }
-  }catch(e){if(key==='relatorios_alunos')erroRelatorios=true;console.warn('Sem permissão para '+key,e.message)}
+  }catch(e){if(key==='relatorios_alunos')erroRelatorios=true;if(['metas_alunos','revisoes_metas'].includes(key))erroMetas=true;console.warn('Sem permissão para '+key,e.message)}
  }
  if(manager){try{const r=await getDocs(collection(db,'usuarios'));out.usuarios=r.docs.map(d=>({id:d.id,...d.data()}))}catch(e){console.warn('Sem acesso a usuários:',e.message)}}
  cache=out;
  for(const a of cache.atendimentos){a.texto=cache.notas_atendimento.find(n=>n.id===a.id)?.texto||''}
 }
-function layout(content){const items=['Painel','Escolas','Profissionais','Alunos','Agenda','Atendimentos','Frequência','Relatórios'];if(canManage())items.push('Servidores','Usuários');root.innerHTML='<div class="shell"><aside class="side"><div class="brand">SEDUC Especialistas<small>Rede Municipal de Ensino</small></div><nav class="menu">'+items.map(n=>'<button class="'+(tab===n?'active':'')+'" data-tab="'+safe(n)+'">'+safe(n)+'</button>').join('')+'</nav></aside><section><div class="homolog-notice">AMBIENTE DE TESTES — NÃO INSERIR DADOS REAIS DE ALUNOS</div><header class="top"><span>'+safe(tab)+'</span><span>'+safe(profile.nome||user.email)+' &nbsp; <button class="btn secondary" id="logout">Sair</button></span></header><main class="body">'+content+'</main></section></div>';document.getElementById('logout').onclick=()=>signOut(auth);document.querySelectorAll('[data-tab]').forEach(n=>n.onclick=()=>{tab=n.dataset.tab;render()})}
+function layout(content){const items=['Painel','Escolas','Profissionais','Alunos','Agenda','Atendimentos','Frequência','Relatórios','Tutorial'];if(canManage())items.push('Servidores','Usuários');root.innerHTML='<div class="shell"><aside class="side"><div class="brand">SEDUC Especialistas<small>Rede Municipal de Ensino</small></div><nav class="menu">'+items.map(n=>'<button class="'+(tab===n?'active':'')+'" data-tab="'+safe(n)+'">'+safe(n)+'</button>').join('')+'</nav></aside><section><div class="homolog-notice">AMBIENTE DE TESTES — NÃO INSERIR DADOS REAIS DE ALUNOS</div><header class="top"><span>'+safe(tab)+'</span><span>'+safe(profile.nome||user.email)+' &nbsp; <button class="btn secondary" id="logout">Sair</button></span></header><main class="body">'+content+'</main></section></div>';document.getElementById('logout').onclick=()=>signOut(auth);document.querySelectorAll('[data-tab]').forEach(n=>n.onclick=()=>{tab=n.dataset.tab;render()})}
 function title(name,subtitle){return '<h1>'+name+'</h1><p class="sub">'+subtitle+'</p>'}
 function table(headers,rows){return '<div class="card tablewrap"><table><thead><tr>'+headers.map(x=>'<th>'+safe(x)+'</th>').join('')+'</tr></thead><tbody>'+(rows.length?rows.join(''):'<tr><td colspan="'+headers.length+'" class="muted">Nenhum registro encontrado.</td></tr>')+'</tbody></table></div>'}
 function render(){if(!profile?.ativo)return;let html=title(tab,'Acompanhamento de atendimentos especializados');const students=cache.alunos;const appointments=tab==='Agenda'?filtrarConsultas(cache.agendamentos,students,filtrosAgenda):cache.agendamentos;const visits=tab==='Atendimentos'?filtrarConsultas(cache.atendimentos,students,filtrosAtendimentos):cache.atendimentos;if(tab==='Painel'){html+='<div class="grid">'+[['Alunos cadastrados',students.length],['Atendimentos realizados',visits.filter(x=>x.status!=='cancelado').length],['Agendamentos',appointments.filter(x=>x.status==='agendado').length],['Instituições',mySchools().length]].map(([l,n])=>'<div class="metric"><span>'+l+'</span><b>'+n+'</b></div>').join('')+'</div>';if(canWrite())html+='<div class="actions"><button class="btn" data-action="atendimento">+ Atendimento imediato</button><button class="btn secondary" data-action="agendar">Agendar consulta</button></div>';html+='<div class="card"><h3>Últimos atendimentos</h3>'+history(visits.slice().sort((a,b)=>dataMs(b.data)-dataMs(a.data)).slice(0,10))+'</div>'}
@@ -77,6 +78,7 @@ if(tab==='Escolas'){
  html+=table(['Instituição','Tipo','INEP','Telefone','Endereço','Ações'],mySchools().map(x=>'<tr><td>'+safe(x.nome)+'</td><td>'+safe(x.tipo==='creche'?'Creche':'Escola')+'</td><td>'+safe(x.inep)+'</td><td>'+safe(x.telefone)+'</td><td>'+safe(x.endereco)+'</td><td>'+(canManage()?'<button class="btn secondary" data-edit-escola="'+safe(x.id)+'">Editar</button>':'—')+'</td></tr>'));
  if(!cache.escolas.length&&canManage())html+='<div class="alert">Cadastre as escolas. Os nomes iniciais sugeridos estão disponíveis no formulário.</div>';
 }
+if(tab==='Tutorial')html=tutorialSistema();
 if(tab==='Profissionais'){
  if(canManage()||profile.perfil==='secretaria'){
   if(canManage())html+='<div class="actions"><button class="btn" data-action="profissional">+ Cadastrar especialista</button><button class="btn secondary" data-action="vinculo">+ Adicionar vínculo de atendimento</button></div>';
@@ -138,6 +140,7 @@ if(tab==='Relatórios'){
   '<label>Data inicial<input type="date" data-relatorio="de" value="'+safe(f.de)+'"></label>'+
   '<label>Data final<input type="date" data-relatorio="ate" value="'+safe(f.ate)+'"></label>'+
   filtroSelect('escola','Instituição',schools.map(e=>[e.id,e.nome]))+
+  filtroSelect('aluno','Aluno',students.map(a=>[a.id,a.nome]))+
   filtroSelect('profissional','Profissional',profissionais)+
   filtroSelect('especialidade','Especialidade',especialidades.map(e=>[e,e]))+
   '</div><button class="btn secondary" id="limpar-relatorio">Limpar filtros</button><p class="muted">Período pelo horário de Brasília. Os filtros se aplicam aos atendimentos e agendamentos disponíveis para sua conta.</p></div>';
@@ -145,6 +148,7 @@ if(tab==='Relatórios'){
   html+='<div class="alert" role="alert">A data final deve ser igual ou posterior à inicial.</div>';
  }else{
   const resumo=resumirRelatorio(visits,appointments,f);
+  html+=graficosConsultas(filtrarRegistros(visits,f),filtrarRegistros(appointments,f));
   html+='<div class="grid">'+[
    ['Alunos com atendimento realizado',resumo.alunos],
    ['Atendimentos realizados',resumo.realizados],
@@ -162,7 +166,7 @@ if(tab==='Relatórios'){
 }
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
 if(tab==='Ficha do aluno')html=title('Ficha do aluno','Consultas, acompanhamento e relatórios individuais')+fichaAluno();
-layout(html);document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};tab='Ficha do aluno';render()});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
+layout(html);const novaMeta=document.getElementById('nova-meta');if(novaMeta)novaMeta.onclick=()=>definirMeta();document.querySelectorAll('[data-evolucao-meta]').forEach(b=>b.onclick=()=>registrarEvolucao(b.dataset.evolucaoMeta));document.querySelectorAll('[data-redefinir-meta]').forEach(b=>b.onclick=()=>definirMeta(b.dataset.redefinirMeta));document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};tab='Ficha do aluno';render()});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
 
 function fichaAluno(){
  const aluno=cache.alunos.find(a=>a.id===alunoSelecionado);
@@ -182,8 +186,10 @@ function fichaAluno(){
  if(f.de&&f.ate&&f.de>f.ate)html+='<div class="alert" role="alert">A data final deve ser igual ou posterior à inicial.</div>';
  else{
   const lista=consultasDoAluno(aluno.id,cache.atendimentos,cache.agendamentos,f);
+  html+=graficosConsultas(lista.filter(r=>r.tipo==='atendimento'),lista.filter(r=>r.tipo==='agendamento'));
   html+='<p role="status">'+lista.length+' registro(s) encontrado(s). Datas pelo horário de Brasília.</p><div class="card">'+(lista.length?lista.map(r=>r.tipo==='atendimento'?history([r]):'<details class="history"><summary>Consulta · '+safe(formatDate(r.inicio))+' · '+safe(r.autor_nome)+' <span class="badge">'+safe(r.status)+'</span></summary><p>'+safe(r.especialidade)+' · '+safe(r.duracao_min)+' minutos</p></details>').join(''):'<p class="muted">Nenhuma consulta para os filtros selecionados.</p>')+'</div>';
  }
+ html+=painelMetas(aluno);
  html+='<h2>Relatórios do aluno</h2><p>Os relatórios permanecem nesta ficha, identificados pela profissional e data de emissão.</p>';
  if(canWrite()&&aluno.ativo!==false)html+='<button class="btn" id="novo-relatorio-aluno">+ Escrever relatório</button>';
  if(erroRelatorios)html+='<div class="alert" role="alert">Não foi possível carregar os relatórios. Verifique as permissões e a publicação das regras do Firestore.</div>';
@@ -243,6 +249,78 @@ function redefinirVinculo(id){
  form.elements.namedItem('cargo').value=v.cargo||'';
  form.elements.namedItem('jornada').value=v.jornada||'';
  form.elements.namedItem('horarios_texto').value=(v.horarios||[]).map(h=>h.dia+' '+h.inicio+'-'+h.fim).join('; ');
+}
+
+
+function graficoBarras(titulo,dados){
+ if(!dados.length)return '<div class="card"><h3>'+safe(titulo)+'</h3><p class="muted">Sem registros para esta seleção.</p></div>';
+ const max=Math.max(1,...dados.map(d=>d.total));
+ return '<div class="card"><h3>'+safe(titulo)+'</h3><table><caption class="muted">Quantidade de registros</caption><tbody>'+dados.map(d=>'<tr><th scope="row">'+safe(d.rotulo)+'</th><td><meter min="0" max="'+max+'" value="'+d.total+'" aria-label="'+safe(d.rotulo)+'">'+d.total+'</meter> <b>'+d.total+'</b></td></tr>').join('')+'</tbody></table></div>';
+}
+function graficosConsultas(atendimentos,agendamentos){
+ const i=indicadoresConsultas(atendimentos,agendamentos);
+ return '<p class="muted">Gráficos de atendimentos realizados. A quantidade de consultas não mede, por si só, o desenvolvimento do aluno.</p><div class="grid">'+graficoBarras('Atendimentos por mês (meses com registros)',i.meses)+graficoBarras('Atendimentos por especialidade',i.especialidades)+graficoBarras('Atendimentos por profissional',i.profissionais)+'</div>';
+}
+function painelMetas(aluno){
+ const metas=cache.metas_alunos.filter(m=>m.aluno_id===aluno.id);
+ const revisoes=cache.revisoes_metas.filter(r=>r.aluno_id===aluno.id);
+ const analise=analisarAcompanhamento(metas,revisoes,cache.agendamentos.filter(r=>r.aluno_id===aluno.id));
+ let html='<h2>Metas individuais e evolução</h2><p>Metas definidas pela Secretaria e equipe. A situação é registrada por uma pessoa responsável, com evidências.</p>';
+ if(erroMetas)html+='<div class="alert">Não foi possível carregar as metas. Confira a publicação das regras e as permissões.</div>';
+ if((canManage()||canWrite())&&aluno.ativo!==false)html+='<button class="btn" id="nova-meta">+ Definir meta individual</button>';
+ html+=graficoBarras('Situação das metas atuais',analise.estados);
+ html+='<div class="card"><h3>Apoio ao acompanhamento</h3><p class="muted">Análise automática de pendências pelos dados registrados. Não produz diagnóstico clínico.</p><ul>'+analise.alertas.map(a=>'<li>'+safe(a)+'</li>').join('')+'</ul></div>';
+ for(const m of analise.metas){
+  html+='<details class="history"><summary><b>'+safe(m.titulo)+'</b> · '+safe(estadosMeta[m.status])+'</summary><p><b>Ponto de partida:</b> '+safe(m.linha_base)+'</p><p><b>Critério de alcance:</b> '+safe(m.criterio)+'</p><p><b>Revisão prevista:</b> '+safe(formatDate(m.prazo))+'</p><p>Definida por '+safe(m.autor_nome)+' em '+safe(formatDate(m.criado_em))+'</p>';
+  if((canManage()||canWrite())&&aluno.ativo!==false)html+='<div class="actions"><button class="btn secondary" data-evolucao-meta="'+safe(m.id)+'">Registrar evolução</button><button class="btn secondary" data-redefinir-meta="'+safe(m.id)+'">Redefinir meta</button></div>';
+  html+=(m.revisoes.length?m.revisoes.map(r=>'<div class="card"><b>'+safe(estadosMeta[r.status])+'</b> · '+safe(r.autor_nome)+' · '+safe(formatDate(r.criado_em))+'<p style="white-space:pre-wrap">'+safe(r.evidencia)+'</p></div>').join(''):'<p class="muted">Aguardando primeiro registro de evolução.</p>')+'</details>';
+ }
+ const anteriores=metas.filter(m=>!analise.metas.some(a=>a.id===m.id));
+ if(anteriores.length)html+='<details class="history"><summary>Metas anteriores e histórico preservado ('+anteriores.length+')</summary>'+anteriores.map(m=>'<h4>'+safe(m.titulo)+'</h4><p>'+safe(m.linha_base)+' — '+safe(m.criterio)+'</p>'+revisoes.filter(r=>r.meta_id===m.id).map(r=>'<p>'+safe(formatDate(r.criado_em))+' · '+safe(r.autor_nome)+' · '+safe(estadosMeta[r.status])+': '+safe(r.evidencia)+'</p>').join('')).join('')+'</details>';
+ return html;
+}
+function vinculoParaMeta(aluno){
+ return cache.vinculos.find(v=>v.escola_id===aluno.escola_id&&v.uid===user.uid&&v.ativo===true)?.id||'';
+}
+function definirMeta(anteriorId=''){
+ const aluno=cache.alunos.find(a=>a.id===alunoSelecionado);
+ if(!aluno||aluno.ativo===false||!(canManage()||canWrite()))return;
+ const vinculo=vinculoParaMeta(aluno);
+ if(!canManage()&&!vinculo){alert('É necessário um vínculo ativo na escola.');return}
+ const anterior=cache.metas_alunos.find(m=>m.id===anteriorId&&m.aluno_id===aluno.id);
+ modal(anterior?'Redefinir meta individual':'Definir meta individual',
+ field('titulo','Objetivo individual','text','required maxlength="150"')+
+ '<label class="wide">Ponto de partida observado<textarea name="linha_base" required maxlength="1000"></textarea></label>'+
+ '<label class="wide">Como verificar que a meta foi alcançada<textarea name="criterio" required maxlength="1000"></textarea></label>'+
+ field('prazo','Data prevista para revisão','date','required')+
+ '<p class="wide muted">Descreva comportamentos observáveis e apoios necessários. O critério é individual; não é uma pontuação automática de diagnóstico.</p>',
+ async d=>{const dados=validarMeta({...d,prazo:d.prazo+'T12:00:00-03:00'});
+ await addDoc(collection(db,'metas_alunos'),{...dados,aluno_id:aluno.id,escola_id:aluno.escola_id,vinculo_id:vinculo,
+  substitui_id:anterior?.id||'',autor_uid:user.uid,autor_nome:profile.nome,criado_em:serverTimestamp()});
+ });
+ if(anterior){const form=document.getElementById('entry');for(const k of ['titulo','linha_base','criterio'])form.elements.namedItem(k).value=anterior[k];}
+}
+function registrarEvolucao(metaId){
+ const meta=cache.metas_alunos.find(m=>m.id===metaId),aluno=cache.alunos.find(a=>a.id===meta?.aluno_id);
+ if(!meta||!aluno||aluno.ativo===false||!(canManage()||canWrite()))return;
+ const vinculo=vinculoParaMeta(aluno);
+ if(!canManage()&&!vinculo){alert('É necessário um vínculo ativo na escola.');return}
+ modal('Evolução da meta — '+safe(meta.titulo),select('status','Situação observada',Object.entries(estadosMeta))+
+ '<label class="wide">Evidências observadas e próximos passos<textarea name="evidencia" required maxlength="2000"></textarea></label>',
+ async d=>{
+  if(!d.evidencia.trim())throw Error('Registre as evidências observadas.');
+  await addDoc(collection(db,'revisoes_metas'),{meta_id:meta.id,aluno_id:aluno.id,escola_id:aluno.escola_id,vinculo_id:vinculo,
+   status:d.status,evidencia:d.evidencia.trim(),autor_uid:user.uid,autor_nome:profile.nome,criado_em:serverTimestamp()});
+ });
+}
+function tutorialSistema(){
+ return title('Tutorial e acompanhamento','Um roteiro de trabalho para a equipe e a Secretaria')+
+ '<div class="card"><h2>1. Organizar a equipe e a agenda</h2><p>A Secretaria com gestão cadastra profissionais e vínculos, define escola/local e jornada. Em Profissionais, use Ver agenda. Consulte por profissional, aluno e período antes de marcar uma consulta.</p></div>'+
+ '<div class="card"><h2>2. Conhecer o ponto de partida de cada aluno</h2><p>Abra Alunos → Ficha / consultas / relatórios. Consulte os registros anteriores e descreva observações contextualizadas, os apoios utilizados e as necessidades identificadas pela equipe.</p></div>'+
+ '<div class="card"><h2>3. Definir uma meta individual verificável</h2><p>A Secretaria e as especialistas podem definir metas na ficha do aluno. Registre o ponto de partida, o objetivo, o critério observável de alcance e uma data de revisão. Combine esses critérios com a equipe e, quando pertinente, com a família.</p><p>Exemplo de estrutura: em determinada atividade e com os apoios combinados, observar a habilidade escolhida em situações que a equipe tenha definido como suficientes. A equipe preenche a habilidade, os apoios e os critérios; o sistema não impõe marcos universais.</p></div>'+
+ '<div class="card"><h2>4. Atender e registrar evidências</h2><p>Registre o atendimento e depois a evolução das metas na ficha. Descreva o que foi observado, em qual contexto, com quais apoios e quais próximos passos foram combinados. A situação pode ser Definida, Em desenvolvimento, Atingida ou Requer revisão.</p></div>'+
+ '<div class="card"><h2>5. Rever o plano e emitir relatórios</h2><p>Compare os registros com o critério individual. Se necessário, redefina a meta: a versão e as evidências anteriores ficam preservadas. Emita o relatório de acompanhamento na própria ficha e confira sua autoria e data. Os gráficos mostram consultas e estados registrados das metas; não comprovam causalidade nem geram diagnóstico.</p></div>'+
+ '<div class="card"><h2>Apoio inteligente e responsabilidade profissional</h2><p>Os alertas atuais são análises automáticas explicáveis de prazos, ausência de revisões e faltas registradas. Cada alerta deve ser conferido pela equipe. A interpretação de desenvolvimento, a escolha de intervenções e qualquer diagnóstico cabem às profissionais habilitadas; o sistema não substitui avaliação clínica.</p><p>Referência de supervisão humana: <a href="https://www.unesco.org/en/legal-affairs/recommendation-ethics-artificial-intelligence" target="_blank" rel="noopener">Recomendação da UNESCO sobre ética da inteligência artificial</a>.</p></div>';
 }
 
 function history(records){return records.length?records.map(a=>'<details class="history" data-visit="'+safe(a.id)+'" data-student="'+safe(a.aluno_id)+'"><summary><b>'+safe(cache.alunos.find(s=>s.id===a.aluno_id)?.nome||'Aluno')+'</b> · '+safe(formatDate(a.data))+' · '+safe(a.autor_nome||professionalName(a.autor_uid))+' <span class="badge">'+safe(a.status||'realizado')+'</span></summary><p style="white-space:pre-wrap">'+((profile.perfil==='especialista'||profile.perfil==='superadmin')?safe(a.texto):'<em>Observações restritas aos especialistas autorizados.</em>')+'</p><small>'+safe(a.especialidade||'Atendimento especializado')+'</small>'+(a.autor_uid===user.uid||profile.perfil==='superadmin'?'<p><button class="btn secondary" data-edit="'+safe(a.id)+'">Editar / cancelar</button></p>':'')+'</details>').join(''):'<p class="muted">Ainda não há atendimentos registrados.</p>'}

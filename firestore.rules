@@ -236,6 +236,64 @@ service cloud.firestore {
       d.texto is string && d.texto.size() > 0 && d.texto.size() <= 5000 &&
       d.criado_em is timestamp;
   }
+
+  // Metas e revisões são documentos imutáveis ligados ao cadastro do aluno.
+  // Metas: título <=150, linha_base/criterio <=1000, prazo timestamp;
+  // Revisões: status enumerado e evidencia <=2000. Identificadores <=128.
+  // Ambas: autoria validada pelo perfil e criado_em igual à hora do servidor.
+  function metaPath(id) { return /databases/$(database)/documents/metas_alunos/$(id); }
+  function validId(s) { return s is string && s.size() > 0 && s.size() <= 128; }
+  function validAutoriaMeta(d) {
+    return validId(d.aluno_id) && validId(d.escola_id) &&
+      d.vinculo_id is string && d.vinculo_id.size() <= 128 &&
+      d.autor_uid == request.auth.uid && validId(d.autor_uid) &&
+      d.autor_nome is string && d.autor_nome.size() > 0 && d.autor_nome.size() <= 180 &&
+      d.autor_nome == me().nome && d.criado_em is timestamp && d.criado_em == request.time;
+  }
+  function podeRegistrarMeta(d) {
+    return manage() || (validId(d.vinculo_id) && linked(d.vinculo_id,d.escola_id));
+  }
+  function validMeta(d) {
+    return d.keys().hasAll(['aluno_id','escola_id','vinculo_id','substitui_id','titulo','linha_base','criterio','prazo','autor_uid','autor_nome','criado_em']) &&
+      d.keys().hasOnly(['aluno_id','escola_id','vinculo_id','substitui_id','titulo','linha_base','criterio','prazo','autor_uid','autor_nome','criado_em']) &&
+      validAutoriaMeta(d) &&
+      d.titulo is string && d.titulo.size() > 0 && d.titulo.size() <= 150 &&
+      d.linha_base is string && d.linha_base.size() > 0 && d.linha_base.size() <= 1000 &&
+      d.criterio is string && d.criterio.size() > 0 && d.criterio.size() <= 1000 &&
+      d.prazo is timestamp && d.substitui_id is string && d.substitui_id.size() <= 128;
+  }
+  function substituicaoValida(d) {
+    return d.substitui_id == '' || (
+      exists(metaPath(d.substitui_id)) &&
+      get(metaPath(d.substitui_id)).data.aluno_id == d.aluno_id &&
+      get(metaPath(d.substitui_id)).data.escola_id == d.escola_id);
+  }
+  function validRevisaoMeta(d) {
+    return d.keys().hasAll(['meta_id','aluno_id','escola_id','vinculo_id','status','evidencia','autor_uid','autor_nome','criado_em']) &&
+      d.keys().hasOnly(['meta_id','aluno_id','escola_id','vinculo_id','status','evidencia','autor_uid','autor_nome','criado_em']) &&
+      validAutoriaMeta(d) && validId(d.meta_id) &&
+      d.status in ['definida','em_desenvolvimento','atingida','revisar'] &&
+      d.evidencia is string && d.evidencia.size() > 0 && d.evidencia.size() <= 2000 &&
+      exists(metaPath(d.meta_id)) &&
+      get(metaPath(d.meta_id)).data.aluno_id == d.aluno_id &&
+      get(metaPath(d.meta_id)).data.escola_id == d.escola_id;
+  }
+  match /metas_alunos/{id} {
+    allow read: if admin() || seduc() || specialistIn(resource.data.escola_id);
+    allow create: if validMeta(request.resource.data) &&
+      podeRegistrarMeta(request.resource.data) &&
+      validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
+      substituicaoValida(request.resource.data) && request.resource.data.substitui_id != id;
+    allow update,delete: if false;
+  }
+  match /revisoes_metas/{id} {
+    allow read: if admin() || seduc() || specialistIn(resource.data.escola_id);
+    allow create: if validRevisaoMeta(request.resource.data) &&
+      podeRegistrarMeta(request.resource.data) &&
+      validAluno(request.resource.data.aluno_id,request.resource.data.escola_id);
+    allow update,delete: if false;
+  }
+
   match /relatorios_alunos/{id} {
     // Relação aluno/escola validada na criação, imutável e sem exclusão de aluno.
     // List usa o escopo consultável; get também confere a existência do cadastro.
