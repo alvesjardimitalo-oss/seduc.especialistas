@@ -742,7 +742,8 @@ function horarioLocal(d){
 
 function registrarEvento(tx,tipo,id,acao,{escola_id,aluno_id}={},anterior='',atual=''){
  if(!user?.uid||!id)throw Error('Não foi possível identificar o autor da ação.');
- const ref=doc(collection(db,tipo==='agendamento'?'agendamentos':tipo==='atendimento'?'atendimentos':'alunos',id,'historico'));
+ const colecao=tipo==='agendamento'?'agendamentos':tipo==='atendimento'?'atendimentos':'alunos';
+ const ref=tipo==='aluno'&&acao==='aluno_atualizado'?doc(collection(db,colecao,id,'historico')):doc(db,colecao,id,'historico',acao);
  tx.set(ref,{
   acao,alvo_tipo:tipo,alvo_id:id,
   escola_id,aluno_id:aluno_id||id,autor_uid:user.uid,autor_nome:profile.nome||user.displayName||user.email||'Profissional',
