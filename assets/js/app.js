@@ -188,7 +188,14 @@ if(tab==='Alunos'){
 }
 if(tab==='Agenda')html+=filtrosConsultasGerais('agenda',cache.agendamentos,filtrosAgenda);
 if(tab==='Atendimentos')html+=filtrosConsultasGerais('atendimentos',cache.atendimentos,filtrosAtendimentos);
-if(tab==='Agenda'){if(canWrite())html+='<div class="actions"><button class="btn" data-action="agendar">+ Agendar consulta</button></div>';html+=table(['Data','Aluno','Escola','Profissional','Situação','Ação'],appointments.sort((a,b)=>dataMs(a.inicio)-dataMs(b.inicio)).map(a=>'<tr><td>'+safe(formatDate(a.inicio))+'</td><td>'+safe(students.find(s=>s.id===a.aluno_id)?.nome)+'</td><td>'+safe(schoolName(a.escola_id))+'</td><td>'+safe(a.autor_nome)+'</td><td>'+safe(a.status)+'</td><td>'+(a.autor_uid===user.uid&&a.status==='agendado'?'<button class="btn secondary" data-cancel-agenda="'+safe(a.id)+'">Cancelar</button>':'—')+'</td></tr>'))}
+if(tab==='Agenda'){
+ if(canWrite())html+='<div class="actions"><button class="btn" data-action="agendar">+ Agendar consulta</button></div>';
+ html+=table(['Data','Aluno','Escola','Profissional','Situação','Ação'],appointments.slice().sort((a,b)=>dataMs(a.inicio)-dataMs(b.inicio)).map(a=>{
+  const situacao={agendado:'Agendado',em_atendimento:'Em atendimento',realizado:'Realizado',cancelado:'Cancelado'}[a.status]||a.status||'Sem situação';
+  const acao=a.autor_uid===user.uid&&canWrite()&&a.status==='agendado'?'Iniciar consulta':a.autor_uid===user.uid&&canWrite()&&a.status==='em_atendimento'?'Continuar consulta':'Ver detalhes';
+  return '<tr><td>'+safe(formatDate(a.inicio))+'</td><td>'+safe(students.find(s=>s.id===a.aluno_id)?.nome||'Aluno')+'</td><td>'+safe(schoolName(a.escola_id))+'</td><td>'+safe(a.autor_nome)+'</td><td><span class="status-pill status-'+safe(a.status)+'">'+safe(situacao)+'</span></td><td><button type="button" class="btn '+(acao==='Iniciar consulta'?'':'secondary')+'" data-abrir-agendamento="'+safe(a.id)+'">'+safe(acao)+'</button></td></tr>';
+ }));
+}
 if(tab==='Atendimentos'){if(canWrite())html+='<div class="actions"><button class="btn" data-action="atendimento">+ Atendimento imediato</button></div>';html+='<div class="card">'+history(visits.slice().sort((a,b)=>dataMs(b.data)-dataMs(a.data)))+'</div>'}
 if(tab==='Frequência'){
  html+='<div class="alert">Registro declaratório de entrada e saída. Os horários devem ser conferidos pela gestão antes de uso em controle funcional oficial.</div>';
@@ -232,7 +239,7 @@ if(tab==='Relatórios'){
 }
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
 if(tab==='Ficha do aluno')html=title('Ficha do aluno','Consultas, acompanhamento e relatórios individuais')+fichaAluno();
-layout(html);document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{tab=el.dataset.go;render()});const novaMeta=document.getElementById('nova-meta');if(novaMeta)novaMeta.onclick=()=>definirMeta();document.querySelectorAll('[data-evolucao-meta]').forEach(b=>b.onclick=()=>registrarEvolucao(b.dataset.evolucaoMeta));document.querySelectorAll('[data-redefinir-meta]').forEach(b=>b.onclick=()=>definirMeta(b.dataset.redefinirMeta));document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};tab='Ficha do aluno';render()});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
+layout(html);document.querySelectorAll('[data-abrir-agendamento]').forEach(b=>b.onclick=()=>abrirAgendamento(b.dataset.abrirAgendamento));document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{tab=el.dataset.go;render()});const novaMeta=document.getElementById('nova-meta');if(novaMeta)novaMeta.onclick=()=>definirMeta();document.querySelectorAll('[data-evolucao-meta]').forEach(b=>b.onclick=()=>registrarEvolucao(b.dataset.evolucaoMeta));document.querySelectorAll('[data-redefinir-meta]').forEach(b=>b.onclick=()=>definirMeta(b.dataset.redefinirMeta));document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};tab='Ficha do aluno';render()});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
 
 function fichaAluno(){
  const aluno=cache.alunos.find(a=>a.id===alunoSelecionado);
@@ -415,6 +422,92 @@ async function salvarAgendamento(payload){
   refs.forEach((r,i)=>tx.set(r,{autor_uid:user.uid,escola_id:payload.escola_id,agendamento_id:ref.id,inicio:slots[i],status:'reservado'}));
  });
 }
+
+/** Consulta vinculada: a reserva permanece ocupada até ser concluída. */
+function abrirAgendamento(id){
+ const a=cache.agendamentos.find(x=>x.id===id);
+ if(!a)return showError(Error('Agendamento não encontrado. Atualize a agenda.'));
+ const estudante=cache.alunos.find(x=>x.id===a.aluno_id);
+ const dono=canWrite()&&a.autor_uid===user.uid;
+ const situacao={agendado:'Agendado',em_atendimento:'Em atendimento',realizado:'Realizado',cancelado:'Cancelado'}[a.status]||a.status||'Não informada';
+ const acoes=dono&&a.status==='agendado'
+  ?'<button type="button" class="btn" id="iniciar-consulta">Iniciar consulta</button><button type="button" class="btn secondary" id="cancelar-consulta">Cancelar agendamento</button>'
+  :dono&&a.status==='em_atendimento'
+  ?'<button type="button" class="btn" id="continuar-consulta">Continuar consulta</button>'
+  :a.status==='realizado'
+  ?'<button type="button" class="btn secondary" id="ver-consulta-realizada">Ver no histórico de atendimentos</button>'
+  :'';
+ document.body.insertAdjacentHTML('beforeend','<div class="modalback" id="detalhe-agendamento"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="titulo-agendamento">'+
+  '<button type="button" class="btn secondary close" id="fechar-agendamento">Fechar</button><span class="eyebrow">AGENDA · CONSULTA</span><h2 id="titulo-agendamento">Detalhes do agendamento</h2>'+
+  '<div class="appointment-summary"><span class="status-pill status-'+safe(a.status)+'">'+safe(situacao)+'</span>'+
+  '<div><span>Aluno</span><strong>'+safe(estudante?.nome||'Aluno cadastrado')+'</strong></div>'+
+  '<div><span>Escola</span><strong>'+safe(schoolName(a.escola_id))+'</strong></div>'+
+  '<div><span>Profissional</span><strong>'+safe(a.autor_nome||professionalName(a.autor_uid))+'</strong></div>'+
+  '<div><span>Data e horário</span><strong>'+safe(formatDate(a.inicio))+' · '+safe(a.duracao_min)+' minutos</strong></div>'+
+  '<div><span>Especialidade</span><strong>'+safe(a.especialidade||'Não informada')+'</strong></div></div>'+
+  (a.status==='em_atendimento'?'<p class="appointment-tip">Atendimento iniciado. Você pode continuar e registrar a evolução da consulta.</p>':'')+
+  '<div class="actions appointment-actions">'+acoes+'</div></section></div>');
+ const back=document.getElementById('detalhe-agendamento');
+ back.querySelector('#fechar-agendamento').onclick=()=>back.remove();
+ const iniciar=back.querySelector('#iniciar-consulta');
+ if(iniciar)iniciar.onclick=async()=>{iniciar.disabled=true;try{await iniciarConsultaAgendada(id);back.remove();abrirConsultaAgendada(id)}catch(e){showError(e)}finally{iniciar.disabled=false}};
+ const continuar=back.querySelector('#continuar-consulta');
+ if(continuar)continuar.onclick=()=>{back.remove();abrirConsultaAgendada(id)};
+ const cancelar=back.querySelector('#cancelar-consulta');
+ if(cancelar)cancelar.onclick=async()=>{back.remove();await cancelarAgendamento(id)};
+ const historico=back.querySelector('#ver-consulta-realizada');
+ if(historico)historico.onclick=()=>{back.remove();filtrosAtendimentos={nome:estudante?.nome||''};tab='Atendimentos';render()};
+}
+async function iniciarConsultaAgendada(id){
+ if(!canWrite())throw Error('Apenas profissionais especialistas podem iniciar consultas.');
+ const ref=doc(db,'agendamentos',id);
+ await runTransaction(db,async tx=>{
+  const snap=await tx.get(ref);
+  if(!snap.exists())throw Error('Agendamento não encontrado.');
+  const a=snap.data();
+  if(a.autor_uid!==user.uid)throw Error('Somente a profissional responsável pode iniciar a consulta.');
+  if(a.status!=='agendado')throw Error('Esta consulta não está mais disponível para iniciar. Atualize a agenda.');
+  tx.update(ref,{status:'em_atendimento',iniciado_em:serverTimestamp()});
+ });
+ await refresh();render();
+}
+function abrirConsultaAgendada(id){
+ const a=cache.agendamentos.find(x=>x.id===id);
+ if(!a||!canWrite()||a.autor_uid!==user.uid||a.status!=='em_atendimento'){
+  showError(Error('A consulta não está em andamento ou você não é a profissional responsável.'));return;
+ }
+ const aluno=cache.alunos.find(x=>x.id===a.aluno_id);
+ modal('Consulta em andamento',
+  '<div class="wide consult-info"><strong>'+safe(aluno?.nome||'Aluno')+'</strong><span>'+safe(schoolName(a.escola_id))+' · '+safe(a.especialidade)+' · '+safe(formatDate(a.inicio))+'</span></div>'+
+  '<label class="wide">Registro do atendimento<textarea name="texto" maxlength="1000" rows="8" required placeholder="Descreva as atividades realizadas, observações e orientações relevantes."></textarea></label>'+
+  '<p class="wide muted">Ao finalizar, o registro ficará vinculado a este agendamento e disponível no histórico. Se fechar sem finalizar, a consulta permanecerá em andamento, mas o texto digitado não será salvo.</p>',
+  async d=>finalizarConsultaAgendada(id,d.texto));
+ const botao=document.querySelector('#entry [type=submit]');
+ if(botao)botao.textContent='Finalizar consulta e salvar';
+}
+async function finalizarConsultaAgendada(id,observacao){
+ if(!canWrite())throw Error('Apenas especialistas podem concluir consultas.');
+ const texto=String(observacao||'').trim();
+ if(!texto||texto.length>1000)throw Error('Registre o atendimento em até 1.000 caracteres.');
+ const ref=doc(db,'agendamentos',id),atendimento=doc(db,'atendimentos','agenda_'+id);
+ const nota=doc(db,'notas_atendimento',atendimento.id);
+ await runTransaction(db,async tx=>{
+  const snap=await tx.get(ref);
+  if(!snap.exists())throw Error('O agendamento não existe mais.');
+  const a=snap.data();
+  if(a.autor_uid!==user.uid)throw Error('Somente a profissional responsável pode finalizar.');
+  if(a.status!=='em_atendimento')throw Error('A consulta já foi finalizada ou não está em andamento.');
+  tx.set(atendimento,{
+   escola_id:a.escola_id,aluno_id:a.aluno_id,vinculo_id:a.vinculo_id,
+   inicio:a.inicio,duracao_min:a.duracao_min,especialidade:a.especialidade,
+   autor_uid:a.autor_uid,autor_nome:a.autor_nome,criado_em:serverTimestamp(),
+   data:serverTimestamp(),status:'realizado',agendamento_id:id
+  });
+  tx.set(nota,{escola_id:a.escola_id,autor_uid:a.autor_uid,atendimento_id:atendimento.id,texto,revisao:1});
+  tx.update(ref,{status:'realizado',finalizado_em:serverTimestamp(),atendimento_id:atendimento.id});
+ });
+}
+
 async function cancelarAgendamento(id){
  const item=cache.agendamentos.find(x=>x.id===id);
  if(!item||item.autor_uid!==user.uid||item.status!=='agendado')return;
