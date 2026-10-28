@@ -47,6 +47,9 @@ service cloud.firestore {
   function appointmentPath(id) {
     return /databases/$(database)/documents/agendamentos/$(id);
   }
+  function attendancePath(id) {
+    return /databases/$(database)/documents/atendimentos/$(id);
+  }
   function slotStatus(uid, instante, agendamentoId, escolaId, estado) {
     return existsAfter(slotPath(uid, instante)) &&
       getAfter(slotPath(uid, instante)).data.agendamento_id == agendamentoId &&
@@ -326,11 +329,35 @@ service cloud.firestore {
       linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
       jornadaAutorizada(request.resource.data.vinculo_id,request.resource.data.inicio,request.resource.data.duracao_min) &&
       appointmentHasSlots(id,request.resource.data,'reservado');
+    // O próprio especialista inicia a consulta, mantendo escola, aluno e agenda intactos.
+    // A conclusão exige criar o atendimento e sua nota na mesma transação.
     allow update: if specialist() && resource.data.autor_uid == request.auth.uid &&
-      sameAuthorAndScope() && resource.data.status == 'agendado' &&
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
-      request.resource.data.status == 'cancelado' &&
-      appointmentHasSlots(id,resource.data,'liberado');
+      sameAuthorAndScope() &&
+      (
+        (resource.data.status == 'agendado' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+          request.resource.data.status == 'cancelado' &&
+          appointmentHasSlots(id,resource.data,'liberado'))
+        ||
+        (resource.data.status == 'agendado' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','iniciado_em']) &&
+          request.resource.data.status == 'em_atendimento' &&
+          request.resource.data.iniciado_em == request.time &&
+          linked(resource.data.vinculo_id,resource.data.escola_id) &&
+          validAluno(resource.data.aluno_id,resource.data.escola_id))
+        ||
+        (resource.data.status == 'em_atendimento' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizado_em','atendimento_id']) &&
+          request.resource.data.status == 'realizado' &&
+          request.resource.data.finalizado_em == request.time &&
+          request.resource.data.atendimento_id == 'agenda_' + id &&
+          existsAfter(attendancePath('agenda_' + id)) &&
+          getAfter(attendancePath('agenda_' + id)).data.agendamento_id == id &&
+          getAfter(attendancePath('agenda_' + id)).data.escola_id == resource.data.escola_id &&
+          getAfter(attendancePath('agenda_' + id)).data.aluno_id == resource.data.aluno_id &&
+          getAfter(attendancePath('agenda_' + id)).data.autor_uid == resource.data.autor_uid &&
+          getAfter(attendancePath('agenda_' + id)).data.status == 'realizado')
+      );
     allow delete: if false;
   }
   match /agenda_slots/{id} {
@@ -365,14 +392,30 @@ service cloud.firestore {
   match /atendimentos/{id} {
     allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
     allow create: if specialistIn(request.resource.data.escola_id) &&
-      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','data','status']) &&
+      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','data','status','agendamento_id']) &&
       request.resource.data.autor_uid == request.auth.uid &&
       request.resource.data.status == 'realizado' &&
       request.resource.data.data is timestamp &&
       request.resource.data.duracao_min in [30,60] &&
       linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
       validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
-      existsAfter(/databases/$(database)/documents/notas_atendimento/$(id));
+      existsAfter(/databases/$(database)/documents/notas_atendimento/$(id)) &&
+      (
+        !request.resource.data.keys().hasAny(['agendamento_id']) ||
+        (request.resource.data.agendamento_id is string &&
+          id == 'agenda_' + request.resource.data.agendamento_id &&
+          exists(appointmentPath(request.resource.data.agendamento_id)) &&
+          get(appointmentPath(request.resource.data.agendamento_id)).data.status == 'em_atendimento' &&
+          getAfter(appointmentPath(request.resource.data.agendamento_id)).data.status == 'realizado' &&
+          getAfter(appointmentPath(request.resource.data.agendamento_id)).data.atendimento_id == id &&
+          get(appointmentPath(request.resource.data.agendamento_id)).data.aluno_id == request.resource.data.aluno_id &&
+          get(appointmentPath(request.resource.data.agendamento_id)).data.escola_id == request.resource.data.escola_id &&
+          get(appointmentPath(request.resource.data.agendamento_id)).data.autor_uid == request.resource.data.autor_uid &&
+          get(appointmentPath(request.resource.data.agendamento_id)).data.vinculo_id == request.resource.data.vinculo_id &&
+          get(appointmentPath(request.resource.data.agendamento_id)).data.inicio == request.resource.data.inicio &&
+          get(appointmentPath(request.resource.data.agendamento_id)).data.duracao_min == request.resource.data.duracao_min &&
+          get(appointmentPath(request.resource.data.agendamento_id)).data.especialidade == request.resource.data.especialidade)
+      );
     allow update: if (admin() || (specialist() && resource.data.autor_uid == request.auth.uid)) &&
       sameAuthorAndScope() &&
       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','motivo_ultima_alteracao','alterado_por','alterado_em']) &&
