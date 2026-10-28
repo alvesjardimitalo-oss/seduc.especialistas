@@ -167,6 +167,50 @@ test('cancelamento libera ambos os slots e permite novo agendamento',async()=>{
  addLocks(db,novo,'reagendado',inicio,30);
  await assertSucceeds(novo.commit());
 });
+test('profissional inicia e conclui consulta pelo agendamento sem duplicar atendimentos',async()=>{
+ const db=contexto('espA'),id='consultaIntegrada',inicio=new Date('2027-11-15T12:00:00.000Z');
+ const criar=writeBatch(db);
+ criar.set(doc(db,'agendamentos',id),novoAgendamento(id,inicio));
+ addLocks(db,criar,id,inicio,30);
+ await assertSucceeds(criar.commit());
+ await assertFails(updateDoc(doc(contexto('espB'),'agendamentos',id),{status:'em_atendimento',iniciado_em:serverTimestamp()}));
+ await assertSucceeds(updateDoc(doc(db,'agendamentos',id),{status:'em_atendimento',iniciado_em:serverTimestamp()}));
+ await assertFails(updateDoc(doc(db,'agendamentos',id),{status:'cancelado'}));
+ await assertFails(updateDoc(doc(db,'agendamentos',id),{status:'realizado',finalizado_em:serverTimestamp(),atendimento_id:'agenda_'+id}));
+ const atendimento={
+  escola_id:'a',aluno_id:'alunoA',vinculo_id:'vinculoA',
+  inicio,duracao_min:30,especialidade:'Atendimento fictício',
+  autor_uid:'espA',autor_nome:'Especialista A',criado_em:serverTimestamp(),
+  data:serverTimestamp(),status:'realizado',agendamento_id:id
+ };
+ await assertFails(setDoc(doc(db,'atendimentos','agenda_'+id),atendimento));
+ const concluir=writeBatch(db);
+ concluir.update(doc(db,'agendamentos',id),{status:'realizado',finalizado_em:serverTimestamp(),atendimento_id:'agenda_'+id});
+ concluir.set(doc(db,'atendimentos','agenda_'+id),atendimento);
+ concluir.set(doc(db,'notas_atendimento','agenda_'+id),{
+  escola_id:'a',atendimento_id:'agenda_'+id,autor_uid:'espA',
+  texto:'Consulta fictícia iniciada pelo agendamento.',revisao:1
+ });
+ await assertSucceeds(concluir.commit());
+ const ag=await assertSucceeds(getDoc(doc(db,'agendamentos',id)));
+ const visita=await assertSucceeds(getDoc(doc(db,'atendimentos','agenda_'+id)));
+ assert.equal(ag.data().status,'realizado');
+ assert.equal(visita.data().agendamento_id,id);
+ await assertFails(updateDoc(doc(db,'agendamentos',id),{status:'em_atendimento'}));
+ await assertFails(updateDoc(doc(db,'agendamentos',id),{status:'cancelado'}));
+ await assertFails(deleteDoc(doc(db,'atendimentos','agenda_'+id)));
+ await assertFails(getDoc(doc(contexto('dirA'),'notas_atendimento/agenda_'+id)));
+});
+test('atendimento vinculado exige agendamento iniciado e conclusão atômica',async()=>{
+ const db=contexto('espA');
+ await assertFails(setDoc(doc(db,'atendimentos/agenda_fantasma'),{
+  escola_id:'a',aluno_id:'alunoA',vinculo_id:'vinculoA',
+  inicio:new Date('2027-11-15T12:00:00.000Z'),duracao_min:30,especialidade:'Atendimento fictício',
+  autor_uid:'espA',autor_nome:'Especialista A',criado_em:serverTimestamp(),
+  data:serverTimestamp(),status:'realizado',agendamento_id:'fantasma'
+ }));
+});
+
 test('slots não podem ser liberados sem cancelar o agendamento',async()=>{
  const db=contexto('espA'),inicio=new Date('2027-11-01T12:00:00.000Z');
  await assertFails(updateDoc(doc(db,'agenda_slots',slotId('espA',inicio)),{status:'liberado'}));
