@@ -42,7 +42,7 @@ export function dentroDaJornada(inicio, duracaoMin, horarios) {
 export function possuiConflito(inicio,duracaoMin,agendamentos,uid,ignorarId=null){
  const alvo=new Date(inicio).getTime(),fim=alvo+duracaoMin*60_000;
  return agendamentos.some(a=>{
-  if(a.id===ignorarId||a.autor_uid!==uid||a.status!=='agendado')return false;
+  if(a.id===ignorarId||a.autor_uid!==uid||!['agendado','em_atendimento'].includes(a.status))return false;
   const aInicio=new Date(a.inicio).getTime(),aFim=aInicio+(Number(a.duracao_min)||30)*60_000;
   return alvo<aFim&&fim>aInicio;
  });
