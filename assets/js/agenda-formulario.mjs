@@ -29,7 +29,7 @@ export function horariosLivres({data='',escolaId='',uid='',duracaoMin=30,vinculo
   const inicio=new Date(data+'T'+hora+':00');
   if(Number.isNaN(inicio.getTime())||inicio.getTime()<=agora.getTime())continue;
   if(!jornadas.some(v=>dentroDaJornada(inicio,Number(duracaoMin),v.horarios)))continue;
-  if(possuiConflito(inicio,Number(duracaoMin),agendamentos,uid))continue;
+  if(possuiConflito(inicio,Number(duracaoMin),agendamentos.map(a=>({...a,inicio:a.inicio?.toDate?.()||a.inicio})),uid))continue;
   horarios.push({valor:hora,rotulo:hora});
  }
  return horarios;
