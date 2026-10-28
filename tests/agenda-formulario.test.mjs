@@ -33,11 +33,15 @@ test('busca percorre 74 alunos cadastrados sem exigir 74 novas leituras',()=>{
  assert.equal(buscarAlunosDisponiveis(alunos,'a','',10).total,74);
 });
 const app=readFileSync(new URL('../assets/js/app.js',import.meta.url),'utf8');
-test('novo agendamento da gestao aparece na agenda e salva responsável e ator separadamente',()=>{
- for(const t of ['const canSchedule=()=>canWrite()||canManage()','+ Novo agendamento','function formularioNovoAgendamento()',
- 'function configurarFormularioNovoAgendamento()','function abrirNovoAgendamento()',
- 'profissional_uid','aluno_id','dia_consulta','hora_consulta','agendado_por_uid',
- 'registrarEvento(tx,\\'agendamento\\',ref.id,\\'agendado\\'']){
-  assert.ok(app.includes(t),'Falta implementar '+t);
- }
+test('novo agendamento da gestao aparece na agenda e salva responsavel e ator separadamente',()=>{
+ const trechos=[
+  'const canSchedule=()=>canWrite()||canManage()',
+  '+ Novo agendamento',
+  'function formularioNovoAgendamento()',
+  'function configurarFormularioNovoAgendamento()',
+  'async function abrirNovoAgendamento()',
+  'profissional_uid','aluno_id','dia_consulta','hora_consulta','agendado_por_uid',
+  "registrarEvento(tx,'agendamento',ref.id,'agendado'"
+ ];
+ for(const trecho of trechos)assert.ok(app.includes(trecho),'Falta implementar '+trecho);
 });
