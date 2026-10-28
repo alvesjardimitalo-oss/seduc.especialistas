@@ -38,7 +38,7 @@ Abra GitHub > Settings > Pages e habilite publicação da branch de homologaçã
 - Registre alunos e atendimentos somente com dados fictícios até homologação.
 
 ## 5. Limitações e bloqueios antes da produção
-- O filtro de jornada do MVP roda no navegador; **a validação atômica no backend ainda precisa ser criada** para impedir agendamentos manipulados ou concorrentes.
+- Os **agendamentos** agora usam travas de meia hora gravadas atomicamente no Firestore, e as regras também comparam cada horário à grade semanal do vínculo. Cancelamentos liberam os horários. A agenda continua em homologação: faltam testes de afastamentos, feriados, fusos diferentes, mudanças de jornada e marcação simultânea de aluno com profissionais distintos. Atendimentos imediatos ainda precisam de validação específica no servidor.
 - As edições de notas já geram versões imutáveis em lote, mas o histórico completo de acessos/consultas (auditoria administrativa) ainda precisa ser implementado.
 - O cadastro passou a separar CPF, filiação, endereço e telefone em coleções privadas; ainda falta homologação das políticas de retenção e de consulta de cada campo.
 - A gestão de usuários já apresenta a lista de pessoas autenticadas e permite atribuir perfis e escolas. A criação de usuários continua sendo por convite/login Google; falta envio de convite e fluxo de recuperação/regularização de identidade.
@@ -68,4 +68,20 @@ npm run test:rules
 - Edição por autor/superadmin com justificativa e cópia de versão imutável.
 - Frequência declaratória: entrada e saída pela hora do servidor, sem equivaler a ponto homologado.
 
-> As verificações de choque de horários e de limites de jornada ainda ocorrem **apenas no navegador**. Para produção, uma API confiável/Cloud Function ou outro backend transacional deverá executar essas verificações também no servidor, especialmente com múltiplos profissionais registrando simultaneamente.
+> A verificação de sobreposição e jornada **para agendamentos de 30/60 minutos** já é aplicada nas regras do Firestore com travas transacionais. O controle de jornada presume horário municipal UTC-3 (America/Sao_Paulo); mudanças legais de fuso exigem revisão do cálculo. Outras verificações funcionais, especialmente atendimentos imediatos, afastamentos e datas bloqueadas, ainda precisam de homologação.
+
+## 8. Agendamentos e frequência: regras de homologação
+- Os agendamentos são feitos de 30 em 30 minutos; duração de 30 ou 60 minutos. Uma consulta de 60 ocupa dois intervalos.
+- No cadastro de vínculo, horários da jornada usam dias 0 (domingo) a 6 (sábado) e limites de horas inteiras ou meia hora, por exemplo `1 08:00-12:00; 3 13:00-17:00`. O sistema gera os índices `slots_semana` a partir destes intervalos.
+- O Firestore verifica vínculo ativo, escola, aluno, horário futuro, grade semanal e reserva atômica. Uma nova reserva que encontre horário ocupado é rejeitada pelo servidor, não somente pela interface.
+- Um cancelamento da autora libera as duas reservas correspondentes (quando a duração era 60 minutos).
+- A frequência do profissional registra entrada e saída com horários do servidor. O dia do registro é validado com horário de Brasília/Minas Gerais (UTC-3), para impedir a criação de batidas em datas arbitrárias.
+- Cadastros de vínculo antigos (sem `slots_semana`) devem ser atualizados para garantir a autorização das consultas; o projeto foi desenvolvido sem cadastros reais até esta etapa.
+
+## 9. Primeiro acesso e dados de homologação
+1. Habilite Google em Authentication e cadastre o domínio da hospedagem em Authorized domains.
+2. Crie o Firestore em modo de produção, revise e publique as regras desta branch **somente no projeto seduc-especialistas**, após os testes.
+3. Disponibilize a branch em um ambiente de testes (GitHub Pages ou outro host HTTPS).
+4. Ao entrar com Google pela primeira vez, uma pessoa ainda não aprovada aparece como `pendente`, com seu UID visível na tela. O acesso aos cadastros continua bloqueado.
+5. Confirme a identidade do administrador e altere **manualmente apenas seu documento** para `perfil: superadmin` e `ativo: true`. O primeiro visitante nunca recebe administração automaticamente.
+6. Cadastre apenas as escolas e usuários fictícios para testar telas e permissões; não inclua dados de crianças neste estágio.
