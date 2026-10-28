@@ -1,11 +1,26 @@
 # SEDUC Especialistas
 
-Sistema de Atendimento Especializado da Rede Municipal de Ensino de Frei Inocêncio/MG.
+Sistema Municipal de Atendimentos Especializados da Rede Municipal de Ensino de Frei Inocêncio/MG.
 
-**Status:** projeto em planejamento; ainda não está em produção.
+**Estado:** MVP em homologação, **não habilitado para dados reais de alunos**. A versão em desenvolvimento está na branch `feature/mvp-especialistas`.
 
-O sistema reunirá instituições de ensino, profissionais, vínculos e jornadas, alunos, agenda, atendimentos especializados, frequência funcional e relatórios. A interface seguirá a identidade visual do [SISDIFI](https://github.com/alvesjardimitalo-oss/sisdifi), mas com autenticação, permissões e banco de dados próprios.
+## O que já existe no MVP
+- Interface baseada na identidade visual do SISDIFI (projeto e dados independentes).
+- Login Google com contas pendentes até aprovação.
+- Escolas, profissionais, vínculos e jornadas de trabalho.
+- Cadastro, edição e arquivamento de alunos sem apagar registros históricos.
+- Agendamentos, atendimentos com 1.000 caracteres e histórico.
+- Notas privadas com versões de edição, frequência declaratória e relatórios agregados.
+- Gestão de permissões, inclusive delegação para a Secretaria da Educação.
 
-Consulte a [especificação funcional completa](docs/ESPECIFICACAO.md) para os fluxos, cinco escolas iniciais, modelos de dados, permissões, proteção LGPD e etapas de desenvolvimento.
+## Firebase
+O projeto Web `seduc-especialistas` informado pela administração **já está configurado no arquivo** [firebase-config.js](assets/js/firebase-config.js). A configuração Web é pública por definição, mas **as regras de segurança Firestore e o controle de usuários são obrigatórios**.
 
-> **Privacidade:** este repositório é público apenas para código e documentação. Os dados de alunos, menores de idade, famílias, profissionais e atendimentos não podem ser armazenados aqui nem ficar acessíveis sem autenticação e autorização.
+Isso **não** significa que os produtos do Firebase já foram habilitados no console: para funcionar, é necessário habilitar Authentication/Google, criar Firestore em modo de produção, configurar os domínios de autenticação, publicar e testar as regras em `firestore.rules`, além de provisionar manualmente o superadministrador.
+
+Consulte o [guia de implantação e homologação](docs/IMPLANTACAO-MVP.md) e a [especificação funcional](docs/ESPECIFICACAO.md).
+
+## Testes de desenvolvimento
+O GitHub Actions executa validações de sintaxe, regras de negócio e permissões com dados fictícios no emulador Firestore.
+
+> **LGPD:** nunca adicionar aqui CPF, filiação, endereço de alunos, dados de saúde, contas de serviço ou credenciais administrativas. O repositório é público apenas para código. Ainda faltam validações de jornada/agendamento no backend e revisão formal de segurança antes da produção.
