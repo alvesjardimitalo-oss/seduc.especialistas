@@ -249,6 +249,7 @@ async function seedSchools(){
   const found=cache.escolas.some(e=>e.nome===schoolNames[i]||e.id===ids[i]);
   if(!found && cache.escolas.some(e=>e.nome.toLowerCase().includes(i===2?'wilma glória':i===5?'sebastiana duarte':'[nenhum outro similar]')))throw Error('Já existe cadastro semelhante de creche com identificador diferente. Corrija antes de criar outro.');
   if(!found)batch.set(doc(db,'escolas',ids[i]),{nome:schoolNames[i],tipo:i===2||i===5?'creche':'escola',inep:'',telefone:'',endereco:'',email:''});
+  else if((i===2||i===5)&&cache.escolas.some(e=>e.id===ids[i]&&e.tipo!=='creche'))batch.update(doc(db,'escolas',ids[i]),{nome:schoolNames[i],tipo:'creche'});
  }
  try{await batch.commit();await refresh();render()}catch(e){showError(e)}
 }
