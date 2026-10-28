@@ -695,11 +695,13 @@ async function salvarCadastroCompletoAluno(d,{existente=null,privadoAnterior={}}
   const privado={...partes.privado,criado_por:privadoAnterior?.criado_por||user.uid,escola_id:existente.escola_id};
   if(privadoAnterior?._exists)batch.update(ref,privado);
   else batch.set(ref,privado);
+  registrarEvento(batch,'aluno',id,'aluno_atualizado',{escola_id:existente.escola_id,aluno_id:id},'cadastrado','atualizado');
   await batch.commit();
  }else{
   const ref=doc(collection(db,'alunos')),batch=writeBatch(db);
   batch.set(ref,partes.publico);
   batch.set(doc(db,'alunos_privado',ref.id),partes.privado);
+  registrarEvento(batch,'aluno',ref.id,'aluno_cadastrado',{escola_id:partes.publico.escola_id,aluno_id:ref.id},'','cadastrado');
   await batch.commit();
  }
 }
@@ -766,6 +768,7 @@ async function salvarAgendamento(payload){
   if(atuais.some(x=>x.exists()&&x.data().status==='reservado'))throw Error('Horário ocupado. Escolha outro.');
   tx.set(ref,{...payload,status:'agendado'});
   refs.forEach((r,i)=>tx.set(r,{autor_uid:user.uid,escola_id:payload.escola_id,agendamento_id:ref.id,inicio:slots[i],status:'reservado'}));
+  registrarEvento(tx,'agendamento',ref.id,'agendado',payload,'','agendado');
  });
 }
 
@@ -844,6 +847,7 @@ async function registrarFaltaAgendamento(id,tipo,motivo){
   if(dados.some(x=>!x.exists()||x.data().agendamento_id!==id||x.data().status!=='reservado'))throw Error('Reserva de horário inconsistente.');
   tx.update(ref,{status:tipo,motivo_falta:texto,falta_registrada_em:serverTimestamp()});
   locks.forEach(x=>tx.update(x,{status:'liberado'}));
+  registrarEvento(tx,'agendamento',id,tipo,a,'agendado',tipo);
  });
 }
 function abrirReagendamento(id){
@@ -895,6 +899,8 @@ async function reagendarAgendamento(id,novoHorario,motivo){
    autor_uid:user.uid,autor_nome:velho.autor_nome,criado_em:serverTimestamp(),status:'agendado',remarcado_de:id
   });
   novos.forEach((x,i)=>tx.set(x,{autor_uid:user.uid,escola_id:velho.escola_id,agendamento_id:novo.id,inicio:novaGrade[i],status:'reservado'}));
+  registrarEvento(tx,'agendamento',id,'reagendado',velho,velho.status,velho.status==='agendado'?'remarcado':velho.status);
+  registrarEvento(tx,'agendamento',novo.id,'agendado',velho,'','agendado');
  });
 }
 
@@ -908,6 +914,7 @@ async function iniciarConsultaAgendada(id){
   if(a.autor_uid!==user.uid)throw Error('Somente a profissional responsável pode iniciar a consulta.');
   if(a.status!=='agendado')throw Error('Esta consulta não está mais disponível para iniciar. Atualize a agenda.');
   tx.update(ref,{status:'em_atendimento',iniciado_em:serverTimestamp()});
+  registrarEvento(tx,'agendamento',id,'iniciado',a,'agendado','em_atendimento');
  });
  await refresh();render();
 }
@@ -929,7 +936,7 @@ function abrirConsultaAgendada(id){
 async function finalizarConsultaAgendada(id,observacao,evolucao='nao_avaliada'){
  if(!canWrite())throw Error('Apenas especialistas podem concluir consultas.');
  const texto=String(observacao||'').trim();
- if(!texto||texto.length>1000)throw Error('Registre o atendimento em até 1.000 caracteres.');
+ if(!texto||texto.length>5000)throw Error('Registre o atendimento em até 5.000 caracteres.');
  const ref=doc(db,'agendamentos',id),atendimento=doc(db,'atendimentos','agenda_'+id);
  const nota=doc(db,'notas_atendimento',atendimento.id);
  await runTransaction(db,async tx=>{
@@ -946,6 +953,7 @@ async function finalizarConsultaAgendada(id,observacao,evolucao='nao_avaliada'){
   });
   tx.set(nota,{escola_id:a.escola_id,autor_uid:a.autor_uid,atendimento_id:atendimento.id,texto,revisao:1});
   tx.update(ref,{status:'realizado',finalizado_em:serverTimestamp(),atendimento_id:atendimento.id});
+  registrarEvento(tx,'agendamento',id,'concluido',a,'em_atendimento','realizado');
  });
 }
 
@@ -963,6 +971,7 @@ async function cancelarAgendamento(id){
    const locks=await Promise.all(refs.map(r=>tx.get(r)));
    if(locks.some(x=>!x.exists()||x.data().agendamento_id!==id||x.data().status!=='reservado'))throw Error('Reserva de horário inconsistente.');
    tx.update(ref,{status:'cancelado'});refs.forEach(r=>tx.update(r,{status:'liberado'}));
+   registrarEvento(tx,'agendamento',id,'cancelado',ag,'agendado','cancelado');
   });
   await refresh();render();
  }catch(err){showError(err)}
@@ -1041,6 +1050,7 @@ if(kind==='atendimento'||kind==='agendar'){
    const ref=doc(collection(db,'atendimentos')),batch=writeBatch(db);
    batch.set(ref,{...payload,data:date,status:'realizado',evolucao_observada:evolucao_observada||'nao_avaliada'});
    batch.set(doc(db,'notas_atendimento',ref.id),{escola_id:d.escola_id,autor_uid:user.uid,texto,atendimento_id:ref.id,revisao:1});
+   registrarEvento(batch,'atendimento',ref.id,'atendimento_avulso',payload,'','realizado');
    await batch.commit();
   }
  });
