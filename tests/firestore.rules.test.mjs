@@ -25,7 +25,7 @@ await env.withSecurityRulesDisabled(async ctx=>{
   ['escolas/b',{nome:'Escola B',inep:'',telefone:'',endereco:'',email:''}],
   ['alunos/alunoA',{nome:'Aluno fictício A',escola_id:'a',nascimento:'2018-01-01',criado_por:'espA',ativo:true}],
   ['alunos_privado/alunoA',{cpf:'',filiacao:'',telefone:'',endereco:'',escola_id:'a',criado_por:'espA'}],
-  ['vinculos/vinculoA',{uid:'espA',escola_id:'a',profissional_id:'profA',cargo:'Especialista',jornada:'20 horas',horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],ativo:true}],
+  ['vinculos/vinculoA',{uid:'espA',escola_id:'a',profissional_id:'profA',cargo:'Especialista',jornada:'20 horas',horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],slots_semana:[64,65,66,67,68,69,70,71],ativo:true}],
   ['atendimentos/atendimentoA',{escola_id:'a',aluno_id:'alunoA',autor_uid:'espA',autor_nome:'Especialista A',status:'realizado'}],
   ['notas_atendimento/atendimentoA',{escola_id:'a',atendimento_id:'atendimentoA',autor_uid:'espA',texto:'Observação fictícia',revisao:1}]
  ];
@@ -168,4 +168,12 @@ test('cancelamento libera ambos os slots e permite novo agendamento',async()=>{
 test('slots não podem ser liberados sem cancelar o agendamento',async()=>{
  const db=contexto('espA'),inicio=new Date('2027-11-01T12:00:00.000Z');
  await assertFails(updateDoc(doc(db,'agenda_slots',slotId('espA',inicio)),{status:'liberado'}));
+});
+
+test('regras do servidor recusam consultas fora da jornada semanal',async()=>{
+ const db=contexto('espA'),inicio=new Date('2027-11-02T12:00:00.000Z');
+ const batch=writeBatch(db);
+ batch.set(doc(db,'agendamentos/foraJornada'),novoAgendamento('foraJornada',inicio));
+ addLocks(db,batch,'foraJornada',inicio,30);
+ await assertFails(batch.commit());
 });
