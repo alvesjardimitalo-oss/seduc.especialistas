@@ -105,12 +105,18 @@ async function mostrarTermosSeguranca(){
     registrado=false;
    }
   }
+  let acessoRegistrado=true;
+  try{
+   await addDoc(collection(db,'acessos_sistema'),{
+    uid:user.uid,perfil:profile.perfil,evento:'login_confirmado',em:serverTimestamp()
+   });
+  }catch(e){acessoRegistrado=false;console.warn('Registro de acesso indisponível:',e.code||e.message)}
   termosSessaoConfirmados=true;
   try{
    await refresh();render();
-   if(!registrado){
+   if(!registrado||!acessoRegistrado){
     const aviso=document.createElement('p');aviso.className='alert privacy-storage-warning';aviso.setAttribute('role','alert');
-    aviso.textContent='LGPD: ciência confirmada nesta sessão, mas o registro central dos termos não pôde ser gravado. A administração precisa publicar as regras de segurança no Firestore.';
+    aviso.textContent='A ciência dos termos ou o log de acesso não foram persistidos. A administração precisa publicar e validar as regras do Firestore antes do uso com dados reais.';
     root.querySelector('.app-content')?.prepend(aviso);
    }
   }catch(e){termosSessaoConfirmados=false;showError(e);button.disabled=false}
