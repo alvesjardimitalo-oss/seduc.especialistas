@@ -38,8 +38,8 @@ await check('Firebase Authentication: configuração pública', async () => {
     const code=data?.error?.message||('HTTP '+response.status);
     throw new Error('API Firebase retornou '+code);
   }
-  if (data.projectId && data.projectId!==firebaseConfig.projectId) {
-    throw new Error('API Key vinculada a outro projeto: '+data.projectId);
+  if (data.projectId && ![firebaseConfig.projectId, firebaseConfig.messagingSenderId].includes(String(data.projectId))) {
+    throw new Error('Identificador de projeto Firebase inesperado: '+data.projectId);
   }
   if (!Array.isArray(data.authorizedDomains)) {
     throw new Error('Firebase não retornou domínios autorizados; confira o provedor Google no console.');
