@@ -13,9 +13,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Testar regras de negócio sem dados reais
-        run: node --test tests/*.test.mjs
       - name: Verificar sintaxe de JavaScript
         run: |
           node --check assets/js/app.js
           node --check assets/js/validacoes.mjs
+          node --check tests/firestore.rules.test.mjs
+      - name: Validar regras de negócio
+        run: node --test tests/validacoes.test.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Instalar ferramentas de testes Firebase
+        run: npm install --no-audit --no-fund
+      - name: Testar permissões do Firestore no emulador
+        run: npm run test:rules
