@@ -97,3 +97,29 @@ test('autor edita nota com trilha de alteração imutável',async()=>{
  await assertSucceeds(batch.commit());
  await assertFails(deleteDoc(doc(db,'notas_versoes/atendimentoA-2')));
 });
+
+test('frequência registra entrada e saída com carimbos do servidor',async()=>{
+ const db=contexto('espA');
+ const ref=doc(db,'frequencias/espA_a_2026-10-28');
+ await assertSucceeds(setDoc(ref,{
+  uid:'espA',escola_id:'a',vinculo_id:'vinculoA',
+  dia:'2026-10-28',entrada:serverTimestamp(),saida:null,status:'aberta'
+ }));
+ await assertSucceeds(updateDoc(ref,{saida:serverTimestamp(),status:'fechada'}));
+ await assertFails(updateDoc(ref,{saida:serverTimestamp(),status:'fechada'}));
+ await assertFails(deleteDoc(ref));
+});
+test('dados privados só são gravados junto do aluno público autorizado',async()=>{
+ const db=contexto('espA');
+ const batch=writeBatch(db);
+ batch.set(doc(db,'alunos/novoAluno'),{
+  nome:'Aluno fictício novo',nascimento:'2018-01-01',matricula:'SIMULADA',
+  escola_id:'a',criado_por:'espA',ativo:true
+ });
+ batch.set(doc(db,'alunos_privado/novoAluno'),{
+  cpf:'',filiacao:'',telefone:'',endereco:'',escola_id:'a',criado_por:'espA'
+ });
+ await assertSucceeds(batch.commit());
+ await assertFails(getDoc(doc(contexto('dirA'),'alunos_privado/novoAluno')));
+ await assertSucceeds(updateDoc(doc(db,'alunos/novoAluno'),{ativo:false}));
+});
