@@ -357,64 +357,69 @@ service cloud.firestore {
     allow update,delete: if false;
   }
 
-  // Trilha de auditoria imutável de alterações. Sem dados clínicos, CPF ou endereço.
-  // Consultas ao histórico são feitas somente quando um registro é aberto.
-  match /eventos_sistema/{id} {
-    allow get,list: if active() && (
-      manage() ||
-      (specialist() && resource.data.autor_uid == request.auth.uid)
-    );
+  // Histórico de ações por registro. Abertura da agenda consulta somente os
+  // eventos daquele agendamento, sem varrer todos os logs da prefeitura.
+  function eventoValido(d,docId,tipo) {
+    return d.keys().hasOnly([
+      'acao','alvo_tipo','alvo_id','escola_id','aluno_id','autor_uid',
+      'autor_nome','criado_em','situacao_anterior','situacao_nova'
+    ]) &&
+    d.alvo_tipo == tipo && d.alvo_id == docId &&
+    d.autor_uid == request.auth.uid &&
+    d.autor_nome is string && d.autor_nome.size() <= 180 &&
+    d.aluno_id is string && d.aluno_id.size() <= 128 &&
+    d.escola_id is string && d.criado_em == request.time &&
+    d.situacao_anterior is string && d.situacao_anterior.size() <= 45 &&
+    d.situacao_nova is string && d.situacao_nova.size() <= 45;
+  }
+  match /agendamentos/{agendaId}/historico/{eventoId} {
+    allow read: if active() &&
+      (manage() || (specialist() &&
+       get(appointmentPath(agendaId)).data.autor_uid == request.auth.uid));
     allow create: if specialist() &&
-      request.resource.data.keys().hasOnly([
-        'acao','alvo_tipo','alvo_id','escola_id','aluno_id',
-        'autor_uid','autor_nome','criado_em','situacao_anterior','situacao_nova'
-      ]) &&
-      request.resource.data.autor_uid == request.auth.uid &&
-      request.resource.data.autor_nome is string &&
-      request.resource.data.autor_nome.size() <= 180 &&
-      request.resource.data.aluno_id is string &&
-      request.resource.data.aluno_id.size() <= 128 &&
-      request.resource.data.alvo_id is string &&
-      request.resource.data.alvo_id.size() > 0 &&
-      request.resource.data.alvo_id.size() <= 128 &&
-      request.resource.data.escola_id is string &&
-      request.resource.data.criado_em == request.time &&
-      request.resource.data.situacao_anterior is string &&
-      request.resource.data.situacao_anterior.size() <= 45 &&
-      request.resource.data.situacao_nova is string &&
-      request.resource.data.situacao_nova.size() <= 45 &&
-      specialistIn(request.resource.data.escola_id) &&
+      eventoValido(request.resource.data,agendaId,'agendamento') &&
+      request.resource.data.acao in ['agendado','iniciado','concluido','cancelado','falta_aluno','falta_profissional','reagendado'] &&
+      existsAfter(appointmentPath(agendaId)) &&
+      getAfter(appointmentPath(agendaId)).data.autor_uid == request.auth.uid &&
+      getAfter(appointmentPath(agendaId)).data.escola_id == request.resource.data.escola_id &&
+      getAfter(appointmentPath(agendaId)).data.aluno_id == request.resource.data.aluno_id &&
       (
-        (request.resource.data.alvo_tipo == 'agendamento' &&
-         request.resource.data.acao in ['agendado','iniciado','concluido','cancelado','falta_aluno','falta_profissional','reagendado'] &&
-         existsAfter(appointmentPath(request.resource.data.alvo_id)) &&
-         getAfter(appointmentPath(request.resource.data.alvo_id)).data.autor_uid == request.auth.uid &&
-         getAfter(appointmentPath(request.resource.data.alvo_id)).data.escola_id == request.resource.data.escola_id &&
-         getAfter(appointmentPath(request.resource.data.alvo_id)).data.aluno_id == request.resource.data.aluno_id &&
-         (
-           (request.resource.data.acao == 'agendado' && request.resource.data.situacao_nova == 'agendado') ||
-           (request.resource.data.acao == 'iniciado' && request.resource.data.situacao_nova == 'em_atendimento') ||
-           (request.resource.data.acao == 'concluido' && request.resource.data.situacao_nova == 'realizado') ||
-           (request.resource.data.acao == 'cancelado' && request.resource.data.situacao_nova == 'cancelado') ||
-           (request.resource.data.acao in ['falta_aluno','falta_profissional'] && request.resource.data.situacao_nova == request.resource.data.acao) ||
-           (request.resource.data.acao == 'reagendado' && request.resource.data.situacao_nova in ['remarcado','falta_aluno','falta_profissional'])
-         ) &&
-         getAfter(appointmentPath(request.resource.data.alvo_id)).data.status == request.resource.data.situacao_nova)
-         ||
-        (request.resource.data.alvo_tipo == 'atendimento' &&
-         request.resource.data.acao == 'atendimento_avulso' &&
-         request.resource.data.situacao_nova == 'realizado' &&
-         existsAfter(attendancePath(request.resource.data.alvo_id)) &&
-         getAfter(attendancePath(request.resource.data.alvo_id)).data.autor_uid == request.auth.uid &&
-         getAfter(attendancePath(request.resource.data.alvo_id)).data.escola_id == request.resource.data.escola_id &&
-         getAfter(attendancePath(request.resource.data.alvo_id)).data.aluno_id == request.resource.data.aluno_id)
-         ||
-        (request.resource.data.alvo_tipo == 'aluno' &&
-         request.resource.data.acao in ['aluno_cadastrado','aluno_atualizado'] &&
-         existsAfter(/databases/$(database)/documents/alunos/$(request.resource.data.alvo_id)) &&
-         getAfter(/databases/$(database)/documents/alunos/$(request.resource.data.alvo_id)).data.escola_id == request.resource.data.escola_id &&
-         request.resource.data.alvo_id == request.resource.data.aluno_id)
-      );
+       (request.resource.data.acao == 'agendado' && request.resource.data.situacao_nova == 'agendado') ||
+       (request.resource.data.acao == 'iniciado' && request.resource.data.situacao_nova == 'em_atendimento') ||
+       (request.resource.data.acao == 'concluido' && request.resource.data.situacao_nova == 'realizado') ||
+       (request.resource.data.acao == 'cancelado' && request.resource.data.situacao_nova == 'cancelado') ||
+       (request.resource.data.acao in ['falta_aluno','falta_profissional'] &&
+        request.resource.data.situacao_nova == request.resource.data.acao) ||
+       (request.resource.data.acao == 'reagendado' &&
+        request.resource.data.situacao_nova in ['remarcado','falta_aluno','falta_profissional'])
+      ) &&
+      getAfter(appointmentPath(agendaId)).data.status == request.resource.data.situacao_nova;
+    allow update,delete: if false;
+  }
+  match /atendimentos/{atendimentoId}/historico/{eventoId} {
+    allow read: if active() &&
+      (manage() || (specialist() &&
+       get(attendancePath(atendimentoId)).data.autor_uid == request.auth.uid));
+    allow create: if specialist() &&
+      eventoValido(request.resource.data,atendimentoId,'atendimento') &&
+      request.resource.data.acao == 'atendimento_avulso' &&
+      request.resource.data.situacao_nova == 'realizado' &&
+      existsAfter(attendancePath(atendimentoId)) &&
+      getAfter(attendancePath(atendimentoId)).data.autor_uid == request.auth.uid &&
+      getAfter(attendancePath(atendimentoId)).data.escola_id == request.resource.data.escola_id &&
+      getAfter(attendancePath(atendimentoId)).data.aluno_id == request.resource.data.aluno_id;
+    allow update,delete: if false;
+  }
+  match /alunos/{alunoId}/historico/{eventoId} {
+    allow read: if active() && (manage() || specialistIn(
+      get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id));
+    allow create: if active() &&
+      eventoValido(request.resource.data,alunoId,'aluno') &&
+      request.resource.data.acao in ['aluno_cadastrado','aluno_atualizado'] &&
+      existsAfter(/databases/$(database)/documents/alunos/$(alunoId)) &&
+      (manage() || specialistIn(request.resource.data.escola_id)) &&
+      getAfter(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id == request.resource.data.escola_id &&
+      request.resource.data.aluno_id == alunoId;
     allow update,delete: if false;
   }
 
