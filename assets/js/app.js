@@ -5,7 +5,7 @@ import {getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged,signOut} f
 import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,writeBatch,serverTimestamp,query,where} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const root=document.getElementById('app');
-const configured=!Object.values(firebaseConfig).some(v=>!v||String(v)==='CONFIGURAR');
+const configured=firebaseConfig.projectId==='seduc-especialistas' && firebaseConfig.authDomain==='seduc-especialistas.firebaseapp.com' && !Object.values(firebaseConfig).some(v=>!v||String(v)==='CONFIGURAR');
 const schoolNames=['Escola Municipal Doutor João de Souza Lima','Escola Municipal Professora Terezinha Sarmento de Oliveira','Creche Municipal Wilma Glória Nunes Mourão','Escola Municipal Prefeito José Pedro da Silva','Escola Municipal Monteiro Lobato'];
 const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formatDate=x=>{if(!x)return '—';const d=x?.toDate?x.toDate():new Date(x);return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR')};
@@ -16,7 +16,15 @@ const mySchools=()=>profile?.perfil==='superadmin'||profile?.perfil==='secretari
 const schoolName=id=>cache.escolas.find(s=>s.id===id)?.nome||'Instituição';
 const professionalName=uid=>cache.profissionais.find(p=>p.uid===uid)?.nome||cache.atendimentos.find(a=>a.autor_uid===uid)?.autor_nome||'Profissional';
 const btn=(txt,action='')=>'<button class="btn '+(action==='secondary'?'secondary':'')+'">'+safe(txt)+'</button>';
-function showError(err){alert('Não foi possível concluir: '+(err?.message||String(err)))}
+function showError(err){
+ const causes={
+  'auth/unauthorized-domain':'Domínio da aplicação não autorizado no Firebase Authentication. Cadastre o domínio de hospedagem em Authentication > Settings > Authorized domains.',
+  'auth/operation-not-allowed':'Login Google não habilitado no projeto Firebase. Ative o provedor Google em Authentication > Sign-in method.',
+  'auth/popup-blocked':'O navegador bloqueou a janela de login Google. Permita pop-ups para esta aplicação.',
+  'permission-denied':'Sem permissão para acessar o Firestore. Verifique se as regras oficiais foram publicadas e se o usuário foi aprovado.'
+ };
+ alert('Não foi possível concluir: '+(causes[err?.code]||err?.message||String(err)));
+}
 function showLogin(message=''){root.innerHTML='<div class="login"><div class="card"><h1>SEDUC Especialistas</h1><p class="muted">Sistema Municipal de Atendimentos Especializados</p>'+(message?'<div class="alert">'+safe(message)+'</div>':'')+'<button class="btn" id="google">Entrar com Google</button><p class="muted">Acesso exclusivo a profissionais autorizados.</p></div></div>';document.getElementById('google').onclick=()=>signInWithPopup(auth,new GoogleAuthProvider()).catch(showError)}
 function showSetup(){root.innerHTML='<div class="login"><div class="card"><h1>SEDUC Especialistas</h1><div class="alert">Ambiente ainda não configurado. Nenhum dado real pode ser registrado.</div><p>Configure um projeto Firebase exclusivo em <code>assets/js/firebase-config.js</code> e publique as regras de segurança do arquivo <code>firestore.rules</code>.</p><p class="muted">Não utilize o Firebase do SISDIFI. O acesso inicial do superadministrador deve ser provisionado de modo seguro.</p></div></div>'}
 async function initialize(){if(!configured){showSetup();return}const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;if(!u){profile=null;showLogin();return}try{const ref=doc(db,'usuarios',u.uid);let s=await getDoc(ref);if(!s.exists()){await setDoc(ref,{nome:u.displayName||u.email,email:u.email,ativo:false,perfil:'pendente',escolas:[],gerenciar:false,criado_em:serverTimestamp()});s=await getDoc(ref)}profile={id:s.id,...s.data()};if(!profile.ativo){showLogin('Sua conta foi registrada e está aguardando liberação da Secretaria de Educação.');return}await refresh();render()}catch(e){showLogin('Não foi possível verificar a autorização: '+e.message)}})}
