@@ -7,9 +7,19 @@ Esta branch contém uma primeira interface funcional e integração Firebase, **
 1. Crie um projeto exclusivo para SEDUC Especialistas em https://console.firebase.google.com/.
 2. Habilite Authentication > Google.
 3. Habilite Cloud Firestore em modo produção.
-4. Registre o app Web e copie as configurações para `assets/js/firebase-config.js`.
+4. App Web **já registrado**: a configuração fornecida da aplicação `seduc-especialistas` foi inserida em `assets/js/firebase-config.js` na branch de homologação. Não reutilize a configuração do SISDIFI.
 5. Publique `firestore.rules` no Console Firestore (o arquivo local NÃO é aplicado automaticamente).
-6. Configure domínios autorizados de autenticação (GitHub Pages ou domínio oficial).
+6. Em **Authentication > Settings > Authorized domains**, autorize `alvesjardimitalo-oss.github.io` se for usar GitHub Pages (sem `https://` e sem `/seduc.especialistas/`); autorize igualmente um eventual domínio oficial. O domínio `seduc-especialistas.firebaseapp.com` corresponde ao app Firebase.
+
+
+## 1-A. Integração da configuração web recebida
+- Projeto: `seduc-especialistas`.
+- Auth domain: `seduc-especialistas.firebaseapp.com`.
+- App ID: registrado em `assets/js/firebase-config.js`.
+- Configuração do Firebase Web é visível no navegador; nunca adicionar arquivo de conta de serviço, credencial administrativa, CPF, matrículas reais ou observações de crianças ao repositório.
+- A alteração no GitHub **não habilita automaticamente** os produtos Firebase, cria banco, publica regras, libera o domínio, promove administrador ou faz deploy do site.
+- Antes do primeiro login, em **Authentication > Sign-in method > Google**, clique em habilitar, selecione e-mail de suporte e salve. Em **Firestore Database**, crie o banco em modo de produção (acesso negado por padrão). Depois publique e valide as regras da branch em ambiente de testes.
+- **Somente dados fictícios** até concluir auditoria, validações de agendamento no servidor e homologação institucional.
 
 ## 2. Provisionar o superadministrador com segurança
 A conta inicial **não é promovida automaticamente**, para evitar que o primeiro visitante se aproprie do sistema:
