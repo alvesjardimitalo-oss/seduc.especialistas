@@ -9,3 +9,32 @@ button:disabled{cursor:not-allowed;opacity:.6}
 @media(max-width:800px){.check-school{flex-direction:row!important}}
 
 .homolog-notice{background:#f7edd8;color:#6b4700;padding:9px 22px;font-size:12px;font-weight:700;letter-spacing:.02em;border-bottom:1px solid #c2912e}
+
+
+/* Refinamento visual para fluxos de agendamento e acompanhamento escolar.
+   Não modifica permissões, dados ou regras do Firestore. */
+:root{--surface:#fff;--surface-soft:#f8fafc;--focus:#c2912e}
+.body{width:100%;max-width:1440px;padding:clamp(16px,2.4vw,34px)}
+.body h1{font-size:clamp(23px,2.3vw,30px);letter-spacing:-.035em}
+.sub{font-size:14px;line-height:1.55}
+.card{box-shadow:0 3px 18px rgba(16,42,69,.045)}
+.metric{box-shadow:0 2px 12px rgba(16,42,69,.04);border-top:3px solid #d7e5f2}
+.metric b{font-size:28px;letter-spacing:-.04em}
+.actions{align-items:center;gap:10px}
+.btn{min-height:42px;transition:background .15s,border-color .15s,transform .15s}
+.btn:hover:not(:disabled){filter:brightness(.96)}
+.btn:active:not(:disabled){transform:translateY(1px)}
+input,select,textarea{min-height:42px;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--azul);box-shadow:0 0 0 3px rgba(29,79,128,.10)}
+label{font-size:13px;color:var(--tinta)}
+th{position:sticky;top:0;z-index:1;background:var(--surface-soft);white-space:nowrap}
+tbody tr:hover{background:#f7fafc}
+td{line-height:1.5;vertical-align:middle}
+.modal{box-shadow:0 18px 70px rgba(16,42,69,.22);border:1px solid var(--borda)}
+.modal h2{color:var(--tinta);letter-spacing:-.025em}
+.history{background:var(--surface-soft);border-left:3px solid #9bb8cf}
+details[open]{background:white}
+.menu button{transition:background .15s}
+.top{gap:18px;min-height:64px;height:auto;padding-block:10px}
+@media(max-width:800px){.metric,.card{padding:16px}.modal{padding:18px}.top{flex-wrap:wrap}.actions .btn{flex:1 1 170px}.tablewrap{overscroll-behavior-x:contain}th,td{padding:10px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
