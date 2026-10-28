@@ -226,6 +226,18 @@ service cloud.firestore {
   }
   // Registro de ciência dos termos de uso e responsabilidade; NÃO é consentimento
   // parental nem base legal de tratamento de dados de crianças e adolescentes.
+  // Evento de acesso individual, sem IP ou dados pessoais dos alunos.
+  // Leitura restrita à gestão e somente quando solicitar o relatório de acessos.
+  match /acessos_sistema/{id} {
+    allow get,list: if manage();
+    allow create: if active() &&
+      request.resource.data.keys().hasOnly(['uid','perfil','evento','em']) &&
+      request.resource.data.uid == request.auth.uid &&
+      request.resource.data.perfil == me().perfil &&
+      request.resource.data.evento == 'login_confirmado' &&
+      request.resource.data.em == request.time;
+    allow update,delete: if false;
+  }
   match /termos_aceites/{id} {
     allow get: if logged() && (manage() || id == request.auth.uid + '_2026-10-28-v1');
     allow list: if manage();
