@@ -537,7 +537,10 @@ service cloud.firestore {
     allow delete: if false;
   }
   match /agenda_slots/{id} {
-    allow get: if admin() || (specialist() && resource.data.autor_uid == request.auth.uid);
+    // Leitura pontual dos slots de colegas da mesma escola; nenhum dado clínico é exposto.
+    // Slots ainda inexistentes também precisam ser legíveis para checar conflito.
+    allow get: if manage() || (specialist() &&
+      (resource == null || schoolAllowed(resource.data.escola_id)));
     allow list: if false;
     allow create: if (specialistIn(request.resource.data.escola_id) || manage()) &&
       request.resource.data.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
