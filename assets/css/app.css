@@ -38,3 +38,53 @@ details[open]{background:white}
 .top{gap:18px;min-height:64px;height:auto;padding-block:10px}
 @media(max-width:800px){.metric,.card{padding:16px}.modal{padding:18px}.top{flex-wrap:wrap}.actions .btn{flex:1 1 170px}.tablewrap{overscroll-behavior-x:contain}th,td{padding:10px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+
+/* Identidade visual SISDIFI adaptada ao SEDUC: somente apresentação. */
+body{line-height:1.5;-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}
+.login-fundo{min-height:100dvh;background:var(--tinta) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cpath d='M0 120h240M120 0v240' stroke='%23ffffff' stroke-opacity='.035'/%3E%3C/svg%3E");padding:24px}
+.login-fundo.com-capa{grid-template-columns:minmax(0,420px) minmax(0,410px);align-content:center;justify-content:center;gap:64px}
+.login-capa{color:#fff;min-width:0}
+.login-capa img{width:96px;height:96px;object-fit:contain;background:#fff;border-radius:20px;padding:8px;box-shadow:0 10px 30px #0005}
+.login-capa strong{display:block;font-size:40px;letter-spacing:.02em;margin-top:18px}
+.login-capa strong:after{content:"";display:block;width:56px;height:4px;border-radius:2px;background:var(--ouro);margin-top:12px}
+.login-capa p{color:#c3d2e2;font-size:17px;line-height:1.5;margin:14px 0 0;max-width:35ch}
+.login .card.login-caixa{width:100%;max-width:410px;padding:30px 28px 24px;border-radius:16px;border-top:4px solid var(--ouro);box-shadow:0 30px 70px #0005;margin:0}
+.login-caixa h1{margin:22px 0 8px;font-size:25px}
+.marca-login{display:flex;align-items:center;gap:12px;color:var(--azul);font-weight:700}
+.marca-login img{width:44px;height:44px;object-fit:contain}
+.marca-login small{display:block;font-size:11px;color:var(--muted);font-weight:400}
+.login-caixa .btn-google{width:100%;min-height:44px}
+.rodape-login{text-align:center;font-size:12px;color:var(--muted);margin:18px 0 0}
+.shell.layout{grid-template-columns:232px minmax(0,1fr)}
+.side.lateral{padding:14px 10px 12px;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}
+.side .brand.marca{display:flex;align-items:center;gap:10px;padding:2px 8px 14px;margin:0 0 8px;border-bottom:1px solid #ffffff20;font-size:15px}
+.brand.marca img{width:42px;height:42px;object-fit:contain;flex-shrink:0;background:#fff;border-radius:7px;padding:3px}
+.brand.marca span{min-width:0}
+.brand.marca small{font-size:11px;font-weight:400;line-height:1.3;color:#c9d6e4}
+.side .menu{display:flex;flex-direction:column;gap:1px;padding-top:0;flex:1}
+.side .menu button{position:relative;display:flex;align-items:center;gap:11px;padding:9px 10px 9px 12px;border-radius:8px;font-size:13.5px;font-weight:500;color:#c9d6e4;border:0;background:transparent}
+.side .menu button:hover{background:#ffffff12;color:#fff}
+.side .menu button.active{background:#ffffff1c;color:#fff;font-weight:600;border:0}
+.side .menu button.active:before{content:"";position:absolute;top:7px;bottom:7px;left:-10px;width:4px;border-radius:0 4px 4px 0;background:var(--ouro)}
+.menu-ico{display:inline-grid;place-items:center;width:18px;height:18px;flex:none;color:#aebfd1;font-size:17px}
+.side .menu button.active .menu-ico{color:#f0d79f}
+.menu-rodape{padding:10px;color:#9fb1c6;font-size:11px;border-top:1px solid #ffffff18}
+.principal{min-width:0;display:flex;flex-direction:column}
+.top.topo{position:sticky;top:0;z-index:4;min-height:58px;height:auto;padding:8px 26px;background:#fffffff0;backdrop-filter:saturate(1.4) blur(8px)}
+.topo-titulo{font-weight:500;color:var(--muted);flex:1}
+.usuario{display:flex;align-items:center;gap:12px}
+.usuario-nome{text-align:right;font-weight:600;color:var(--texto);line-height:1.25}
+.usuario-nome small{display:block;font-size:11px;font-weight:400;color:var(--muted)}
+.body{margin:0;max-width:1480px;padding:26px 28px 40px}
+.body h1{font-size:26px;letter-spacing:-.02em;line-height:1.2}
+.card,.metric{border-radius:12px;box-shadow:0 1px 2px #102a450f}
+.card{padding:20px}
+.metric{border-top:1px solid var(--borda)}
+.metric b{font-size:27px}
+.btn{min-height:38px;padding:8px 15px}
+.btn.secondary:hover{background:#e9f1f9;color:var(--azul)}
+th{background:#f6f8fa}
+.homolog-notice{background:#f7edd8;border-bottom:1px solid #c2912e;color:#6b4700}
+@media(max-width:940px){.login-fundo.com-capa{gap:24px;grid-template-columns:minmax(0,300px) minmax(0,410px)}.login-capa strong{font-size:34px}}
+@media(max-width:800px){.login-fundo.com-capa{grid-template-columns:minmax(0,430px)}.login-capa{display:none}.shell.layout{display:block}.side.lateral{position:static;height:auto;overflow:visible;padding:9px 12px}.side .brand.marca{padding:4px 8px 8px}.side .menu{flex-direction:row;overflow-x:auto;flex-wrap:nowrap;gap:4px;padding:8px 0 3px}.side .menu button{white-space:nowrap;flex-shrink:0;padding:9px 11px}.side .menu button.active:before{top:auto;bottom:0;left:9px;right:9px;width:auto;height:3px;border-radius:3px}.menu-rodape{display:none}.top.topo{padding:10px 16px}.body{padding:16px}.login .card.login-caixa{padding:25px 20px}}
