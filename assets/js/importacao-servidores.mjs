@@ -30,3 +30,56 @@ export function conferirImportacao(dados) {
  }
  return {registros:records,total:records.length,contagens,escolas:Object.values(escolasImportacao)};
 }
+
+export function nomeComparavel(x){
+ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+ .replace(/\\b(escola|municipal|creche|professora|professor|doutor|dr)\\b/g,' ')
+ .replace(/[^a-z0-9 ]/g,' ').replace(/\\s+/g,' ').trim();
+}
+export function encontrarEscola(canonica, cadastradas){
+ const canonical=Object.values(escolasImportacao).find(x=>x.id===canonica);
+ if(!canonical)return '';
+ const igual=cadastradas.find(e=>e.id===canonica);
+ if(igual)return igual.id;
+ const normal=nomeComparavel(canonical.nome);
+ const aproximadas=cadastradas.filter(e=>{
+  const n=nomeComparavel(e.nome);
+  if(canonica==='creche-wilma-gloria')return n.includes('wilma gloria');
+  if(canonica==='creche-sebastiana-duarte-cabral')return n.includes('sebastiana duarte');
+  if(canonica==='doutor-joao-souza-lima')return n.includes('joao')&&n.includes('souza lima');
+  if(canonica==='professora-terezinha-sarmento')return n.includes('terezinha')&&n.includes('sarmento');
+  if(canonica==='prefeito-jose-pedro')return n.includes('jose pedro')&&n.includes('silva');
+  if(canonica==='monteiro-lobato')return n.includes('monteiro lobato');
+  return n===normal;
+ });
+ return aproximadas.length===1?aproximadas[0].id:'';
+}
+export const escolasAlunosEspeciais=Object.freeze({
+ 'ESCOLA MUNICIPAL DR. JOÃO DE SOUZA LIMA':'doutor-joao-souza-lima',
+ 'ESCOLA MUNICIPAL PROFESSORA WILMA GLÓRIA NUNES MOURÃO':'creche-wilma-gloria',
+ 'CRECHE SEBASTIANA DUARTE CABRAL':'creche-sebastiana-duarte-cabral',
+ 'ESCOLA MUNICIPAL PROFESSORA TEREZINHA SARMENTO DE OLIVEIRA':'professora-terezinha-sarmento'
+});
+export function conferirAlunosEspeciais(dados){
+ if(!dados||dados.esquema!=='seduc_alunos_especiais_v1'||!Array.isArray(dados.alunos))
+  throw Error('Arquivo incompatível. Use o JSON privado de alunos 2026.');
+ if(!dados.alunos.length||dados.alunos.length>1000)throw Error('Quantidade de registros inválida.');
+ const ids=new Set(),registros=[],contagens={};
+ for(const x of dados.alunos){
+  if(!Object.prototype.hasOwnProperty.call(escolasAlunosEspeciais,x.escola_origem)||escolasAlunosEspeciais[x.escola_origem]!==x.escola_id)
+   throw Error('Instituição não reconhecida no relatório.');
+  if(typeof x.id!=='string'||!/^alu_[a-f0-9]{24}$/.test(x.id)||ids.has(x.id))throw Error('ID duplicado ou inválido.');
+  if(typeof x.nome!=='string'||x.nome.trim().length<3||x.nome.length>180)throw Error('Nome de aluno inválido.');
+  if(typeof x.turma!=='string'||!x.turma.trim()||x.turma.length>150)throw Error('Turma inválida.');
+  if(typeof x.deficiencia!=='string'||!x.deficiencia.trim()||x.deficiencia.length>140)throw Error('Registro de acompanhamento inválido.');
+  if(x.ano_letivo!==2026||!Number.isInteger(x.linha_origem)||x.linha_origem<1)throw Error('Referência inválida.');
+  ids.add(x.id);
+  contagens[x.escola_id]=(contagens[x.escola_id]||0)+1;
+  registros.push({
+   id:x.id,
+   publico:{nome:x.nome.trim(),escola_id:x.escola_id,nascimento:'',matricula:'',criado_por:null,ativo:true,turma:x.turma.trim(),ano_letivo:2026,origem:'relatorio_alunos_especiais_2026',linha_origem:x.linha_origem},
+   privado:{cpf:'',filiacao:'',telefone:'',endereco:'',escola_id:x.escola_id,criado_por:null,deficiencia:x.deficiencia.trim(),fonte_deficiencia:'informado_pela_escola_sem_confirmacao_clinica'}
+  });
+ }
+ return {registros,total:registros.length,contagens,escolas:[...new Set(registros.map(x=>x.publico.escola_id))]};
+}
