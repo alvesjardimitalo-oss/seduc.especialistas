@@ -317,7 +317,7 @@ service cloud.firestore {
   match /agendamentos/{id} {
     allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
     allow create: if specialistIn(request.resource.data.escola_id) &&
-      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','status']) &&
+      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','status','remarcado_de']) &&
       request.resource.data.autor_uid == request.auth.uid &&
       request.resource.data.status == 'agendado' &&
       request.resource.data.inicio is timestamp &&
@@ -328,7 +328,15 @@ service cloud.firestore {
       validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
       linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
       jornadaAutorizada(request.resource.data.vinculo_id,request.resource.data.inicio,request.resource.data.duracao_min) &&
-      appointmentHasSlots(id,request.resource.data,'reservado');
+      appointmentHasSlots(id,request.resource.data,'reservado') &&
+      (!request.resource.data.keys().hasAny(['remarcado_de']) ||
+        (request.resource.data.remarcado_de is string &&
+          request.resource.data.remarcado_de != id &&
+          exists(appointmentPath(request.resource.data.remarcado_de)) &&
+          get(appointmentPath(request.resource.data.remarcado_de)).data.autor_uid == request.auth.uid &&
+          get(appointmentPath(request.resource.data.remarcado_de)).data.aluno_id == request.resource.data.aluno_id &&
+          get(appointmentPath(request.resource.data.remarcado_de)).data.escola_id == request.resource.data.escola_id &&
+          getAfter(appointmentPath(request.resource.data.remarcado_de)).data.novo_agendamento_id == id));
     // O próprio especialista inicia a consulta, mantendo escola, aluno e agenda intactos.
     // A conclusão exige criar o atendimento e sua nota na mesma transação.
     allow update: if specialist() && resource.data.autor_uid == request.auth.uid &&
@@ -345,6 +353,29 @@ service cloud.firestore {
           request.resource.data.iniciado_em == request.time &&
           linked(resource.data.vinculo_id,resource.data.escola_id) &&
           validAluno(resource.data.aluno_id,resource.data.escola_id))
+        ||
+        (resource.data.status == 'agendado' &&
+          request.time >= resource.data.inicio &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','motivo_falta','falta_registrada_em']) &&
+          request.resource.data.status in ['falta_aluno','falta_profissional'] &&
+          request.resource.data.motivo_falta is string &&
+          request.resource.data.motivo_falta.size() <= 500 &&
+          request.resource.data.falta_registrada_em == request.time &&
+          appointmentHasSlots(id,resource.data,'liberado'))
+        ||
+        (resource.data.status in ['agendado','falta_aluno','falta_profissional'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','novo_agendamento_id','remarcado_em']) &&
+          (resource.data.status == 'agendado' ?
+            (request.resource.data.status == 'remarcado' && appointmentHasSlots(id,resource.data,'liberado')) :
+            request.resource.data.status == resource.data.status) &&
+          request.resource.data.remarcado_em == request.time &&
+          request.resource.data.novo_agendamento_id is string &&
+          existsAfter(appointmentPath(request.resource.data.novo_agendamento_id)) &&
+          getAfter(appointmentPath(request.resource.data.novo_agendamento_id)).data.remarcado_de == id &&
+          getAfter(appointmentPath(request.resource.data.novo_agendamento_id)).data.aluno_id == resource.data.aluno_id &&
+          getAfter(appointmentPath(request.resource.data.novo_agendamento_id)).data.autor_uid == resource.data.autor_uid &&
+          getAfter(appointmentPath(request.resource.data.novo_agendamento_id)).data.escola_id == resource.data.escola_id &&
+          getAfter(appointmentPath(request.resource.data.novo_agendamento_id)).data.status == 'agendado')
         ||
         (resource.data.status == 'em_atendimento' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizado_em','atendimento_id']) &&
@@ -377,7 +408,7 @@ service cloud.firestore {
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
           request.resource.data.status == 'liberado' &&
           existsAfter(appointmentPath(resource.data.agendamento_id)) &&
-          getAfter(appointmentPath(resource.data.agendamento_id)).data.status == 'cancelado')
+          getAfter(appointmentPath(resource.data.agendamento_id)).data.status in ['cancelado','falta_aluno','falta_profissional','remarcado'])
         ||
         (resource.data.status == 'liberado' &&
           request.resource.data.autor_uid == resource.data.autor_uid &&
@@ -392,11 +423,13 @@ service cloud.firestore {
   match /atendimentos/{id} {
     allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
     allow create: if specialistIn(request.resource.data.escola_id) &&
-      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','data','status','agendamento_id']) &&
+      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','data','status','agendamento_id','evolucao_observada']) &&
       request.resource.data.autor_uid == request.auth.uid &&
       request.resource.data.status == 'realizado' &&
       request.resource.data.data is timestamp &&
       request.resource.data.duracao_min in [30,60] &&
+      (!request.resource.data.keys().hasAny(['evolucao_observada']) ||
+        request.resource.data.evolucao_observada in ['nao_avaliada','avanco_observado','sem_mudanca_observada','reavaliacao_necessaria']) &&
       linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
       validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
       existsAfter(/databases/$(database)/documents/notas_atendimento/$(id)) &&
@@ -429,7 +462,7 @@ service cloud.firestore {
       request.resource.data.atendimento_id == id &&
       request.resource.data.autor_uid == request.auth.uid &&
       request.resource.data.texto is string &&
-      request.resource.data.texto.size() <= 1000 &&
+      request.resource.data.texto.size() <= 5000 &&
       request.resource.data.revisao == 1 &&
       existsAfter(/databases/$(database)/documents/atendimentos/$(id)) &&
       getAfter(/databases/$(database)/documents/atendimentos/$(id)).data.autor_uid == request.auth.uid &&
@@ -437,7 +470,7 @@ service cloud.firestore {
     allow update: if (admin() || (specialistIn(resource.data.escola_id) && resource.data.autor_uid == request.auth.uid)) &&
       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['texto','revisao','atualizado_em']) &&
       request.resource.data.texto is string &&
-      request.resource.data.texto.size() <= 1000 &&
+      request.resource.data.texto.size() <= 5000 &&
       request.resource.data.revisao == resource.data.revisao + 1 &&
       existsAfter(/databases/$(database)/documents/notas_versoes/$(id + '-' + string(request.resource.data.revisao)));
     allow delete: if false;
