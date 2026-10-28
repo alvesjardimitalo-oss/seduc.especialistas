@@ -390,8 +390,20 @@ service cloud.firestore {
        get(appointmentPath(agendaId)).data.autor_uid == request.auth.uid));
     allow create: if specialist() &&
       eventoValido(request.resource.data,agendaId,'agendamento') &&
+      eventoId == request.resource.data.acao &&
       request.resource.data.acao in ['agendado','iniciado','concluido','cancelado','falta_aluno','falta_profissional','reagendado'] &&
       existsAfter(appointmentPath(agendaId)) &&
+      (
+        (request.resource.data.acao == 'agendado' && !exists(appointmentPath(agendaId))) ||
+        (request.resource.data.acao in ['iniciado','concluido','cancelado','falta_aluno','falta_profissional'] &&
+          exists(appointmentPath(agendaId)) &&
+          get(appointmentPath(agendaId)).data.status != request.resource.data.situacao_nova) ||
+        (request.resource.data.acao == 'reagendado' &&
+          exists(appointmentPath(agendaId)) &&
+          getAfter(appointmentPath(agendaId)).data.novo_agendamento_id is string &&
+          getAfter(appointmentPath(agendaId)).data.novo_agendamento_id !=
+           get(appointmentPath(agendaId)).data.get('novo_agendamento_id',''))
+      ) &&
       getAfter(appointmentPath(agendaId)).data.autor_uid == request.auth.uid &&
       getAfter(appointmentPath(agendaId)).data.escola_id == request.resource.data.escola_id &&
       getAfter(appointmentPath(agendaId)).data.aluno_id == request.resource.data.aluno_id &&
@@ -414,6 +426,8 @@ service cloud.firestore {
        get(attendancePath(atendimentoId)).data.autor_uid == request.auth.uid));
     allow create: if specialist() &&
       eventoValido(request.resource.data,atendimentoId,'atendimento') &&
+      eventoId == 'atendimento_avulso' &&
+      !exists(attendancePath(atendimentoId)) &&
       request.resource.data.acao == 'atendimento_avulso' &&
       request.resource.data.situacao_nova == 'realizado' &&
       existsAfter(attendancePath(atendimentoId)) &&
@@ -428,6 +442,8 @@ service cloud.firestore {
     allow create: if active() &&
       eventoValido(request.resource.data,alunoId,'aluno') &&
       request.resource.data.acao in ['aluno_cadastrado','aluno_atualizado'] &&
+      (request.resource.data.acao == 'aluno_atualizado' ||
+        (eventoId == 'aluno_cadastrado' && !exists(/databases/$(database)/documents/alunos/$(alunoId)))) &&
       existsAfter(/databases/$(database)/documents/alunos/$(alunoId)) &&
       (manage() || specialistIn(request.resource.data.escola_id)) &&
       getAfter(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id == request.resource.data.escola_id &&
