@@ -228,7 +228,7 @@ if(tab==='Relatórios'){
   filtroSelect('aluno','Aluno',students.map(a=>[a.id,a.nome]))+
   filtroSelect('profissional','Profissional',profissionais)+
   filtroSelect('especialidade','Especialidade',especialidades.map(e=>[e,e]))+
-  '</div><button class="btn secondary" id="limpar-relatorio">Limpar filtros</button><p class="muted">Período pelo horário de Brasília. Os filtros se aplicam aos atendimentos e agendamentos disponíveis para sua conta.</p></div>';
+  '</div><div class="actions report-actions"><button class="btn secondary" id="limpar-relatorio">Limpar filtros</button><button class="btn" id="imprimir-gerencial">Imprimir relatório / salvar PDF</button></div><p class="muted">O documento segue os filtros escolhidos e será gerado localmente no navegador. Período pelo horário de Brasília.</p></div>';
  if(f.de&&f.ate&&f.de>f.ate){
   html+='<div class="alert" role="alert">A data final deve ser igual ou posterior à inicial.</div>';
  }else{
@@ -245,6 +245,22 @@ if(tab==='Relatórios'){
    const r=resumirRelatorio(visits,appointments,{...f,escola:e.id});
    return '<tr><td>'+safe(e.nome)+'</td><td>'+r.alunos+'</td><td>'+r.realizados+'</td><td>'+r.agendados+'</td><td>'+r.faltas+'</td></tr>';
   }));
+  const filtrados=filtrarRegistros(visits,f),agendaFiltrada=filtrarRegistros(appointments,f);
+  html+='<div class="grid report-summary-grid">'+[
+   ['Consultas realizadas',filtrados.filter(x=>x.status==='realizado').length],
+   ['Faltas do aluno',agendaFiltrada.filter(x=>x.status==='falta_aluno').length],
+   ['Faltas da profissional',agendaFiltrada.filter(x=>x.status==='falta_profissional').length],
+   ['Reagendamentos',agendaFiltrada.filter(x=>x.status==='remarcado'||x.novo_agendamento_id).length]
+  ].map(([nome,total])=>'<div class="metric"><span>'+safe(nome)+'</span><b>'+total+'</b></div>').join('')+'</div>';
+  html+='<h3>Produção por especialidade</h3>';
+  const especialidadesAtivas=[...new Set([...filtrados,...agendaFiltrada].map(x=>x.especialidade).filter(Boolean))];
+  html+=table(['Especialidade','Consultas realizadas','Agendadas','Faltas'],especialidadesAtivas.map(e=>[
+   '<tr><td>'+safe(e)+'</td><td>'+filtrados.filter(x=>x.especialidade===e&&x.status==='realizado').length+'</td><td>'+agendaFiltrada.filter(x=>x.especialidade===e&&x.status==='agendado').length+'</td><td>'+agendaFiltrada.filter(x=>x.especialidade===e&&['falta_aluno','falta_profissional'].includes(x.status)).length+'</td></tr>'
+  ][0]));
+  html+='<h3>Produção por profissional</h3>';
+  const profissionaisAtivos=[...new Map([...filtrados,...agendaFiltrada].filter(x=>x.autor_uid).map(x=>[x.autor_uid,x.autor_nome||x.autor_uid])).entries()];
+  html+=table(['Profissional','Realizados','Agendados','Ausências'],profissionaisAtivos.map(([uid,nome])=>
+   '<tr><td>'+safe(nome)+'</td><td>'+filtrados.filter(x=>x.autor_uid===uid&&x.status==='realizado').length+'</td><td>'+agendaFiltrada.filter(x=>x.autor_uid===uid&&x.status==='agendado').length+'</td><td>'+agendaFiltrada.filter(x=>x.autor_uid===uid&&['falta_aluno','falta_profissional'].includes(x.status)).length+'</td></tr>'));
   if(!resumo.realizados&&!resumo.agendados&&!resumo.faltas)html+='<p class="muted" role="status">Nenhum atendimento realizado, agendamento pendente ou ausência para os filtros selecionados.</p>';
  }
  html+='<p class="muted">Cada aluno é contado uma vez no total e uma vez por instituição em que foi atendido. Os indicadores apresentam apenas quantidades.</p>';
