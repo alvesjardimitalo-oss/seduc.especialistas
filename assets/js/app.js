@@ -8,6 +8,7 @@ import {montarDocumentoAluno,montarDocumentoGerencial} from './relatorios-impres
 import {buscarAlunosDisponiveis} from './busca-alunos.mjs';
 import {montarGradeAgenda,diaLocal} from './agenda-calendario.mjs';
 import {listarProfissionaisDaEscola,horariosLivres} from './agenda-formulario.mjs';
+import {criarEmailAgendamento} from './notificacoes-email.mjs';
 import {prepararCadastroAluno,consultarCEP,formatarCEP,formatarCPF,formatarTelefone} from './cadastro-alunos.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
@@ -814,6 +815,62 @@ async function salvarAgendamento(payload){
  });
 }
 
+async function abrirNotificacaoAgendamento(id){
+ const agenda=cache.agendamentos.find(a=>a.id===id);
+ if(!agenda||agenda.status!=='agendado'||!(canManage()||agenda.autor_uid===user.uid||agenda.agendado_por_uid===user.uid)){
+  showError(Error('Notificação indisponível para sua conta ou situação do agendamento.'));return;
+ }
+ const aluno=cache.alunos.find(a=>a.id===agenda.aluno_id);
+ if(!aluno)return showError(Error('Aluno cadastrado não está disponível.'));
+ let destino=cache.usuarios.find(u=>u.id===agenda.autor_uid)?.email||'';
+ if(!destino&&agenda.autor_uid===user.uid)destino=profile.email||user.email||'';
+ if(!destino){
+  try{
+   const d=await getDoc(doc(db,'usuarios',agenda.autor_uid));
+   if(d.exists()&&d.data().ativo===true&&d.data().perfil==='especialista'&&
+      (canManage()||d.data().escolas?.includes(agenda.escola_id))){
+    destino=d.data().email||'';
+    if(!cache.usuarios.some(u=>u.id===d.id))cache.usuarios.push({id:d.id,...d.data()});
+   }
+  }catch(e){console.warn('Destino de e-mail não localizado',e.code||e.message)}
+ }
+ const texto=criarEmailAgendamento({
+  aluno:aluno.nome,escola:schoolName(agenda.escola_id),
+  profissional:agenda.autor_nome||professionalName(agenda.autor_uid),
+  inicio:agenda.inicio,duracaoMin:agenda.duracao_min,
+  especialidade:agenda.especialidade,
+  remetente:profile.nome||user.displayName||user.email
+ });
+ const atual=document.getElementById('email-notificacao-agenda');if(atual)atual.remove();
+ document.body.insertAdjacentHTML('beforeend','<div class="modalback" id="email-notificacao-agenda"><section class="modal notification-email-dialog" role="dialog" aria-modal="true" aria-labelledby="email-notificacao-titulo">'+
+  '<button class="btn secondary close" id="fechar-email-agenda" type="button">Fechar</button>'+
+  '<span class="eyebrow">COMUNICAÇÃO · SEDUC</span><h2 id="email-notificacao-titulo">Notificar agendamento por e-mail</h2>'+
+  '<p class="muted">O aplicativo de e-mail será aberto com a mensagem preparada. Revise o destinatário e clique em Enviar no seu e-mail. A mensagem não é enviada automaticamente pelo SEDUC.</p>'+
+  '<form id="form-email-agenda"><label>E-mail institucional do destinatário *<input type="email" name="destinatario" required autocomplete="email" placeholder="profissional@educacao.gov.br" value="'+safe(destino)+'"></label>'+
+  '<label class="wide">Prévia da notificação<textarea id="mensagem-email-agenda" rows="12" readonly></textarea></label>'+
+  '<label class="privacy-check wide"><input type="checkbox" name="confirmar" required><span>Confirmo que este destinatário está autorizado a receber os dados mínimos deste agendamento, conforme a LGPD e as regras institucionais.</span></label>'+
+  '<div class="actions"><button class="btn" type="submit">Abrir e-mail para envio</button></div></form></section></div>');
+ const dialog=document.getElementById('email-notificacao-agenda');
+ dialog.querySelector('#mensagem-email-agenda').value='Assunto: '+texto.assunto+'\n\n'+texto.corpo;
+ dialog.querySelector('#fechar-email-agenda').onclick=()=>dialog.remove();
+ dialog.querySelector('#form-email-agenda').onsubmit=event=>{
+  event.preventDefault();
+  const form=event.currentTarget;
+  if(!form.reportValidity())return;
+  try{
+   const msg=criarEmailAgendamento({
+    aluno:aluno.nome,escola:schoolName(agenda.escola_id),
+    profissional:agenda.autor_nome||professionalName(agenda.autor_uid),
+    inicio:agenda.inicio,duracaoMin:agenda.duracao_min,
+    especialidade:agenda.especialidade,remetente:profile.nome||user.displayName||user.email,
+    destinatario:form.elements.destinatario.value
+   });
+   window.location.href=msg.mailto;
+   dialog.remove();
+  }catch(e){showError(e)}
+ };
+}
+
 /** Consulta vinculada: a reserva permanece ocupada até ser concluída. */
 function abrirAgendamento(id){
  const a=cache.agendamentos.find(x=>x.id===id);
@@ -843,10 +900,12 @@ function abrirAgendamento(id){
   (a.status==='em_atendimento'?'<p class="appointment-tip">Atendimento iniciado. Você pode continuar e registrar a evolução da consulta.</p>':'')+
   (a.motivo_falta?'<p class="appointment-tip"><strong>Justificativa de ausência:</strong> '+safe(a.motivo_falta)+'</p>':'')+
   (a.motivo_remarcacao?'<p class="appointment-tip"><strong>Motivo da remarcação:</strong> '+safe(a.motivo_remarcacao)+'</p>':'')+
-  '<div class="actions appointment-actions">'+acoes+'</div><div class="appointment-audit"><h3>Histórico de movimentações</h3><div id="historico-eventos-agenda"><p class="muted">Carregando somente os eventos deste agendamento...</p></div></div></section></div>');
+  '<div class="actions appointment-actions">'+acoes+(a.status==='agendado'&&(canManage()||dono||a.agendado_por_uid===user.uid)?'<button type="button" class="btn secondary" id="notificar-email-agenda">Notificar por e-mail</button>':'')+'</div><div class="appointment-audit"><h3>Histórico de movimentações</h3><div id="historico-eventos-agenda"><p class="muted">Carregando somente os eventos deste agendamento...</p></div></div></section></div>');
  const back=document.getElementById('detalhe-agendamento');
  mostrarHistoricoAgendamento(id);
  back.querySelector('#fechar-agendamento').onclick=()=>back.remove();
+ const notificar=back.querySelector('#notificar-email-agenda');
+ if(notificar)notificar.onclick=()=>abrirNotificacaoAgendamento(id).catch(showError);
  const iniciar=back.querySelector('#iniciar-consulta');
  if(iniciar)iniciar.onclick=async()=>{iniciar.disabled=true;try{await iniciarConsultaAgendada(id);back.remove();abrirConsultaAgendada(id)}catch(e){showError(e)}finally{iniciar.disabled=false}};
  const continuar=back.querySelector('#continuar-consulta');
