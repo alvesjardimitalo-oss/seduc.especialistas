@@ -32,7 +32,8 @@ const source=readFileSync(new URL('../assets/js/app.js',import.meta.url),'utf8')
 test('formulários de agendamento e consulta avulsa exigem seleção de aluno pesquisado',()=>{
  assert.match(source,/function seletorAlunoPesquisavel\(\)/);
  assert.match(source,/function ativarBuscaAlunosDoFormulario\(\)/);
- assert.match(source,/const fields=schoolSelect\(\)\+seletorAlunoPesquisavel\(\)/);
+ assert.match(source,/formularioNovoAgendamento\(\)/);
+ assert.match(source,/schoolSelect\(\)\+seletorAlunoPesquisavel\(\)/);
  assert.match(source,/if\(!d\.aluno_id\)throw Error\('Pesquise e selecione um aluno cadastrado/);
  assert.match(source,/student\.escola_id!==d\.escola_id/);
  assert.match(source,/busca\.addEventListener\('input',\(\)=>\{resetar\(\);atualizar\(\);\}\)/);
