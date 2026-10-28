@@ -209,3 +209,24 @@ test('especialista não pode importar servidor nem dados privados',async()=>{
   ano:2026,escola_origem:'Escola A',linha_origem:1,ativo:true
  }));
 });
+
+test('dados de acompanhamento são segregados e não acessíveis à direção',async()=>{
+ const db=contexto('admin'),batch=writeBatch(db);
+ batch.set(doc(db,'alunos/alu_0123456789abcdef01234567'),{
+  nome:'Estudante fictício',escola_id:'a',nascimento:'',matricula:'',criado_por:'admin',ativo:true
+ });
+ batch.set(doc(db,'alunos_privado/alu_0123456789abcdef01234567'),{
+  cpf:'',filiacao:'',telefone:'',endereco:'',escola_id:'a',criado_por:'admin'
+ });
+ batch.set(doc(db,'alunos_necessidades/alu_0123456789abcdef01234567'),{
+  aluno_id:'alu_0123456789abcdef01234567',escola_id:'a',turma:'Infantil',
+  registro_escolar:'Informação escolar fictícia',ano_letivo:2026,origem:'relatorio_escolar_2026',
+  importado_por:'admin',criado_em:serverTimestamp()
+ });
+ await assertSucceeds(batch.commit());
+ await assertSucceeds(getDoc(doc(db,'alunos_necessidades/alu_0123456789abcdef01234567')));
+ await assertSucceeds(getDoc(doc(contexto('espA'),'alunos_necessidades/alu_0123456789abcdef01234567')));
+ await assertFails(getDoc(doc(contexto('dirA'),'alunos_necessidades/alu_0123456789abcdef01234567')));
+ await assertFails(getDoc(doc(contexto('espB'),'alunos_necessidades/alu_0123456789abcdef01234567')));
+ await assertFails(updateDoc(doc(db,'alunos_necessidades/alu_0123456789abcdef01234567'),{registro_escolar:'Alteração não auditada'}));
+});
