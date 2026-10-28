@@ -237,7 +237,10 @@ service cloud.firestore {
       d.criado_em is timestamp;
   }
   match /relatorios_alunos/{id} {
-    allow read: if (admin() || seduc() || specialistIn(resource.data.escola_id)) &&
+    // Relação aluno/escola validada na criação, imutável e sem exclusão de aluno.
+    // List usa o escopo consultável; get também confere a existência do cadastro.
+    allow list: if admin() || seduc() || specialistIn(resource.data.escola_id);
+    allow get: if (admin() || seduc() || specialistIn(resource.data.escola_id)) &&
       exists(/databases/$(database)/documents/alunos/$(resource.data.aluno_id)) &&
       get(/databases/$(database)/documents/alunos/$(resource.data.aluno_id)).data.escola_id == resource.data.escola_id;
     allow create: if validRelatorioAluno(request.resource.data) &&
