@@ -212,6 +212,40 @@ test('auditoria de aluno é restrita ao profissional da escola e equipe gestora'
  await assertSucceeds(getDoc(doc(contexto('admin'),'alunos','alunoA','historico','evento1')));
  await assertFails(getDoc(doc(contexto('espB'),'alunos','alunoA','historico','evento1')));
 });
+test('admin agenda para especialista habilitada preservando autoria e trava do horario',async()=>{
+ const db=contexto('admin'),id='gestaoAgendamento',inicio=new Date('2027-11-08T11:00:00.000Z'),batch=writeBatch(db);
+ const d={...novoAgendamento(id,inicio),autor_uid:'espA',autor_nome:'Especialista A',agendado_por_uid:'admin'};
+ batch.set(doc(db,'agendamentos',id),d);
+ batch.set(doc(db,'agenda_slots',slotId('espA',inicio)),{
+  autor_uid:'espA',escola_id:'a',agendamento_id:id,inicio,status:'reservado'
+ });
+ batch.set(doc(db,'agendamentos',id,'historico','agendado'),{
+  acao:'agendado',alvo_tipo:'agendamento',alvo_id:id,escola_id:'a',
+  aluno_id:'alunoA',autor_uid:'admin',autor_nome:'Administrador',
+  criado_em:serverTimestamp(),situacao_anterior:'',situacao_nova:'agendado'
+ });
+ await assertSucceeds(batch.commit());
+ const salvo=await assertSucceeds(getDoc(doc(db,'agendamentos',id)));
+ assert.equal(salvo.data().autor_uid,'espA');
+ assert.equal(salvo.data().agendado_por_uid,'admin');
+ const prof=contexto('espA');
+ await assertSucceeds(updateDoc(doc(prof,'agendamentos',id),{
+  status:'em_atendimento',iniciado_em:serverTimestamp()
+ }));
+});
+test('contas sem delegacao e profissionais de outra escola nao criam agendas em nome de terceiros',async()=>{
+ const inicio=new Date('2027-11-15T11:00:00Z');
+ const dados={...novoAgendamento('negadoGestao',inicio),agendado_por_uid:'secview'};
+ const db=contexto('secview'),b=writeBatch(db);
+ b.set(doc(db,'agendamentos','negadoGestao'),dados);
+ b.set(doc(db,'agenda_slots',slotId('espA',inicio)),{
+  autor_uid:'espA',escola_id:'a',agendamento_id:'negadoGestao',inicio,status:'reservado'
+ });
+ await assertFails(b.commit());
+ await assertFails(setDoc(doc(contexto('espB'),'agendamentos/forjarAutoria'),{
+  ...dados,autor_uid:'espA',agendado_por_uid:'espB'
+ }));
+});
 test('agendamento sem reservas transacionais é proibido',async()=>{
  const inicio=new Date('2027-11-01T12:00:00.000Z');
  await assertFails(setDoc(doc(contexto('espA'),'agendamentos/semLocks'),novoAgendamento('semLocks',inicio)));
