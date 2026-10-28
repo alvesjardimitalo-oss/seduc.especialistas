@@ -463,7 +463,9 @@ service cloud.firestore {
       validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
       vinculoAgendamento(request.resource.data.vinculo_id,request.resource.data.escola_id,request.resource.data.autor_uid) &&
       jornadaAutorizada(request.resource.data.vinculo_id,request.resource.data.inicio,request.resource.data.duracao_min) &&
-      appointmentHasSlots(id,request.resource.data,'reservado') &&
+      // Gestores confirmam a reserva na transação: locks validam o agendamento.
+      // Evita avaliação circular getAfter(agendamento) <-> getAfter(slot).
+      (manage() || appointmentHasSlots(id,request.resource.data,'reservado')) &&
       (!request.resource.data.keys().hasAny(['remarcado_de']) ||
         (request.resource.data.remarcado_de is string &&
           request.resource.data.remarcado_de != id &&
