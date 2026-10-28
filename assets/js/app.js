@@ -673,6 +673,7 @@ if(kind==='atendimento'||kind==='agendar'){
  }
  return;
 }
+}
 function camposRegistroConsulta(){
  return '<label class="wide">Motivo / objetivo do atendimento<textarea name="descricao" maxlength="1200" required placeholder="Por que a consulta foi realizada?"></textarea></label>'+
  '<label class="wide">Atividades, intervenções e procedimentos<textarea name="atividades" maxlength="1200" placeholder="O que foi realizado durante o atendimento?"></textarea></label>'+
