@@ -16,7 +16,7 @@ export function filtrarRegistros(registros,filtros={}){
   if(filtros.profissional&&r.autor_uid!==filtros.profissional)return false;
   if(filtros.especialidade&&r.especialidade!==filtros.especialidade)return false;
   if(filtros.de||filtros.ate){
-   const dia=diaMunicipal(r.inicio??r.data);
+   const dia=diaMunicipal(r.data??r.inicio);
    if(!dia||(filtros.de&&dia<filtros.de)||(filtros.ate&&dia>filtros.ate))return false;
   }
   return true;
