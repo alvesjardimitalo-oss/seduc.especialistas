@@ -364,7 +364,11 @@ service cloud.firestore {
           appointmentHasSlots(id,resource.data,'liberado'))
         ||
         (resource.data.status in ['agendado','falta_aluno','falta_profissional'] &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','novo_agendamento_id','remarcado_em']) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','novo_agendamento_id','remarcado_em','motivo_remarcacao']) &&
+          !resource.data.keys().hasAny(['novo_agendamento_id']) &&
+          request.resource.data.motivo_remarcacao is string &&
+          request.resource.data.motivo_remarcacao.size() > 0 &&
+          request.resource.data.motivo_remarcacao.size() <= 500 &&
           (resource.data.status == 'agendado' ?
             (request.resource.data.status == 'remarcado' && appointmentHasSlots(id,resource.data,'liberado')) :
             request.resource.data.status == resource.data.status) &&
