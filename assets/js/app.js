@@ -161,13 +161,14 @@ function openUser(uid){
  modal('Permissões de '+safe(u.nome||u.email),
  select('perfil','Perfil',[['pendente','Aguardando'],['especialista','Especialista'],['direcao','Direção escolar'],['secretaria','Secretaria de Educação'],['visualizador','Somente relatórios']])+
  '<label>Permitir acesso?<select name="ativo"><option value="true">Sim</option><option value="false">Não</option></select></label>'+
- '<div class="wide"><strong>Escolas autorizadas</strong><div class="card">'+cache.escolas.map(e=>'<label class="check-school"><input type="checkbox" name="escolas" value="'+safe(e.id)+'" '+((u.escolas||[]).includes(e.id)?'checked':'')+'> '+safe(e.nome)+'</label>').join('')+'</div></div>',
+ '<div class="wide"><strong>Escolas autorizadas</strong><div class="card">'+cache.escolas.map(e=>'<label class="check-school"><input type="checkbox" name="escolas" value="'+safe(e.id)+'" '+((u.escolas||[]).includes(e.id)?'checked':'')+'> '+safe(e.nome)+'</label>').join('')+'</div></div>'+
+ (profile.perfil==='superadmin'?'<label>Delegar gestão de usuários e cadastros?<select name="gerenciar"><option value="false">Não</option><option value="true">Sim, para Secretaria de Educação</option></select></label>':''),
  async d=>{
   const selected=Array.from(document.querySelectorAll('#entry input[name="escolas"]:checked')).map(x=>x.value);
   if(['especialista','direcao','visualizador'].includes(d.perfil)&&d.ativo==='true'&&!selected.length)throw Error('Selecione pelo menos uma escola.');
-  await updateDoc(doc(db,'usuarios',uid),{perfil:d.perfil,ativo:d.ativo==='true',escolas:selected,gerenciar:false});
+  await updateDoc(doc(db,'usuarios',uid),{perfil:d.perfil,ativo:d.ativo==='true',escolas:selected,gerenciar:profile.perfil==='superadmin'&&d.perfil==='secretaria'&&d.gerenciar==='true'});
  });
- const form=document.getElementById('entry');form.querySelector('[name=perfil]').value=u.perfil;form.querySelector('[name=ativo]').value=String(u.ativo===true);
+ const form=document.getElementById('entry');form.querySelector('[name=perfil]').value=u.perfil;form.querySelector('[name=ativo]').value=String(u.ativo===true);if(form.querySelector('[name=gerenciar]'))form.querySelector('[name=gerenciar]').value=String(u.gerenciar===true);
 }
 function openEdit(id){const a=cache.atendimentos.find(x=>x.id===id);if(!a||!(a.autor_uid===user.uid||profile.perfil==='superadmin'))return;modal('Editar / cancelar atendimento','<label class="wide">Observações<textarea name="texto" maxlength="1000" required>'+safe(a.texto)+'</textarea></label>'+select('status','Situação',[['realizado','Realizado'],['cancelado','Cancelado']])+field('motivo','Justificativa da alteração','text','required'),async d=>{const batch=writeBatch(db);batch.update(doc(db,'atendimentos',id),{status:d.status,motivo_ultima_alteracao:d.motivo,alterado_por:user.uid,alterado_em:serverTimestamp()});const revision=Number(cache.notas_atendimento.find(n=>n.id===id)?.revisao||1)+1;batch.update(doc(db,'notas_atendimento',id),{texto:d.texto,revisao:revision,atualizado_em:serverTimestamp()});batch.set(doc(db,'notas_versoes',id+'-'+revision),{atendimento_id:id,escola_id:a.escola_id,autor_uid:a.autor_uid,editado_por:user.uid,texto_anterior:a.texto||'',texto_novo:d.texto,justificativa:d.motivo,versao:revision,em:serverTimestamp()});await batch.commit()});document.querySelector('#entry [name=status]').value=a.status||'realizado'}
 initialize();
