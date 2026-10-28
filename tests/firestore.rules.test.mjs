@@ -226,6 +226,14 @@ test('registra ausencia e libera horario com seguranca',async()=>{
  await assertSucceeds(batch.commit());
  const snap=await getDoc(doc(db,'agendamentos',id));
  assert.equal(snap.data().status,'falta_aluno');
+ const nextDate=new Date('2027-11-22T12:00:00.000Z'),newId='reagendadoAposAusencia';
+ const reagendar=writeBatch(db);
+ reagendar.update(doc(db,'agendamentos',id),{novo_agendamento_id:newId,remarcado_em:serverTimestamp(),motivo_remarcacao:'Nova data solicitada'});
+ reagendar.set(doc(db,'agendamentos',newId),{...novoAgendamento(newId,nextDate),remarcado_de:id});
+ addLocks(db,reagendar,newId,nextDate,30);
+ await assertSucceeds(reagendar.commit());
+ const refeito=await getDoc(doc(db,'agendamentos',newId));
+ assert.equal(refeito.data().remarcado_de,id);
 });
 test('slots não podem ser liberados sem cancelar o agendamento',async()=>{
  const db=contexto('espA'),inicio=new Date('2027-11-01T12:00:00.000Z');
