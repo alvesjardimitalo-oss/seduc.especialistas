@@ -1,56 +1,183 @@
 rules_version = '2';
 service cloud.firestore {
  match /databases/{database}/documents {
-  function signed() {return request.auth != null;}
-  function profileExists() {return signed() && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));}
-  function me() {return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;}
-  function active() {return profileExists() && me().ativo == true;}
-  function admin() {return active() && me().perfil == 'superadmin';}
-  function secretary() {return active() && me().perfil == 'secretaria';}
-  function manager() {return admin() || (secretary() && me().get('gerenciar',false) == true);}
-  function schoolAccess(id) {return active() && (admin() || secretary() || id in me().get('escolas',[]));}
-  function author() {return active() && request.auth.uid == resource.data.autor_uid;}
-  match /usuarios/{id} {
-   allow get: if signed() && (id == request.auth.uid || manager());
-   allow list: if manager();
-   allow create: if signed() && id == request.auth.uid && request.resource.data.keys().hasOnly(['nome','email','ativo','perfil','escolas','gerenciar','criado_em']) && request.resource.data.ativo == false && request.resource.data.perfil == 'pendente' && request.resource.data.gerenciar == false && request.resource.data.escolas == [] && request.resource.data.email == request.auth.token.email;
-   allow create,update: if admin();
-   allow update: if secretary() && me().get('gerenciar',false)==true && id!=request.auth.uid && resource.data.perfil!='superadmin' && request.resource.data.perfil!='superadmin' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo','perfil','escolas','nome','gerenciar']) && request.resource.data.gerenciar==false;
-   allow delete: if false;
+  function logged() { return request.auth != null; }
+  function userPath() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
+  function userExists() { return logged() && exists(userPath()); }
+  function me() { return get(userPath()).data; }
+  function active() { return userExists() && me().ativo == true; }
+  function admin() { return active() && me().perfil == 'superadmin'; }
+  function seduc() { return active() && me().perfil == 'secretaria'; }
+  function manage() { return admin() || (seduc() && me().get('gerenciar', false) == true); }
+  function specialist() { return active() && me().perfil == 'especialista'; }
+  function schoolAllowed(escolaId) {
+    return active() && (admin() || seduc() || escolaId in me().get('escolas', []));
+  }
+  function specialistIn(escolaId) {
+    return specialist() && escolaId in me().get('escolas', []);
+  }
+  function validAluno(alunoId, escolaId) {
+    return exists(/databases/$(database)/documents/alunos/$(alunoId)) &&
+      get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id == escolaId &&
+      get(/databases/$(database)/documents/alunos/$(alunoId)).data.ativo == true;
+  }
+  function linked(vinculoId, escolaId) {
+    return specialistIn(escolaId) &&
+      exists(/databases/$(database)/documents/vinculos/$(vinculoId)) &&
+      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.uid == request.auth.uid &&
+      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.escola_id == escolaId &&
+      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.ativo == true;
+  }
+  function sameAuthorAndScope() {
+    return request.resource.data.autor_uid == resource.data.autor_uid &&
+      request.resource.data.escola_id == resource.data.escola_id &&
+      request.resource.data.aluno_id == resource.data.aluno_id;
+  }
+
+  match /usuarios/{uid} {
+    allow get: if logged() && (uid == request.auth.uid || manage());
+    allow list: if manage();
+    allow create: if logged() && uid == request.auth.uid &&
+      request.resource.data.keys().hasOnly(['nome','email','ativo','perfil','escolas','gerenciar','criado_em']) &&
+      request.resource.data.perfil == 'pendente' &&
+      request.resource.data.ativo == false &&
+      request.resource.data.gerenciar == false &&
+      request.resource.data.escolas == [] &&
+      request.resource.data.email == request.auth.token.email;
+    allow update: if admin() &&
+      (uid != request.auth.uid || (request.resource.data.perfil == 'superadmin' && request.resource.data.ativo == true));
+    allow update: if seduc() && me().get('gerenciar',false) == true &&
+      uid != request.auth.uid &&
+      resource.data.perfil != 'superadmin' &&
+      request.resource.data.perfil in ['pendente','especialista','direcao','secretaria','visualizador'] &&
+      request.resource.data.gerenciar == false &&
+      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo','perfil','escolas','nome','gerenciar']);
+    allow delete: if false;
   }
   match /escolas/{id} {
-   allow read: if schoolAccess(id);
-   allow create,update: if manager();
-   allow delete: if admin();
+    allow get: if schoolAllowed(id);
+    allow list: if active() && (seduc() || admin());
+    allow create,update: if manage() &&
+      request.resource.data.keys().hasOnly(['nome','inep','telefone','endereco','email']) &&
+      request.resource.data.nome is string && request.resource.data.nome.size() > 3;
+    allow delete: if false;
   }
   match /profissionais/{id} {
-   allow read: if active() && (manager() || resource.data.get('escolas',[]).hasAny(me().get('escolas',[])));
-   allow create,update: if manager();
-   allow delete: if false;
+    allow read: if manage() || (active() && resource.data.uid == request.auth.uid);
+    allow create,update: if manage() &&
+      request.resource.data.keys().hasOnly(['nome','especialidade','uid','escolas']) &&
+      request.resource.data.nome is string &&
+      request.resource.data.nome.size() > 2;
+    allow delete: if false;
+  }
+  match /profissionais_privado/{id} {
+    allow read: if manage();
+    allow create,update: if manage() &&
+      existsAfter(/databases/$(database)/documents/profissionais/$(id)) &&
+      request.resource.data.keys().hasOnly(['cpf','telefone','endereco','nascimento','email']);
+    allow delete: if false;
   }
   match /vinculos/{id} {
-   allow read: if active() && (manager() || schoolAccess(resource.data.escola_id));
-   allow create,update: if manager();
-   allow delete: if false;
+    allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
+    allow create,update: if manage() &&
+      request.resource.data.keys().hasOnly(['profissional_id','escola_id','cargo','jornada','uid','horarios','ativo']) &&
+      request.resource.data.horarios is list &&
+      exists(/databases/$(database)/documents/escolas/$(request.resource.data.escola_id));
+    allow delete: if false;
   }
   match /alunos/{id} {
-   allow read: if active() && (manager() || schoolAccess(resource.data.escola_id));
-   allow create: if active() && schoolAccess(request.resource.data.escola_id) && me().perfil in ['especialista','secretaria','superadmin'];
-   allow update: if active() && schoolAccess(resource.data.escola_id) && request.resource.data.escola_id==resource.data.escola_id && (manager() || resource.data.criado_por==request.auth.uid);
-   allow delete: if false;
+    allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
+    allow create: if (manage() || specialistIn(request.resource.data.escola_id)) &&
+      request.resource.data.keys().hasOnly(['nome','nascimento','matricula','escola_id','criado_por','ativo']) &&
+      request.resource.data.nome is string &&
+      request.resource.data.nome.size() > 2 &&
+      request.resource.data.criado_por == request.auth.uid &&
+      request.resource.data.ativo == true;
+    allow update: if (manage() || specialistIn(resource.data.escola_id)) &&
+      request.resource.data.keys().hasOnly(['nome','nascimento','matricula','escola_id','criado_por','ativo']) &&
+      request.resource.data.escola_id == resource.data.escola_id &&
+      request.resource.data.criado_por == resource.data.criado_por;
+    allow delete: if false;
+  }
+  match /alunos_privado/{id} {
+    allow read: if active() && (manage() || specialistIn(resource.data.escola_id));
+    allow create: if (manage() || specialistIn(request.resource.data.escola_id)) &&
+      existsAfter(/databases/$(database)/documents/alunos/$(id)) &&
+      getAfter(/databases/$(database)/documents/alunos/$(id)).data.escola_id == request.resource.data.escola_id &&
+      request.resource.data.keys().hasOnly(['cpf','filiacao','telefone','endereco','escola_id','criado_por']) &&
+      request.resource.data.criado_por == request.auth.uid;
+    allow update: if (manage() || specialistIn(resource.data.escola_id)) &&
+      request.resource.data.keys().hasOnly(['cpf','filiacao','telefone','endereco','escola_id','criado_por']) &&
+      request.resource.data.escola_id == resource.data.escola_id &&
+      request.resource.data.criado_por == resource.data.criado_por;
+    allow delete: if false;
   }
   match /agendamentos/{id} {
-   allow read: if active() && (manager() || schoolAccess(resource.data.escola_id));
-   allow create: if active() && me().perfil=='especialista' && request.resource.data.autor_uid==request.auth.uid && request.resource.data.escola_id in me().get('escolas',[]);
-   allow update: if author() && request.resource.data.autor_uid==resource.data.autor_uid && request.resource.data.escola_id==resource.data.escola_id;
-   allow delete: if false;
+    allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
+    allow create: if specialistIn(request.resource.data.escola_id) &&
+      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','status']) &&
+      request.resource.data.autor_uid == request.auth.uid &&
+      request.resource.data.status == 'agendado' &&
+      request.resource.data.inicio is timestamp &&
+      request.resource.data.duracao_min in [30,60] &&
+      validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
+      linked(request.resource.data.vinculo_id,request.resource.data.escola_id);
+    allow update: if specialist() && resource.data.autor_uid == request.auth.uid &&
+      sameAuthorAndScope() &&
+      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','inicio']) &&
+      request.resource.data.status in ['agendado','cancelado','remarcado','falta_aluno','falta_profissional','realizado'];
+    allow delete: if false;
   }
   match /atendimentos/{id} {
-   allow read: if active() && (manager() || schoolAccess(resource.data.escola_id));
-   allow create: if active() && me().perfil=='especialista' && request.resource.data.autor_uid==request.auth.uid && request.resource.data.escola_id in me().get('escolas',[]) && request.resource.data.texto is string && request.resource.data.texto.size() <= 1000;
-   allow update: if (author() || admin()) && request.resource.data.autor_uid==resource.data.autor_uid && request.resource.data.escola_id==resource.data.escola_id && request.resource.data.aluno_id==resource.data.aluno_id && request.resource.data.texto is string && request.resource.data.texto.size()<=1000;
-   allow delete: if false;
+    allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
+    allow create: if specialistIn(request.resource.data.escola_id) &&
+      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','data','status']) &&
+      request.resource.data.autor_uid == request.auth.uid &&
+      request.resource.data.status == 'realizado' &&
+      request.resource.data.data is timestamp &&
+      request.resource.data.duracao_min in [30,60] &&
+      linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
+      validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
+      existsAfter(/databases/$(database)/documents/notas_atendimento/$(id));
+    allow update: if (admin() || (specialist() && resource.data.autor_uid == request.auth.uid)) &&
+      sameAuthorAndScope() &&
+      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','motivo_ultima_alteracao','alterado_por','alterado_em']) &&
+      request.resource.data.status in ['realizado','cancelado'];
+    allow delete: if false;
   }
-  match /{document=**} {allow read,write: if false;}
+  match /notas_atendimento/{id} {
+    allow get,list: if admin() || specialistIn(resource.data.escola_id);
+    allow create: if specialistIn(request.resource.data.escola_id) &&
+      request.resource.data.keys().hasOnly(['escola_id','atendimento_id','autor_uid','texto','revisao']) &&
+      request.resource.data.atendimento_id == id &&
+      request.resource.data.autor_uid == request.auth.uid &&
+      request.resource.data.texto is string &&
+      request.resource.data.texto.size() <= 1000 &&
+      request.resource.data.revisao == 1 &&
+      existsAfter(/databases/$(database)/documents/atendimentos/$(id)) &&
+      getAfter(/databases/$(database)/documents/atendimentos/$(id)).data.autor_uid == request.auth.uid &&
+      getAfter(/databases/$(database)/documents/atendimentos/$(id)).data.escola_id == request.resource.data.escola_id;
+    allow update: if (admin() || (specialistIn(resource.data.escola_id) && resource.data.autor_uid == request.auth.uid)) &&
+      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['texto','revisao','atualizado_em']) &&
+      request.resource.data.texto is string &&
+      request.resource.data.texto.size() <= 1000 &&
+      request.resource.data.revisao == resource.data.revisao + 1 &&
+      existsAfter(/databases/$(database)/documents/notas_versoes/$(id + '-' + string(request.resource.data.revisao)));
+    allow delete: if false;
+  }
+  match /notas_versoes/{id} {
+    allow read: if admin() || (specialist() && request.auth.uid == resource.data.autor_uid);
+    allow create: if active() &&
+      request.resource.data.keys().hasOnly(['atendimento_id','escola_id','autor_uid','editado_por','texto_anterior','texto_novo','justificativa','versao','em']) &&
+      request.resource.data.editado_por == request.auth.uid &&
+      (admin() || (specialistIn(request.resource.data.escola_id) && request.resource.data.autor_uid == request.auth.uid)) &&
+      id == request.resource.data.atendimento_id + '-' + string(request.resource.data.versao) &&
+      exists(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)) &&
+      get(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)).data.texto == request.resource.data.texto_anterior &&
+      getAfter(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)).data.texto == request.resource.data.texto_novo &&
+      getAfter(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)).data.revisao == request.resource.data.versao;
+    allow update,delete: if false;
+  }
+  match /{document=**} { allow read,write: if false; }
  }
 }
