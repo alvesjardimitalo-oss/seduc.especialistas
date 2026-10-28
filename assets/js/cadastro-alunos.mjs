@@ -11,7 +11,7 @@ export function dataNascimentoValida(data,hoje=new Date()){
 }
 export function formatarCPF(valor){
  const cpf=apenasDigitos(valor).slice(0,11);
- return cpf.replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)$/ ,'.$1-$2');
+ return cpf.replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/ ,'.$1-$2');
 }
 export function formatarCEP(valor){
  const cep=apenasDigitos(valor).slice(0,8);
