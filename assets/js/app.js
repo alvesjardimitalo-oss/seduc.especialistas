@@ -1,4 +1,5 @@
 import {firebaseConfig} from './firebase-config.js';
+import {montarListaProfissionais} from './profissionais-visao.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
@@ -69,7 +70,26 @@ if(tab==='Escolas'){
  html+=table(['Instituição','Tipo','INEP','Telefone','Endereço','Ações'],mySchools().map(x=>'<tr><td>'+safe(x.nome)+'</td><td>'+safe(x.tipo==='creche'?'Creche':'Escola')+'</td><td>'+safe(x.inep)+'</td><td>'+safe(x.telefone)+'</td><td>'+safe(x.endereco)+'</td><td>'+(canManage()?'<button class="btn secondary" data-edit-escola="'+safe(x.id)+'">Editar</button>':'—')+'</td></tr>'));
  if(!cache.escolas.length&&canManage())html+='<div class="alert">Cadastre as escolas. Os nomes iniciais sugeridos estão disponíveis no formulário.</div>';
 }
-if(tab==='Profissionais'){if(canManage())html+='<div class="actions"><button class="btn" data-action="profissional">+ Cadastrar profissional</button><button class="btn secondary" data-action="vinculo">+ Adicionar vínculo</button></div>';html+=table(['Nome','Especialidade','Escolas / cargo'],cache.profissionais.map(p=>'<tr><td>'+safe(p.nome)+'</td><td>'+safe(p.especialidade)+'</td><td>'+cache.vinculos.filter(v=>v.profissional_id===p.id).map(v=>safe(schoolName(v.escola_id))+' · '+safe(v.cargo)+' ('+safe(v.jornada)+')').join('<br>')+'</td></tr>'))}
+if(tab==='Profissionais'){
+ if(canManage()){
+  html+='<div class="actions"><button class="btn" data-action="profissional">+ Cadastrar especialista</button><button class="btn secondary" data-action="vinculo">+ Adicionar vínculo de atendimento</button></div>';
+  const pessoas=montarListaProfissionais(cache.servidores,cache.profissionais,cache.vinculos,cache.escolas);
+  html+='<div class="card"><p>O quadro de servidores escolares também aparece nesta lista. Isso não concede automaticamente acesso ao sistema: a liberação depende de uma ficha profissional, vínculo ativo, horários e conta Google aprovada.</p>'+
+   '<div class="grid"><div class="metric"><span>Servidores importados</span><b>'+cache.servidores.length+'</b></div><div class="metric"><span>Fichas de especialistas</span><b>'+cache.profissionais.length+'</b></div><div class="metric"><span>Vínculos ativos</span><b>'+cache.vinculos.filter(v=>v.ativo===true).length+'</b></div></div>'+
+   '<label>Buscar servidor ou profissional<input id="busca-profissionais" type="search" placeholder="Pesquisar nome, cargo ou escola"></label>'+
+   '<label>Filtrar instituição<select id="filtro-escola-profissionais"><option value="">Todas as escolas</option>'+cache.escolas.map(e=>'<option value="'+safe(e.id)+'">'+safe(e.nome)+'</option>').join('')+'</select></label></div>';
+  html+=table(['Nome','Cargo ou especialidade','Escola / atendimento','Situação','Ação'],pessoas.map(p=>{
+   const escolas=p.vinculos.map(v=>schoolName(v.escola_id)+' · '+v.cargo+' ('+v.jornada+')');
+   if(p.escola_id&&!escolas.includes(schoolName(p.escola_id)))escolas.unshift(schoolName(p.escola_id));
+   const situacao=p.habilitado?'Vínculo de atendimento ativo':p.profissional_id?'Ficha profissional sem vínculo':'Servidor escolar — sem habilitação';
+   const acao=p.origem==='servidor'&&!p.profissional_id?'<button class="btn secondary" data-configurar-servidor="'+safe(p.id)+'">Criar ficha de especialista</button>':'—';
+   return '<tr data-profissional-item data-escola="'+safe(p.escola_id)+'" data-pesquisa="'+safe((p.nome+' '+p.cargo+' '+p.especialidade+' '+escolas.join(' ')).toLowerCase())+'">'+
+    '<td>'+safe(p.nome)+'</td><td>'+safe(p.especialidade||p.cargo||'Não informado')+'</td><td>'+safe(escolas.join(' / ')||'Não vinculada')+'</td><td>'+safe(situacao)+'</td><td>'+acao+'</td></tr>';
+  }));
+ }else{
+  html+='<div class="card"><p>As fichas profissionais e o quadro de servidores são gerenciados pela Secretaria de Educação.</p></div>';
+ }
+}
 if(tab==='Servidores'&&canManage()){
  html+='<div class="alert">Quadro de servidores da Educação. Estes cadastros não concedem acesso ao sistema nem criam agenda profissional.</div>';
  html+='<div class="actions"><button class="btn" id="importar-servidores">Importar arquivo de servidores (JSON)</button></div>';
@@ -114,7 +134,7 @@ if(tab==='Relatórios'){
  html+='<div class="card"><p class="muted">Os relatórios apresentam quantidades, sem divulgar CPF, filiação ou observações confidenciais. Filtros por período, profissional e especialidade serão incluídos na etapa de homologação.</p></div>';
 }
 if(tab==='Usuários'&&canManage()){html+='<div class="card"><p>Usuários entram com Google e aguardam aprovação. A Secretaria não recebe nem envia senhas.</p></div>';html+=table(['Usuário','E-mail','Perfil','Situação','Ação'],cache.usuarios.map(u=>'<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?'Ativo':'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'))}
-layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos}
+layout(html);document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{tab='Atendimentos';render();const els=document.querySelectorAll('[data-visit]');els.forEach(el=>{if(el.dataset.student!==b.dataset.student)el.style.display='none'})});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
 function history(records){return records.length?records.map(a=>'<details class="history" data-visit="'+safe(a.id)+'" data-student="'+safe(a.aluno_id)+'"><summary><b>'+safe(cache.alunos.find(s=>s.id===a.aluno_id)?.nome||'Aluno')+'</b> · '+safe(formatDate(a.data))+' · '+safe(a.autor_nome||professionalName(a.autor_uid))+' <span class="badge">'+safe(a.status||'realizado')+'</span></summary><p style="white-space:pre-wrap">'+((profile.perfil==='especialista'||profile.perfil==='superadmin')?safe(a.texto):'<em>Observações restritas aos especialistas autorizados.</em>')+'</p><small>'+safe(a.especialidade||'Atendimento especializado')+'</small>'+(a.autor_uid===user.uid||profile.perfil==='superadmin'?'<p><button class="btn secondary" data-edit="'+safe(a.id)+'">Editar / cancelar</button></p>':'')+'</details>').join(''):'<p class="muted">Ainda não há atendimentos registrados.</p>'}
 function field(name,label,type='text',extra=''){return '<label>'+label+'<input name="'+name+'" type="'+type+'" '+extra+'></label>'}
 function select(name,label,options){return '<label>'+label+'<select name="'+name+'" required><option value="">Selecione</option>'+options.map(([id,n])=>'<option value="'+safe(id)+'">'+safe(n)+'</option>').join('')+'</select></label>'}
@@ -161,6 +181,29 @@ async function cancelarAgendamento(id){
 }
 function eligible(slot,school,duracaoMin=30){
  return podeAgendar({inicio:slot,duracaoMin,escolaId:school,uid:user.uid,vinculos:cache.vinculos,agendamentos:cache.agendamentos});
+}
+function configurarServidorComoEspecialista(id){
+ if(!canManage())return;
+ const servidor=cache.servidores.find(s=>s.id===id);
+ if(!servidor)return;
+ if(cache.profissionais.some(p=>p.id===id)){alert('Já existe uma ficha profissional para esse servidor.');return}
+ modal('Ficha de especialista — '+safe(servidor.nome),
+  '<p class="wide">O servidor permanece no quadro escolar. Criar esta ficha não libera acesso Google nem cria jornada de atendimento.</p>'+
+  field('especialidade','Especialidade para atendimento','text','required')+
+  field('uid','UID da conta Google aprovada (opcional)'),
+  async d=>{
+   if(!d.especialidade.trim())throw Error('Informe a especialidade.');
+   if(d.uid.trim()&&!cache.usuarios.some(u=>u.id===d.uid.trim()&&u.ativo===true&&u.perfil==='especialista'))
+    throw Error('Para informar UID, selecione uma conta Google já ativa com perfil especialista. Caso contrário, deixe o campo em branco.');
+   const batch=writeBatch(db);
+   batch.set(doc(db,'profissionais',servidor.id),{
+    nome:servidor.nome,especialidade:d.especialidade.trim(),uid:d.uid.trim(),escolas:[servidor.escola_id]
+   });
+   batch.set(doc(db,'profissionais_privado',servidor.id),{
+    cpf:'',telefone:'',endereco:'',nascimento:'',email:''
+   });
+   await batch.commit();
+  });
 }
 function openForm(kind){
  if(kind==='frequencia'){
