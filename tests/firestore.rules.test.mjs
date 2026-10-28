@@ -100,7 +100,8 @@ test('autor edita nota com trilha de alteração imutável',async()=>{
 
 test('frequência registra entrada e saída com carimbos do servidor',async()=>{
  const db=contexto('espA');
- const dia=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ const partes=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).map(x=>[x.type,x.value]));
+ const dia=partes.year+'-'+partes.month+'-'+partes.day;
  const ref=doc(db,'frequencias/espA_a_'+dia);
  await assertSucceeds(setDoc(ref,{
   uid:'espA',escola_id:'a',vinculo_id:'vinculoA',
