@@ -19,7 +19,7 @@ jobs:
           node --check assets/js/validacoes.mjs
           node --check tests/firestore.rules.test.mjs
       - name: Validar regras de negócio
-        run: node --test tests/validacoes.test.mjs
+        run: node --test tests/validacoes.test.mjs tests/firebase-config.test.mjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
