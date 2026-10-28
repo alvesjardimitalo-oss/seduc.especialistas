@@ -28,6 +28,19 @@ service cloud.firestore {
       get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.escola_id == escolaId &&
       get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.ativo == true;
   }
+  // Rede municipal no fuso America/Sao_Paulo (UTC-3, sem horario de verao vigente).
+  // A grade semanal contém indices dia*48 + meia-hora. Validar eventual mudança legal de fuso.
+  function indiceJornada(instante) {
+    let municipal = instante - duration.value(3, 'h');
+    return (municipal.dayOfWeek() % 7) * 48 + municipal.hours() * 2 + municipal.minutes() / 30;
+  }
+  function jornadaAutorizada(vinculoId, inicio, duracaoMin) {
+    let vinculo = get(/databases/$(database)/documents/vinculos/$(vinculoId)).data;
+    return vinculo.get('slots_semana', []) is list &&
+      indiceJornada(inicio) in vinculo.get('slots_semana', []) &&
+      (duracaoMin == 30 ||
+        indiceJornada(inicio + duration.value(30, 'm')) in vinculo.get('slots_semana', []));
+  }
   function slotPath(uid, instante) {
     return /databases/$(database)/documents/agenda_slots/$(uid + '_' + string(instante.toMillis()));
   }
@@ -106,8 +119,10 @@ service cloud.firestore {
   match /vinculos/{id} {
     allow read: if active() && (manage() || seduc() || schoolAllowed(resource.data.escola_id));
     allow create,update: if manage() &&
-      request.resource.data.keys().hasOnly(['profissional_id','escola_id','cargo','jornada','uid','horarios','ativo']) &&
+      request.resource.data.keys().hasOnly(['profissional_id','escola_id','cargo','jornada','uid','horarios','slots_semana','ativo']) &&
       request.resource.data.horarios is list &&
+      request.resource.data.slots_semana is list &&
+      request.resource.data.slots_semana.size() <= 336 &&
       exists(/databases/$(database)/documents/escolas/$(request.resource.data.escola_id));
     allow delete: if false;
   }
@@ -153,6 +168,7 @@ service cloud.firestore {
       request.resource.data.duracao_min in [30,60] &&
       validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
       linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
+      jornadaAutorizada(request.resource.data.vinculo_id,request.resource.data.inicio,request.resource.data.duracao_min) &&
       appointmentHasSlots(id,request.resource.data,'reservado');
     allow update: if specialist() && resource.data.autor_uid == request.auth.uid &&
       sameAuthorAndScope() && resource.data.status == 'agendado' &&
