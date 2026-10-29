@@ -527,7 +527,7 @@ function fichaAluno(){
  const aba=abas.some(([id])=>id===abaFicha)?abaFicha:'geral';
  const r=resumirAluno(aluno.id,cache.atendimentos,cache.agendamentos,cache.revisoes_metas),clinico=profile.perfil==='superadmin'||canWrite();
  const registros=consultasUnificadas(aluno.id,cache.atendimentos,cache.agendamentos);
- const ultimo=registros.find(a=>a.tipo==='atendimento'&&a.status==='realizado');
+ const ultimo=cache.atendimentos.filter(a=>a.aluno_id===aluno.id&&a.status==='realizado').slice().sort((a,b)=>dataMs(b.data||b.inicio)-dataMs(a.data||a.inicio))[0];
  const proximo=registros.filter(a=>a.status==='agendado'||a.status==='em_atendimento').sort((a,b)=>dataMs(a.inicio)-dataMs(b.inicio))[0];
  const diagnostico=clinico?(cache.alunos_diagnosticos||[]).filter(d=>d.aluno_id===aluno.id).sort((a,b)=>dataMs(b.criado_em)-dataMs(a.criado_em))[0]:null;
  const matricula=(cache.matriculas_atuais||[]).find(m=>m.aluno_id===aluno.id);
