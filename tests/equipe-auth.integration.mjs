@@ -59,7 +59,7 @@ try{
  await check('conclusão grava consulta e nota em conjunto',async()=>{
   const b=writeBatch(db);b.update(doc(db,'agendamentos',id),{status:'realizado',finalizado_em:serverTimestamp(),atendimento_id:at});
   const {status,criado_em,...base}=dados;b.set(doc(db,'atendimentos',at),{...base,criado_em:serverTimestamp(),data:serverTimestamp(),status:'realizado',agendamento_id:id,evolucao_observada:'avanco_observado'});
-  b.set(doc(db,'notas_atendimento',at),{escola_id:'equipe-a',atendimento_id:at,autor_uid:uid,texto:'Registro exclusivamente fictício para teste.',revisao:1});await b.commit();
+  b.set(doc(db,'notas_atendimento',at),{escola_id:'equipe-a',atendimento_id:at,autor_uid:uid,texto:'Motivo / objetivo:\nConsulta fictícia de acompanhamento\n\nAtividades e procedimentos:\nLeitura e jogo de palavras, exclusivamente para teste.\n\nObservações e resposta:\nParticipação simulada com apoio.\n\nOrientações e encaminhamentos:\nRetomar a leitura e conferir o registro da outra especialidade.',revisao:1});await b.commit();
   assert.equal((await getDoc(doc(db,'atendimentos',at))).data().status,'realizado');
  });
  await check('matrícula atual salva turma, turno e professor com histórico versionado',async()=>{

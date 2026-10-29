@@ -1,3 +1,4 @@
+import {montarContinuidade} from './continuidade-equipe.mjs?v=20261029-equipe2';
 import {filtrarAlunos,formatarNascimento,prepararMatricula,nomesTurnos} from './consultorio-aluno.mjs?v=20261029-equipe1';
 import {paginasPermitidas,podeAbrirPagina,cacheVazio} from './acesso-equipe.mjs?v=20261029-equipe1';
 import {aplicarExclusoes,perfisAcompanhados,consultasUnificadas,podeExcluirConsulta,consultaEncerrada} from './perfil-acompanhamento.mjs?v=20261029-perfis1';
@@ -522,7 +523,7 @@ function imprimirGerencial(){
 function fichaAluno(){
  const aluno=cache.alunos.find(a=>a.id===alunoSelecionado);
  if(!aluno)return '<div class="alert">Aluno não disponível para esta conta.</div>';
- const abas=[['geral','Visão geral'],['consultas','Consultas'],['plano','Diagnóstico e plano'],['relatorios','Relatórios'],['matricula','Matrícula atual'],['dados','Dados do aluno']];
+ const abas=[['geral','Visão geral'],['consultas','Consultas'],['continuidade','Continuidade'],['plano','Diagnóstico e plano'],['relatorios','Relatórios'],['matricula','Matrícula atual'],['dados','Dados do aluno']];
  const aba=abas.some(([id])=>id===abaFicha)?abaFicha:'geral';
  const r=resumirAluno(aluno.id,cache.atendimentos,cache.agendamentos,cache.revisoes_metas),clinico=profile.perfil==='superadmin'||canWrite();
  const registros=consultasUnificadas(aluno.id,cache.atendimentos,cache.agendamentos);
@@ -544,7 +545,7 @@ function fichaAluno(){
   html+='<div class="ficha-metrics">'+metricas.map(([valor,nome])=>'<div><span>'+nome+'</span><strong>'+valor+'</strong></div>').join('')+'</div><div class="ficha-columns"><div class="ficha-main">'+
   '<section class="card ficha-section"><div class="ficha-section-heading"><h3>Última consulta</h3>'+botaoAba('consultas','Ver histórico')+'</div>'+
   (ultimo?'<div class="ficha-record-meta"><strong>'+safe(formatDate(ultimo.data||ultimo.inicio))+'</strong><span>'+safe(ultimo.especialidade||'Atendimento especializado')+'</span><span>'+safe(ultimo.autor_nome||professionalName(ultimo.autor_uid))+'</span></div>'+
-    (clinico?'<p class="ficha-note">'+safe(ultimo.texto?ultimo.texto.slice(0,280)+(ultimo.texto.length>280?'…':''):'Sem observação registrada.')+'</p>':'')+'<span class="ficha-tag">'+safe(etiquetasEvolucao[ultimo.evolucao_observada]||'Evolução não avaliada')+'</span>':vazio('Nenhuma consulta realizada','As consultas concluídas aparecerão aqui.'))+'</section>'+
+    (clinico?'<p class="ficha-note">'+safe(ultimo.texto?ultimo.texto.slice(0,280)+(ultimo.texto.length>280?'…':''):'Sem observação registrada.')+'</p>'+(ultimo.texto?'<details class="history"><summary>Ler anotações completas desta consulta</summary><p class="ficha-note">'+safe(ultimo.texto)+'</p></details>':''):'')+'<span class="ficha-tag">'+safe(etiquetasEvolucao[ultimo.evolucao_observada]||'Evolução não avaliada')+'</span>':vazio('Nenhuma consulta realizada','As consultas concluídas aparecerão aqui.'))+'</section>'+
   '<section class="card ficha-section"><div class="ficha-section-heading"><h3>Diagnóstico e objetivos</h3>'+botaoAba('plano','Ver plano')+'</div>'+
   (clinico?(diagnostico?'<p class="ficha-note"><strong>'+safe(diagnostico.diagnostico)+'</strong></p><p class="muted">Fonte: '+safe(diagnostico.origem)+'</p><p class="ficha-note">'+safe(diagnostico.plano.slice(0,260))+'</p>':vazio('Diagnóstico ainda não informado','Registre a avaliação e os objetivos em Diagnóstico e plano.')):'<p>Conteúdo disponível à equipe clínica autorizada.</p>')+'</section></div><aside class="ficha-aside">'+
   '<section class="card ficha-section"><h3>Próxima etapa</h3>'+(proximo?'<p class="ficha-next-date">'+safe(formatDate(proximo.inicio))+'</p><p>'+safe(proximo.especialidade)+'</p><button class="btn" data-abrir-agendamento="'+safe(proximo.id)+'">'+(proximo.status==='em_atendimento'?'Consulta em andamento':'Abrir agendamento')+'</button>':vazio('Sem consulta pendente','Consulte a agenda para organizar o próximo atendimento.'))+'</section>'+
@@ -560,6 +561,7 @@ function fichaAluno(){
   else{const lista=consultasUnificadas(aluno.id,cache.atendimentos,cache.agendamentos,f);html+='<p class="ficha-result-count" role="status">'+lista.length+' consulta(s)</p>'+ (lista.length?lista.map(linhaConsultaPerfil).join(''):vazio('Nenhuma consulta encontrada','Revise os filtros ou confira os agendamentos deste aluno.'));}
   html+='</section>';
  }
+ if(aba==='continuidade')html+=painelContinuidadeAluno(aluno.id);
  if(aba==='plano')html+='<div class="ficha-plan">'+(clinico?painelDiagnosticoAluno(aluno.id):'<div class="card">Diagnóstico disponível à equipe clínica autorizada.</div>')+'<section class="ficha-goals">'+painelMetas(aluno)+'</section></div>';
  if(aba==='relatorios'){
   const relatorios=cache.relatorios_alunos.filter(r=>r.aluno_id===aluno.id).sort((a,b)=>dataMs(b.criado_em)-dataMs(a.criado_em));
@@ -1293,15 +1295,16 @@ async function iniciarConsultaAgendada(id){
  const dados={id:atualizado.id,...atualizado.data()};
  cache.agendamentos=[...cache.agendamentos.filter(a=>a.id!==id),dados];render();
 }
-function abrirConsultaAgendada(id){
+async function abrirConsultaAgendada(id){
  const a=cache.agendamentos.find(x=>x.id===id);
  if(!a||!canWrite()||a.autor_uid!==user.uid||a.status!=='em_atendimento'){
   showError(Error('A consulta não está em andamento ou você não é a profissional responsável.'));return;
  }
+ const sessao=versaoSessao;await carregarReferenciaEquipe(a.aluno_id);if(sessao!==versaoSessao)return;
  const aluno=cache.alunos.find(x=>x.id===a.aluno_id);
  modal('Consulta em andamento',
   '<div class="wide consult-info"><strong>'+safe(aluno?.nome||'Aluno')+'</strong><span>'+safe(schoolName(a.escola_id))+' · '+safe(a.especialidade)+'</span><span>Horário agendado: '+safe(formatDate(a.inicio))+'</span><span>Início real: '+safe(formatDate(a.iniciado_em))+'</span></div>'+
-  camposRegistroConsulta()+
+  '<details class="wide continuidade-referencia"><summary>Consultar referência anterior da equipe</summary>'+painelContinuidadeAluno(a.aluno_id,true)+'</details>'+camposRegistroConsulta()+
   '<p class="wide muted">Ao finalizar, o registro será salvo e vinculado à consulta. Se fechar sem concluir, a consulta continuará em andamento; textos não finalizados não são salvos.</p>',
   async d=>finalizarConsultaAgendada(id,registroConsultaTexto(d),d.evolucao_observada),['agendamentos','atendimentos','notas_atendimento']);
 
@@ -1649,7 +1652,7 @@ if(kind==='atendimento'||kind==='agendar'){
 }
 }
 function camposRegistroConsulta(){
- return '<label class="wide">Motivo / objetivo do atendimento<textarea name="descricao" maxlength="1200" required placeholder="Por que a consulta foi realizada?"></textarea></label>'+
+ return '<p class="wide muted">Este registro dará continuidade ao acompanhamento compartilhado do aluno. Descreva o que foi trabalhado e o que a equipe deve retomar.</p><label class="wide">Motivo / objetivo do atendimento<textarea name="descricao" maxlength="1200" required placeholder="Por que a consulta foi realizada?"></textarea></label>'+
  '<label class="wide">Atividades, intervenções e procedimentos<textarea name="atividades" maxlength="1200" placeholder="O que foi realizado durante o atendimento?"></textarea></label>'+
  '<label class="wide">Observações, resposta e comportamento identificado<textarea name="observacoes" maxlength="1200" placeholder="Registre fatos observados e contexto, sem inferir diagnósticos."></textarea></label>'+
  '<label class="wide">Orientações, encaminhamentos e próximos passos<textarea name="orientacoes" maxlength="1200" placeholder="Quais orientações e ações ficaram definidas?"></textarea></label>'+
@@ -2165,4 +2168,23 @@ async function atualizarTelaAtual(){
   const fontes={Painel:['alunos','agendamentos','atendimentos','consultas_excluidas'],Alunos:['alunos','matriculas_atuais'],Agenda:['agendamentos','vinculos','consultas_excluidas'],Atendimentos:['alunos','agendamentos','atendimentos','notas_atendimento','revisoes_metas','alunos_diagnosticos','consultas_excluidas'],'Ficha do aluno':['alunos','agendamentos','atendimentos','notas_atendimento','relatorios_alunos','metas_alunos','revisoes_metas','alunos_diagnosticos','matriculas_atuais','consultas_excluidas']};
   if(fontes[tab]){await refresh(fontes[tab]);cacheHistoricos.clear();render();}
  }catch(e){showError(e)}finally{if(botao?.isConnected)botao.disabled=false;}
+}
+
+function painelContinuidadeAluno(id,referencia=false){
+ if(profile.perfil!=='superadmin'&&!canWrite())return '<div class="card">Registros compartilhados disponíveis à equipe clínica autorizada.</div>';
+ const c=montarContinuidade(id,cache.atendimentos),secao=(nome,valor)=>'<div><h4>'+nome+'</h4><p class="ficha-note">'+safe(valor||'Não informado neste registro.')+'</p></div>';
+ if(!c.historico.length)return '<div class="ficha-empty"><strong>Início do acompanhamento</strong><p>Os registros dos profissionais serão reunidos aqui conforme as consultas forem concluídas.</p></div>';
+ return '<section class="card ficha-section continuidade-equipe"><h3>'+(referencia?'Referência dos atendimentos anteriores':'Continuidade do acompanhamento')+'</h3><p class="muted">'+c.profissionais+' profissional(is) · '+c.historico.length+' consulta(s) concluída(s). Cada registro mantém autoria e data.</p><h4>Último registro de cada profissional</h4>'+
+  c.ultimosPorProfissional.map(a=>'<article class="continuidade-registro"><header><strong>'+safe(a.autor_nome||professionalName(a.autor_uid))+'</strong><span>'+safe(a.especialidade)+' · '+safe(formatDate(a.data||a.inicio))+'</span></header><span class="ficha-tag">'+safe(etiquetasEvolucao[a.evolucao_observada]||'Evolução não avaliada')+'</span>'+
+  (a.registro.atividades||a.registro.resposta||a.registro.proximosPassos?'<div class="continuidade-secoes">'+secao('O que foi trabalhado',a.registro.atividades)+secao('Resposta e desenvolvimento observado',a.registro.resposta)+secao('Referência para o próximo atendimento',a.registro.proximosPassos)+'</div>':'<p class="ficha-note">'+safe(a.registro.integral||'Anotação não disponível. Atualize a ficha para consultar os registros.')+'</p>')+'</article>').join('')+
+  (!referencia?'<h4>Trajetória completa da equipe</h4>'+c.historico.map(a=>'<details class="history"><summary>'+safe(formatDate(a.data||a.inicio))+' · '+safe(a.autor_nome)+' · '+safe(a.especialidade)+'</summary><p class="ficha-note">'+safe(a.registro.integral||'Sem anotação carregada.')+'</p><span class="ficha-tag">'+safe(etiquetasEvolucao[a.evolucao_observada]||'Não avaliada')+'</span></details>').join(''):'')+'</section>';
+}
+async function carregarReferenciaEquipe(id){
+ const sessao=versaoSessao,ultimos=montarContinuidade(id,cache.atendimentos||[]).ultimosPorProfissional;
+ const existentes=new Map((cache.notas_atendimento||[]).map(n=>[n.id,n]));
+ const faltantes=ultimos.filter(a=>!existentes.has(a.id));
+ const notas=await Promise.all(faltantes.map(async a=>{try{const s=await getDoc(doc(db,'notas_atendimento',a.id));return s.exists()?{id:s.id,...s.data()}:null}catch{return null}}));
+ if(sessao!==versaoSessao)return;
+ for(const n of notas)if(n)existentes.set(n.id,n);cache.notas_atendimento=[...existentes.values()];
+ for(const a of cache.atendimentos||[])if(existentes.has(a.id))a.texto=existentes.get(a.id).texto;
 }

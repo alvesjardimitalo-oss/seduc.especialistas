@@ -8,7 +8,7 @@ test('início antecipado abre consulta com horário real, substitui cache antigo
  const inicio=new Date(Date.now()+3600000),real=new Date();
  let registro={autor_uid:'prof',status:'agendado',inicio},eventos=0,leituras=0,aberturas=0;
  let cache={agendamentos:[{id:'a',...registro},{id:'a',...registro}],alunos:[]};
- const deps={canWrite:()=>true,user:{uid:'prof'},db:{},doc:()=>({}),
+ const deps={versaoSessao:0,carregarReferenciaEquipe:async()=>{},painelContinuidadeAluno:()=>'',canWrite:()=>true,user:{uid:'prof'},db:{},doc:()=>({}),
   runTransaction:async(db,fn)=>fn({get:async()=>({exists:()=>true,data:()=>({...registro})}),update:(ref,d)=>{registro={...registro,...d}}}),
   registrarEvento:()=>{eventos++},serverTimestamp:()=>real,getDoc:async()=>{leituras++;return{id:'a',exists:()=>true,data:()=>({...registro})}},render:()=>{},
   showError:e=>{throw e},modal:()=>{aberturas++},safe:String,schoolName:()=>'',formatDate:d=>String(d),camposRegistroConsulta:()=>'',
@@ -18,7 +18,7 @@ test('início antecipado abre consulta com horário real, substitui cache antigo
   trecho('async function iniciarConsultaAgendada(','async function finalizarConsultaAgendada(')+
   ';return {iniciar:iniciarConsultaAgendada,abrir:abrirConsultaAgendada,cache:()=>cache};');
  const api=executar(deps,cache);
- await api.iniciar('a');api.abrir('a');await api.iniciar('a');api.abrir('a');
+ await api.iniciar('a');await api.abrir('a');await api.iniciar('a');await api.abrir('a');
  assert.equal(eventos,1);assert.equal(aberturas,2);assert.equal(leituras,2);
  assert.equal(api.cache().agendamentos.length,1);assert.equal(registro.inicio,inicio);assert.equal(registro.iniciado_em,real);
  registro={...registro,autor_uid:'outro'};await assert.rejects(api.iniciar('a'),/responsável/);
