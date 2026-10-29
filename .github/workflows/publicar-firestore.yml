@@ -1,0 +1,49 @@
+name: Publicar regras do Firestore SEDUC
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar_projeto:
+        description: "Digite seduc-especialistas para autorizar a publicação de regras"
+        type: string
+        required: true
+jobs:
+  publicar:
+    if: ${{ inputs.confirmar_projeto == 'seduc-especialistas' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: seduc-firestore-rules-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Conferir conta de serviço configurada
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SEDUC }}
+        run: |
+          if [ -z "$FIREBASE_SA" ]; then
+            echo "::error::Falta o segredo FIREBASE_SERVICE_ACCOUNT_SEDUC. Configure a conta de serviço na aba Settings > Secrets and variables > Actions do GitHub."
+            exit 1
+          fi
+      - name: Carregar código e regras revisadas
+        uses: actions/checkout@v4
+        with:
+          ref: feature/mvp-especialistas
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Instalar dependências reprodutíveis
+        run: npm ci --no-audit --no-fund
+      - name: Testar regras de segurança no emulador
+        run: npm run test:rules
+      - name: Autenticar no Firebase (conta de serviço)
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SEDUC }}
+      - name: Publicar somente regras do Firestore
+        run: npx --no-install firebase deploy --only firestore:rules --project seduc-especialistas --non-interactive
