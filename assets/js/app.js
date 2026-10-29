@@ -445,7 +445,7 @@ if(tab==='Usuários'&&canManage()){
  }));
  html+='<div class="card"><h3>Pré-autorizações por e-mail</h3><p class="muted">A profissional acessa com o mesmo Google verificado. Depois do primeiro login, a conta aparece na tabela acima e clique em Editar para associar a ficha profissional e a jornada ali mesmo.</p></div>';
  html+=table(['Nome','E-mail autorizado','Escolas','Situação','Ação'],convites.map(c=>{
-  const existe=cadastrados.some(u=>String(u.email||'').toLowerCase()===c.email);
+  const existe=cache.usuarios.some(u=>String(u.email||'').toLowerCase()===c.email);
   return '<tr><td>'+safe(c.nome)+'</td><td>'+safe(c.email)+'</td><td>'+safe((c.escolas||[]).map(id=>schoolName(id)).join(', '))+'</td><td>'+safe(!c.ativo?'Suspenso':existe?'Já realizou login':'Aguardando primeiro login')+'</td><td><button type="button" class="btn secondary" data-alternar-convite="'+safe(c.id)+'">'+(c.ativo?'Suspender convite':'Reativar convite')+'</button></td></tr>';
  }));
 }
@@ -1937,7 +1937,7 @@ function configurarVinculoUsuario(uid='',horarios=[]){
   const area=f.querySelector('#usuario-vinculo'),campos=f.querySelector('#usuario-vinculo-campos');
   if(area)area.hidden=!clinico;if(campos)campos.hidden=!aplicar?.checked;
   const especialidade=f.elements.namedItem('especialidade_usuario');if(especialidade)especialidade.required=clinico&&Boolean(aplicar?.checked);
-  if(gerenciar){const label=gerenciar.closest('label');label.hidden=papel!=='secretaria';gerenciar.disabled=papel!=='secretaria';if(papel!=='secretaria')gerenciar.value='false';}
+  if(gerenciar){const label=gerenciar.closest('label');label.hidden=papel!=='secretaria';label.style.display=papel==='secretaria'?'':'none';gerenciar.disabled=papel!=='secretaria';if(papel!=='secretaria')gerenciar.value='false';}
   const estado=f.querySelector('#usuario-gestao-status');if(estado)estado.textContent=papel==='superadmin'?'Gerenciamento habilitado pelo perfil de Administração.':papel==='secretaria'&&gerenciar?.value==='true'?'Gerenciamento de usuários habilitado.':'Gerenciamento de usuários não concedido para este perfil.';
  };
  for(const el of [perfil,ativo,aplicar,gerenciar])el?.addEventListener('change',atualizar);
