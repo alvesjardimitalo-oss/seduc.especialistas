@@ -1,0 +1,137 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  // Private municipal app. Domain collections have an immutable id, creator,
+  // version counter, ISO timestamps and an atomic auditId/serverAt timestamp.
+  // Personal contacts are separate documents, never in dashboard collections.
+  function logged(){return request.auth != null && request.auth.token.email_verified == true;}
+  function me(){return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;}
+  function active(){return logged() && me().status == 'Ativo';}
+  function admin(){return active() && me().role == 'superadmin';}
+  function manage(){return admin() || (active() && me().role == 'secretaria' && me().manageUsers);}
+  function network(){return admin() || (active() && me().role == 'secretaria');}
+  function school(s){let u=me();return logged() && u.status=='Ativo' && (u.role in ['superadmin','secretaria'] || s in u.schoolIds);}
+  function clinical(s){let u=me();return logged() && u.status=='Ativo' && (u.role=='superadmin' || (u.role=='especialista' && s in u.schoolIds));}
+  function str(s,n){return s is string && s.size() <= n;}
+  function reqstr(s,n){return str(s,n) && s.size()>0;}
+  function base(d,id){return d.id == id && reqstr(id,150) && d.version is int && d.version>0 && reqstr(d.createdBy,150) && str(d.createdAt,40) && str(d.updatedAt,40) && reqstr(d.auditId,150) && d.serverAt == request.time;}
+  function creating(d){return d.version==1 && d.createdBy==request.auth.uid;}
+  function updating(d){return d.version==resource.data.version+1 && d.createdBy==resource.data.createdBy && d.createdAt==resource.data.createdAt;}
+  function audited(d,t,id){let a=getAfter(/databases/$(database)/documents/audit/$(d.auditId)).data;return a.actorId==request.auth.uid && a.table==t && a.targetId==id && a.serverAt==request.time;}
+  function versioned(d,t,id){let v=getAfter(/databases/$(database)/documents/versions/$(d.auditId)).data;return v.table==t && v.targetId==id && v.actorId==request.auth.uid && v.before.version==resource.data.version && v.before.id==id && v.before.diff(resource.data).affectedKeys().hasOnly(['serverAt']) && v.serverAt==request.time;}
+  function validUser(d){return d.keys().hasOnly(['id','name','email','role','status','schoolIds','manageUsers','canExport','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.name,200) && str(d.email,200) && d.role in ['superadmin','secretaria','direcao','especialista','visualizador'] && d.status in ['Ativo','Inativo','Pendente'] && d.schoolIds is list && d.schoolIds.size()<=30 && d.manageUsers is bool && d.canExport is bool;}
+  match /users/{id}{
+   allow get: if logged() && (id==request.auth.uid || manage());
+   allow list: if manage() && request.query.limit<=40;
+   allow create: if logged() && id==request.auth.uid && validUser(request.resource.data) && request.resource.data.keys().hasOnly(['id','name','email','role','status','schoolIds','manageUsers','canExport','version','createdBy','createdAt']) && request.resource.data.id==id && request.resource.data.email==request.auth.token.email && request.resource.data.role=='visualizador' && request.resource.data.status=='Pendente' && request.resource.data.schoolIds==[] && !request.resource.data.manageUsers && !request.resource.data.canExport && request.resource.data.version==1;
+   allow update: if manage() && id!=request.auth.uid && validUser(request.resource.data) && request.resource.data.email==resource.data.email && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'users',id) && versioned(request.resource.data,'users',id) && (admin() || (resource.data.role!='superadmin' && !resource.data.manageUsers && request.resource.data.role!='superadmin' && !request.resource.data.manageUsers));
+  }
+  function validSchool(d){return d.keys().hasOnly(['id','name','inep','address','phone','email','director','status','remarks','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.name,200) && str(d.inep,20) && str(d.address,400) && str(d.phone,30) && str(d.email,200) && str(d.director,200) && str(d.remarks,1000) && d.status in ['Ativo','Inativo'];}
+  match /schools/{id}{
+   allow get: if active();allow list: if active() && request.query.limit<=40;
+   allow create: if manage() && validSchool(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'schools',id);
+   allow update: if manage() && validSchool(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'schools',id) && versioned(request.resource.data,'schools',id);
+  }
+  function validProfessional(d){return d.keys().hasOnly(['id','name','specialty','status','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.name,200) && reqstr(d.specialty,100) && d.status in ['Pendente','Ativo','Afastado','Inativo'];}
+  match /professionals/{id}{
+   allow get: if manage(); allow list: if manage() && request.query.limit<=40;
+   allow create: if manage() && validProfessional(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'professionals',id);
+   allow update: if manage() && validProfessional(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'professionals',id) && versioned(request.resource.data,'professionals',id);
+  }
+  match /professionals_public/{id}{
+   allow get: if active(); allow list: if active() && request.query.limit<=10000;
+   allow create,update: if manage() && request.resource.data.keys().hasOnly(['id','name','specialty','status','auditId','serverAt']) && request.resource.data.id==id && request.resource.data.name==getAfter(/databases/$(database)/documents/professionals/$(id)).data.name && request.resource.data.specialty==getAfter(/databases/$(database)/documents/professionals/$(id)).data.specialty && request.resource.data.status==getAfter(/databases/$(database)/documents/professionals/$(id)).data.status && request.resource.data.auditId==getAfter(/databases/$(database)/documents/professionals/$(id)).data.auditId && request.resource.data.serverAt==request.time;
+  }
+  function validProfessionalPrivate(d,id){return d.keys().hasOnly(['id','email','phone','birth','cpf','address','remarks','schoolId','auditId','serverAt']) && d.id==id && str(d.email,200) && str(d.phone,30) && str(d.birth,10) && str(d.cpf,14) && str(d.address,400) && str(d.remarks,1000) && d.schoolId=='' && d.auditId==getAfter(/databases/$(database)/documents/professionals/$(id)).data.auditId && d.serverAt==request.time;}
+  match /professionals_private/{id}{allow get: if manage(); allow create,update: if manage() && validProfessionalPrivate(request.resource.data,id);}
+  function validLink(d){return d.keys().hasOnly(['id','professionalId','userId','schoolId','job','specialty','start','end','status','weeklyHours','schedule','workSlots','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.professionalId,150) && str(d.userId,150) && reqstr(d.schoolId,150) && reqstr(d.job,150) && reqstr(d.specialty,100) && str(d.start,10) && str(d.end,10) && (d.end=='' || d.end>=d.start) && d.status in ['Pendente','Ativo','Afastado','Encerrado'] && d.weeklyHours is number && d.weeklyHours>=0 && d.weeklyHours<=80 && d.schedule is list && d.schedule.size()<=21 && d.workSlots is list && d.workSlots.size()<=672 && exists(/databases/$(database)/documents/schools/$(d.schoolId));}
+  match /links/{id}{
+   allow get: if school(resource.data.schoolId);
+   allow list: if school(resource.data.schoolId) && request.query.limit<=40;
+   allow create: if manage() && validLink(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'links',id);
+   allow update: if manage() && validLink(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'links',id) && versioned(request.resource.data,'links',id) && request.resource.data.professionalId==resource.data.professionalId && request.resource.data.schoolId==resource.data.schoolId && request.resource.data.userId==resource.data.userId;
+  }
+  function validStudent(d){return d.keys().hasOnly(['id','name','registration','registrationKey','schoolId','status','reason','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.name,200) && reqstr(d.registration,60) && reqstr(d.registrationKey,180) && d.registrationKey==d.registration.upper() && !d.registration.matches('.*[/].*') && reqstr(d.schoolId,150) && d.status in ['Ativo','Arquivado'] && str(d.reason,500) && (d.status!='Arquivado' || d.reason.size()>0) && exists(/databases/$(database)/documents/schools/$(d.schoolId)) && getAfter(/databases/$(database)/documents/registrations/$(d.registrationKey)).data.studentId==d.id;}
+  match /students/{id}{
+   allow get: if school(resource.data.schoolId);
+   allow list: if school(resource.data.schoolId) && request.query.limit<=10000;
+   allow create: if clinical(request.resource.data.schoolId) && validStudent(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'students',id);
+   allow update: if clinical(resource.data.schoolId) && clinical(request.resource.data.schoolId) && (admin() || request.resource.data.schoolId==resource.data.schoolId) && validStudent(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'students',id) && versioned(request.resource.data,'students',id) && request.resource.data.registration==resource.data.registration && request.resource.data.registrationKey==resource.data.registrationKey;
+  }
+  match /registrations/{key}{
+   allow get: if active();
+   allow create: if active() && request.resource.data.keys().hasOnly(['studentId']) && getAfter(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.registrationKey==key;
+   allow update: if request.resource.data==resource.data && active();
+  }
+  function validStudentPrivate(d,id){let s=getAfter(/databases/$(database)/documents/students/$(id)).data;return d.keys().hasOnly(['id','birth','guardian','phone','address','schoolId','auditId','serverAt']) && d.id==id && d.schoolId==s.schoolId && str(d.birth,10) && str(d.guardian,200) && str(d.phone,30) && str(d.address,400) && d.auditId==s.auditId && d.serverAt==request.time;}
+  match /students_private/{id}{
+   allow get: if clinical(get(/databases/$(database)/documents/students/$(id)).data.schoolId) || (school(get(/databases/$(database)/documents/students/$(id)).data.schoolId) && me().role=='direcao');
+   allow create,update: if clinical(request.resource.data.schoolId) && validStudentPrivate(request.resource.data,id);
+  }
+  match /enrollments/{id}{
+   allow get: if school(resource.data.schoolId);allow list: if school(resource.data.schoolId) && request.query.limit<=40;
+   allow create: if clinical(request.resource.data.schoolId) && request.resource.data.keys().hasOnly(['id','studentId','schoolId','start','end','createdBy','auditId','serverAt']) && request.resource.data.id==id && str(request.resource.data.start,10) && request.resource.data.end=='' && request.resource.data.createdBy==request.auth.uid && getAfter(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.schoolId==request.resource.data.schoolId && request.resource.data.serverAt==request.time;
+   allow update: if admin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['end','auditId','serverAt']) && reqstr(request.resource.data.end,10) && request.resource.data.serverAt==request.time;
+  }
+  function validSlotSequence(d,l){return d.slots is list && d.slots.size()>=1 && d.slots.size()<=4 && d.startSlot is int && d.startSlot>=0 && d.startSlot+d.slots.size()<=96 && (d.slots.size() <= 0 || (d.slots[0] == string(d.startSlot + 0) && (d.weekday * 96 + d.startSlot + 0) in l.workSlots)) &&
+        (d.slots.size() <= 1 || (d.slots[1] == string(d.startSlot + 1) && (d.weekday * 96 + d.startSlot + 1) in l.workSlots)) &&
+        (d.slots.size() <= 2 || (d.slots[2] == string(d.startSlot + 2) && (d.weekday * 96 + d.startSlot + 2) in l.workSlots)) &&
+        (d.slots.size() <= 3 || (d.slots[3] == string(d.startSlot + 3) && (d.weekday * 96 + d.startSlot + 3) in l.workSlots));}
+  function guardPath(kind,owner,day){return /databases/$(database)/documents/calendar_guards/$(kind+'_'+owner+'_'+day);}
+  function covers(g,d,id){let released=d.status in ['Cancelado','Remarcado'];return (released || !g.get('blockedSlots',[]).hasAny(d.slots)) && (released ? !g.bookings.values().hasAny([id]) : (g.bookings.keys().hasAll(d.slots) && g.bookings.values().removeAll([id]).size()==g.bookings.size()-d.slots.size()));}
+  function hasGuards(d,id){let p=getAfter(guardPath('p',d.professionalId,d.dayKey)).data;let s=getAfter(guardPath('s',d.studentId,d.dayKey)).data;return covers(p,d,id) && covers(s,d,id);}
+  function validAppointment(d,id){
+   let l=get(/databases/$(database)/documents/links/$(d.linkId)).data;
+   let p=get(/databases/$(database)/documents/professionals_public/$(d.professionalId)).data;
+   let s=get(/databases/$(database)/documents/students/$(d.studentId)).data;
+   let local=timestamp.value(d.startMs)-duration.value(3,'h');
+   return d.keys().hasOnly(['id','schoolId','studentId','linkId','professionalId','authorId','start','end','startMs','endMs','dayKey','startSlot','weekday','slots','status','reason','modality','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && str(d.start,40) && str(d.end,40) && d.startMs is int && d.endMs is int && d.endMs-d.startMs==d.slots.size()*900000 && d.startMs%900000==0 && d.startSlot==local.hours()*4+local.minutes() / 15 && d.weekday==local.dayOfWeek()%7 && d.dayKey==string(local.year())+'-'+(local.month()<10?'0':'')+string(local.month())+'-'+(local.day()<10?'0':'')+string(local.day()) && str(d.reason,500) && reqstr(d.modality,100) && d.status in ['Agendado','Realizado','Cancelado','Remarcado','Falta do aluno','Falta do profissional'] && (!(d.status in ['Cancelado','Remarcado']) || d.reason.size()>0) && d.professionalId==l.professionalId && d.schoolId==l.schoolId && d.authorId==l.userId && (admin() || d.authorId==request.auth.uid) && validSlotSequence(d,l) && hasGuards(d,id) && (d.status in ['Cancelado','Remarcado'] || (l.status=='Ativo' && p.status=='Ativo' && l.start<=d.dayKey && (l.end=='' || l.end>=d.dayKey) && s.status=='Ativo' && s.schoolId==d.schoolId));
+  }
+  match /appointments/{id}{
+   allow get: if school(resource.data.schoolId);allow list: if school(resource.data.schoolId) && request.query.limit<=10000;
+   allow create: if clinical(request.resource.data.schoolId) && validAppointment(request.resource.data,id) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'appointments',id);
+   allow update: if clinical(resource.data.schoolId) && (admin() || resource.data.authorId==request.auth.uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reason','version','updatedAt','auditId','serverAt']) && !(resource.data.status in ['Cancelado','Remarcado']) && request.resource.data.status in ['Agendado','Realizado','Cancelado','Remarcado','Falta do aluno','Falta do profissional'] && str(request.resource.data.reason,500) && (!(request.resource.data.status in ['Cancelado','Remarcado']) || (request.resource.data.reason.size()>0 && hasGuards(request.resource.data,id))) && base(request.resource.data,id) && updating(request.resource.data) && ((audited(request.resource.data,'appointments',id) && versioned(request.resource.data,'appointments',id)) || (request.resource.data.status=='Realizado' && getAfter(/databases/$(database)/documents/notes/$(id)).data.appointmentId==id && getAfter(/databases/$(database)/documents/notes/$(id)).data.auditId==request.resource.data.auditId && getAfter(/databases/$(database)/documents/notes/$(id)).data.serverAt==request.time));
+  }
+  function safePreviousSlots(b,a,id){return (a.slots.size()<=0 || b.get(a.slots[0],id)==id) && (a.slots.size()<=1 || b.get(a.slots[1],id)==id) && (a.slots.size()<=2 || b.get(a.slots[2],id)==id) && (a.slots.size()<=3 || b.get(a.slots[3],id)==id);}
+  function validGuard(d,id){let a=getAfter(/databases/$(database)/documents/appointments/$(d.appointmentId)).data;return d.keys().hasOnly(['kind','owner','dayKey','bookings','blockedSlots','appointmentId']) && d.kind in ['p','s'] && d.owner==(d.kind=='p'?a.professionalId:a.studentId) && d.dayKey==a.dayKey && id==d.kind+'_'+d.owner+'_'+d.dayKey && d.bookings is map && d.bookings.size()<=96 && d.get('blockedSlots',[]) is list && d.get('blockedSlots',[]).size()<=96 && covers(d,a,d.appointmentId) && (admin() || a.authorId==request.auth.uid);}
+  match /calendar_guards/{id}{
+   allow get: if active();
+   allow create: if (active() && validGuard(request.resource.data,id) && request.resource.data.bookings.keys().hasOnly(getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.slots)) || (manage() && request.resource.data.keys().hasOnly(['kind','owner','dayKey','bookings','blockedSlots']) && request.resource.data.kind=='p' && request.resource.data.bookings=={} && request.resource.data.blockedSlots is list && request.resource.data.blockedSlots.size()<=96);
+   allow update: if (manage() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['blockedSlots']) && request.resource.data.blockedSlots is list && request.resource.data.blockedSlots.size()<=96) || active() && validGuard(request.resource.data,id) && safePreviousSlots(resource.data.bookings,getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data,request.resource.data.appointmentId) && request.resource.data.kind==resource.data.kind && request.resource.data.owner==resource.data.owner && request.resource.data.dayKey==resource.data.dayKey && request.resource.data.get('blockedSlots',[])==resource.data.get('blockedSlots',[]) && request.resource.data.bookings.diff(resource.data.bookings).affectedKeys().hasOnly(getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.slots) && (resource.data.bookings.values().removeAll([request.resource.data.appointmentId]).size() == request.resource.data.bookings.values().removeAll([request.resource.data.appointmentId]).size());
+  }
+  function validNote(d){let a=get(/databases/$(database)/documents/appointments/$(d.appointmentId)).data;return d.keys().hasOnly(['id','appointmentId','schoolId','studentId','authorId','text','referral','returnDate','reason','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.text,1000) && str(d.referral,1000) && str(d.returnDate,10) && str(d.reason,500) && d.schoolId==a.schoolId && d.studentId==a.studentId && d.authorId==a.authorId && (admin() || d.authorId==request.auth.uid) && !(a.status in ['Cancelado','Remarcado']);}
+  match /notes/{id}{
+   allow get: if clinical(resource.data.schoolId);allow list: if clinical(resource.data.schoolId) && request.query.limit<=40;
+   allow create: if id==request.resource.data.appointmentId && clinical(request.resource.data.schoolId) && validNote(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'notes',id);
+   allow update: if clinical(resource.data.schoolId) && validNote(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'notes',id) && versioned(request.resource.data,'notes',id) && request.resource.data.appointmentId==resource.data.appointmentId && request.resource.data.reason.size()>0;
+  }
+  function validAttendance(d){let l=get(/databases/$(database)/documents/links/$(d.linkId)).data;return d.keys().hasOnly(['id','linkId','schoolId','professionalId','authorId','day','entry','exit','status','reason','uniqueKey','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && d.schoolId==l.schoolId && d.professionalId==l.professionalId && d.authorId==l.userId && (admin() || d.authorId==request.auth.uid) && str(d.day,10) && l.start<=d.day && (l.end=='' || l.end>=d.day) && l.status=='Ativo' && str(d.entry,5) && str(d.exit,5) && str(d.reason,500) && d.status in ['Presente','Ausente','Justificado'] && (d.status=='Presente' ? (d.entry.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && d.exit.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && d.exit>d.entry) : d.reason.size()>0) && d.uniqueKey==d.linkId+'_'+d.day && getAfter(/databases/$(database)/documents/attendance_keys/$(d.uniqueKey)).data.attendanceId==d.id;}
+  match /attendance/{id}{
+   allow get: if school(resource.data.schoolId);allow list: if school(resource.data.schoolId) && request.query.limit<=40;
+   allow create: if clinical(request.resource.data.schoolId) && validAttendance(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'attendance',id);
+   allow update: if clinical(resource.data.schoolId) && validAttendance(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'attendance',id) && versioned(request.resource.data,'attendance',id) && request.resource.data.uniqueKey==resource.data.uniqueKey;
+  }
+  match /attendance_keys/{key}{allow get: if active();allow create: if active() && request.resource.data.keys().hasOnly(['attendanceId']) && getAfter(/databases/$(database)/documents/attendance/$(request.resource.data.attendanceId)).data.uniqueKey==key;allow update: if active() && request.resource.data==resource.data;}
+  function validReferral(d){let s=get(/databases/$(database)/documents/students/$(d.studentId)).data;return d.keys().hasOnly(['id','studentId','schoolId','description','due','status','authorId','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && d.schoolId==s.schoolId && reqstr(d.description,1000) && str(d.due,10) && d.status in ['Pendente','Em andamento','Concluído'] && (admin() || d.authorId==request.auth.uid);}
+  match /referrals/{id}{
+   allow get: if clinical(resource.data.schoolId);allow list: if clinical(resource.data.schoolId) && request.query.limit<=40;
+   allow create: if clinical(request.resource.data.schoolId) && validReferral(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'referrals',id);
+   allow update: if clinical(resource.data.schoolId) && validReferral(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'referrals',id) && versioned(request.resource.data,'referrals',id) && request.resource.data.authorId==resource.data.authorId;
+  }
+  match /audit/{id}{
+   allow get: if admin();allow list: if admin() && request.query.limit<=40;
+   allow create: if active() && request.resource.data.keys().hasOnly(['id','actorId','action','table','targetId','at','serverAt']) && request.resource.data.id==id && request.resource.data.actorId==request.auth.uid && request.resource.data.action in ['cadastrar','atualizar'] && request.resource.data.table in ['schools','professionals','links','students','appointments','notes','attendance','referrals','users','blocks'] && reqstr(request.resource.data.targetId,150) && str(request.resource.data.at,40) && request.resource.data.serverAt==request.time && getAfter(/databases/$(database)/documents/$(request.resource.data.table)/$(request.resource.data.targetId)).data.auditId==id;
+  }
+  match /versions/{id}{
+   allow get: if admin();allow list: if admin() && request.query.limit<=40;
+   allow create: if active() && request.resource.data.keys().hasOnly(['id','table','targetId','before','actorId','at','serverAt']) && request.resource.data.id==id && request.resource.data.actorId==request.auth.uid && request.resource.data.serverAt==request.time && request.resource.data.before is map && request.resource.data.before.id==request.resource.data.targetId && request.resource.data.before.version==get(/databases/$(database)/documents/$(request.resource.data.table)/$(request.resource.data.targetId)).data.version && getAfter(/databases/$(database)/documents/$(request.resource.data.table)/$(request.resource.data.targetId)).data.auditId==id;
+  }
+  function validBlock(d){return d.keys().hasOnly(['id','professionalId','start','end','reason','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.professionalId,150) && str(d.start,40) && str(d.end,40) && reqstr(d.reason,500);}
+  match /blocks/{id}{allow get: if manage();allow list: if manage() && request.query.limit<=40;allow create: if manage() && validBlock(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'blocks',id);allow update: if false;}
+  match /staff/{id}{allow get: if manage();allow list: if manage() && request.query.limit<=40;}
+  match /staff_private/{id}{allow get: if manage();}
+  // Legacy data retained. Only the administrator can read for migration.
+  match /{legacy}/{id}{allow read: if legacy in ['usuarios','escolas','profissionais','profissionais_privado','vinculos','alunos','alunos_privado','alunos_necessidades','matriculas','agendamentos','atendimentos','notas_atendimento','notas_versoes','frequencias','servidores','servidores_privado','logs_auditoria'] && admin();}
+  match /{document=**}{allow read,write: if false;}
+ }
+}
