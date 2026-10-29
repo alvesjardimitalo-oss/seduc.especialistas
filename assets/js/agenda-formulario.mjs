@@ -1,4 +1,4 @@
-import {dentroDaJornada,possuiConflito} from './validacoes.mjs';
+import {dentroDaJornada,possuiConflito,lerHorarios,gerarSlotsSemana} from './validacoes.mjs';
 export function listarProfissionaisDaEscola({escolaId,vinculos=[],usuarios=[],profissionais=[],usuarioLogado='',gestao=false}){
  if(!escolaId)return [];
  const disponiveis=new Map();
@@ -33,4 +33,28 @@ export function horariosLivres({data='',escolaId='',uid='',duracaoMin=30,vinculo
   horarios.push({valor:hora,rotulo:hora});
  }
  return horarios;
+}
+
+export function diagnosticarProfissionaisDaEscola({escolaId,usuarios=[],vinculos=[],profissionais=[]}){
+ if(!escolaId)return [];
+ const candidatos=usuarios.filter(u=>(u.perfil==='especialista'&&u.ativo===true&&u.escolas?.includes(escolaId))||
+  vinculos.some(v=>v.escola_id===escolaId&&v.uid===u.id&&v.ativo===true));
+ return candidatos.map(conta=>{
+  const ativos=vinculos.filter(v=>v.uid===conta.id&&v.escola_id===escolaId&&v.ativo===true);
+  const ficha=profissionais.find(p=>p.uid===conta.id)||profissionais.find(p=>ativos.some(v=>v.profissional_id===p.id));
+  let motivo='';
+  if(conta.ativo!==true||conta.perfil!=='especialista')motivo='Conta sem acesso ativo de especialista';
+  else if(!conta.escolas?.includes(escolaId))motivo='Conta sem autorização nesta instituição';
+  else if(!ativos.length)motivo='Falta configurar vínculo e jornada nesta instituição';
+  else if(!ativos.some(v=>{
+   try{
+    const horarios=lerHorarios((v.horarios||[]).map(h=>h.dia+' '+h.inicio+'-'+h.fim).join(';'));
+    const slots=gerarSlotsSemana(horarios);
+    return Array.isArray(v.slots_semana)&&slots.length>0&&slots.length===v.slots_semana.length&&slots.every(s=>v.slots_semana.includes(s));
+   }catch{return false}
+  }))motivo='Jornada ausente ou desatualizada; configure dias e horários';
+  return {uid:conta.id,nome:conta.nome||ficha?.nome||conta.id,
+   especialidade:ficha?.especialidade||ativos[0]?.cargo||'Atendimento especializado',
+   habilitado:!motivo,motivo};
+ }).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
 }
