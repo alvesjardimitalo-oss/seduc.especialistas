@@ -83,6 +83,32 @@ test('convite suspenso não ativa profissional no primeiro acesso',async()=>{
  }));
 });
 
+test('gestão pode criar login de homologação com email fictício e perfil especialista',async()=>{
+ const registro={
+  nome:'Profissional Teste',email:'teste.profissional.a1@seduc-teste.example',
+  ativo:true,perfil:'especialista',escolas:['a'],gerenciar:false,
+  conta_teste:true,teste_criado_por:'admin',criado_em:serverTimestamp()
+ };
+ await assertSucceeds(setDoc(doc(contexto('admin'),'usuarios/testeCriadoA'),registro));
+ const userDb=contexto('testeCriadoA');
+ await assertSucceeds(getDoc(doc(userDb,'usuarios/testeCriadoA')));
+ await assertFails(setDoc(doc(contexto('pendente'),'usuarios/testeAutoAtivado'),{
+  ...registro,teste_criado_por:'pendente'
+ }));
+ await assertFails(setDoc(doc(contexto('espA'),'usuarios/testeCriadoFora'),{
+  ...registro,teste_criado_por:'espA'
+ }));
+ await assertFails(setDoc(doc(contexto('admin'),'usuarios/testeAdminProibido'),{
+  ...registro,perfil:'superadmin'
+ }));
+ await assertFails(setDoc(doc(contexto('admin'),'usuarios/testeEmailExterno'),{
+  ...registro,email:'alguem@exemplo.com'
+ }));
+ await assertFails(setDoc(doc(contexto('admin'),'usuarios/testeSemEscola'),{
+  ...registro,escolas:[]
+ }));
+});
+
 test('conta pendente e visitante não acessam dados escolares',async()=>{
  await assertFails(getDoc(doc(contexto('pendente'),'escolas/a')));
  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'escolas/a')));
