@@ -139,10 +139,10 @@ service cloud.firestore {
   function pages_userPath() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
   function pages_userExists() { return pages_logged() && exists(pages_userPath()); }
   function pages_me() { return get(pages_userPath()).data; }
-  function pages_active() { return pages_logged() && pages_me().ativo == true; }
+  function pages_active() { return pages_logged() && pages_me().ativo == true && !pages_me().get('excluido',false); }
   function pages_admin() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='superadmin'; }
   function pages_seduc() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='secretaria'; }
-  function pages_manage() { let p=pages_me(); return pages_logged() && p.ativo==true && (p.perfil=='superadmin' || (p.perfil=='secretaria' && p.get('gerenciar',false)==true)); }
+  function pages_manage() { let p=pages_me(); return pages_logged() && p.ativo==true && !p.get('excluido',false) && (p.perfil=='superadmin' || (p.perfil=='secretaria' && p.get('gerenciar',false)==true)); }
   function pages_specialist() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='especialista'; }
   function pages_schoolAllowed(escolaId) { let p=pages_me(); return pages_logged() && p.ativo==true && (p.perfil in ['superadmin','secretaria'] || escolaId in p.get('escolas',[])); }
   function pages_specialistIn(escolaId) { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='especialista' && escolaId in p.get('escolas',[]); }
@@ -262,6 +262,42 @@ service cloud.firestore {
       (resource == null || request.resource.data.criado_em == resource.data.criado_em);
     allow delete: if false;
   }
+  // Access updates never alter authentication identity or erase clinical history.
+  function pages_validUserUpdate(uid) {
+    let d=request.resource.data;
+    return d.diff(resource.data).affectedKeys().hasOnly([
+      'nome','perfil','ativo','gerenciar','escolas','excluido','alterado_por','alterado_em',
+      'motivo_exclusao','excluido_por','excluido_em'
+    ]) && d.nome is string && d.nome.size() >= 3 && d.nome.size() <= 180 &&
+      d.perfil in ['pendente','especialista','direcao','secretaria','visualizador','superadmin'] &&
+      d.ativo is bool && d.gerenciar is bool && d.escolas is list && d.escolas.size() <= 50 &&
+      d.get('excluido',false) is bool &&
+      (!d.gerenciar || d.perfil in ['secretaria','superadmin']) &&
+      (!d.ativo || !(d.perfil in ['especialista','direcao','visualizador']) || d.escolas.size() > 0) &&
+      d.alterado_por == request.auth.uid && d.alterado_em == request.time &&
+      (uid != request.auth.uid || (d.perfil == 'superadmin' && d.ativo && !d.get('excluido',false))) &&
+      (!d.get('excluido',false) || (!d.ativo && !d.gerenciar && d.escolas == [] &&
+        d.motivo_exclusao is string && d.motivo_exclusao.size() > 0 && d.motivo_exclusao.size() <= 500 &&
+        d.excluido_por == request.auth.uid && d.excluido_em == request.time));
+  }
+  match /usuarios/{uid}/historico/{eventoId} {
+    allow read: if pages_manage();
+    allow create: if pages_manage() &&
+      request.resource.data.keys().hasOnly(['acao','alvo_uid','autor_uid','criado_em',
+        'perfil_anterior','perfil_novo','ativo_anterior','ativo_novo','gerenciar_anterior',
+        'gerenciar_novo','escolas_anteriores','escolas_novas','motivo']) &&
+      request.resource.data.acao in ['criar','editar','excluir','restaurar'] &&
+      request.resource.data.alvo_uid == uid && request.resource.data.autor_uid == request.auth.uid &&
+      request.resource.data.criado_em == request.time &&
+      request.resource.data.motivo is string && request.resource.data.motivo.size() <= 500 &&
+      request.resource.data.perfil_novo == getAfter(/databases/$(database)/documents/usuarios/$(uid)).data.perfil &&
+      request.resource.data.ativo_novo == getAfter(/databases/$(database)/documents/usuarios/$(uid)).data.ativo &&
+      request.resource.data.gerenciar_novo == getAfter(/databases/$(database)/documents/usuarios/$(uid)).data.gerenciar &&
+      request.resource.data.escolas_novas == getAfter(/databases/$(database)/documents/usuarios/$(uid)).data.escolas &&
+      (pages_admin() || (uid != request.auth.uid && request.resource.data.perfil_novo != 'superadmin' &&
+       request.resource.data.gerenciar_novo == false));
+    allow update,delete: if false;
+  }
   match /usuarios/{uid} {
     // Especialistas podem consultar pontualmente colegas ativos da mesma escola.
     allow get: if pages_logged() && (uid == request.auth.uid || pages_manage() ||
@@ -302,14 +338,10 @@ service cloud.firestore {
        request.resource.data.escolas.size() > 0 &&
        request.resource.data.escolas.size() <= 50 &&
        request.resource.data.criado_em == request.time);
-    allow update: if pages_admin() &&
-      (uid != request.auth.uid || (request.resource.data.perfil == 'superadmin' && request.resource.data.ativo == true));
-    allow update: if pages_seduc() && pages_me().get('gerenciar',false) == true &&
-      uid != request.auth.uid &&
-      resource.data.perfil != 'superadmin' &&
-      request.resource.data.perfil in ['pendente','especialista','direcao','secretaria','visualizador'] &&
-      request.resource.data.gerenciar == false &&
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo','perfil','escolas','nome','gerenciar']);
+    allow update: if pages_manage() && pages_validUserUpdate(uid) &&
+      (pages_admin() || (uid != request.auth.uid &&
+       resource.data.perfil != 'superadmin' && resource.data.get('gerenciar',false) == false &&
+       request.resource.data.perfil != 'superadmin' && request.resource.data.gerenciar == false));
     allow delete: if false;
   }
   match /escolas/{id} {

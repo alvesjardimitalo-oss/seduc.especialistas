@@ -1,3 +1,4 @@
+import {gestaoHabilitada,podeEditarConta,prepararPermissoes,prepararVinculoConta} from './gestao-usuarios.mjs?v=20261029-usuarios1';
 import {podeGerirConsulta,dadosDaRemarcacao} from './gestao-agenda.mjs?v=20261029-admin1';
 import {estadosMeta,indicadoresConsultas,analisarAcompanhamento,validarMeta} from './evolucao.mjs';
 import {consultasDoAluno,validarRelatorio,filtrarConsultas} from './aluno-historico.mjs';
@@ -18,6 +19,7 @@ import {initializeApp,deleteApp} from 'https://www.gstatic.com/firebasejs/10.12.
 import {getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged,signOut,signInWithEmailAndPassword,sendPasswordResetEmail,createUserWithEmailAndPassword,setPersistence,inMemoryPersistence,deleteUser} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,writeBatch,runTransaction,serverTimestamp,query,where,orderBy,limit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
+let mostrarUsuariosExcluidos=false;
 const root=document.getElementById('app');
 const configured=firebaseConfig.projectId==='seduc-especialistas' && firebaseConfig.authDomain==='seduc-especialistas.firebaseapp.com' && !Object.values(firebaseConfig).some(v=>!v||String(v)==='CONFIGURAR');
 const schoolNames=['Escola Municipal Doutor João de Souza Lima','Escola Municipal Professora Terezinha Sarmento de Oliveira','Creche Municipal Wilma Glória Nunes Mourão','Escola Municipal Prefeito José Pedro da Silva','Escola Municipal Monteiro Lobato','Creche Sebastiana Duarte Cabral'];
@@ -36,7 +38,7 @@ const colecoesIniciais=['profissionais','vinculos','alunos','agendamentos','aten
 let alunoSelecionado=null,filtrosConsulta={},erroRelatorios=false,erroMetas=false,errosCarregamento=[];
 const TERMOS_VERSAO='2026-10-28-v1';
 let termosSessaoConfirmados=false;
-const canManage=()=>profile?.perfil==='superadmin'||(profile?.perfil==='secretaria'&&profile?.gerenciar===true);
+const canManage=()=>gestaoHabilitada(profile);
 const canWrite=()=>profile?.perfil==='especialista';
 const canSchedule=()=>canWrite()||canManage();
 const podeAlterarConsulta=a=>podeGerirConsulta(a,{...profile,uid:user?.uid});
@@ -429,24 +431,26 @@ if(tab==='Relatórios'){
  html+='<p class="muted">Cada aluno é contado uma vez no total e uma vez por instituição em que foi atendido. Os indicadores apresentam apenas quantidades.</p>';
 }
 if(tab==='Usuários'&&canManage()){
- const cadastrados=cache.usuarios,convites=cache.convites_usuarios||[];
+ const cadastrados=cache.usuarios.filter(u=>Boolean(u.excluido)===mostrarUsuariosExcluidos),convites=cache.convites_usuarios||[];
  html+='<div class="card users-onboarding"><div><span class="eyebrow">GESTÃO DE ACESSOS</span><h2>Autorizar especialistas</h2><p>Você pode liberar quem já entrou com Google ou preparar a autorização pelo e-mail antes do primeiro login. Não é preciso digitar UID do Firebase.</p></div><div class="actions"><button type="button" class="btn" id="criar-conta-teste">+ Criar acesso temporário</button><button type="button" class="btn secondary" id="preautorizar-especialista">Pré-autorizar por e-mail real</button></div></div>';
  if(credenciaisUltimoTeste){
   html+='<div class="card test-credentials" role="status"><div><h3>Conta temporária de homologação criada</h3><p>Copie as credenciais agora. A senha não é armazenada no Firestore e não poderá ser exibida novamente.</p><p><strong>Login:</strong> <code>'+safe(credenciaisUltimoTeste.email)+'</code></p><p><strong>Senha:</strong> <code>'+safe(credenciaisUltimoTeste.senha)+'</code></p></div><div class="actions"><button type="button" class="btn" id="copiar-acesso-teste">Copiar credenciais</button><button type="button" class="btn secondary" id="ocultar-acesso-teste">Ocultar senha</button></div></div>';
  }
  if(errosCarregamento.includes('usuarios')||errosCarregamento.includes('convites_usuarios'))
  html+='<div class="alert" role="alert">Uma das listas de autorização não pôde ser carregada. Verifique as permissões do Firestore.</div>';
- html+='<div class="card"><h3>Contas que já acessaram o SEDUC</h3><p class="muted">Uma profissional que já fez login aparece aqui como Pendente até ser aprovada. Clique em Permissões, escolha Especialista e marque as escolas.</p></div>';
- html+=table(['Usuário','E-mail Google','Perfil','Situação','Ação'],cadastrados.map(u=>
- '<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.ativo?(u.conta_teste?'Teste ativo':'Ativo'):'Pendente')+'</td><td>'+(u.perfil==='superadmin'?'Protegido':'<button class="btn secondary" data-user="'+safe(u.id)+'">Permissões</button>')+'</td></tr>'));
- html+='<div class="card"><h3>Pré-autorizações por e-mail</h3><p class="muted">A profissional acessa com o mesmo Google verificado. Depois do primeiro login, a conta aparece na tabela acima e você pode associar a jornada em Profissionais.</p></div>';
+ html+='<div class="card"><h3>Gerenciar usuários</h3><p class="muted">Em Editar, ajuste o acesso, as escolas, a ficha profissional e os dias de trabalho. Excluir acesso bloqueia a conta e preserva os atendimentos.</p><button class="btn secondary" id="alternar-usuarios-excluidos">'+(mostrarUsuariosExcluidos?'Mostrar usuários ativos':'Mostrar excluídos')+'</button></div>';
+ html+=table(['Usuário','E-mail','Perfil','Situação / gerenciamento','Vínculo profissional','Ações'],cadastrados.map(u=>{
+  const editar=podeEditarConta({...profile,id:user.uid},u),vinculos=cache.vinculos.filter(v=>v.uid===u.id&&v.ativo===true);
+  return '<tr><td>'+safe(u.nome)+'</td><td>'+safe(u.email)+'</td><td>'+safe(u.perfil)+'</td><td>'+safe(u.excluido?'Excluído':u.ativo?'Ativo':'Desativado / aguardando')+'<br><small>'+safe(gestaoHabilitada(u)?'Gerenciamento habilitado':'Sem gerenciamento')+'</small></td><td>'+safe(vinculos.length?vinculos.length+' escola(s) vinculada(s)':u.perfil==='especialista'?'Configurar em Editar':'Não se aplica')+'</td><td>'+(editar?'<button class="btn secondary" data-user="'+safe(u.id)+'">'+(u.excluido?'Restaurar':'Editar')+'</button>'+(!u.excluido&&u.id!==user.uid?' <button class="btn secondary" data-excluir-usuario="'+safe(u.id)+'">Excluir acesso</button>':''):'Protegido')+'</td></tr>';
+ }));
+ html+='<div class="card"><h3>Pré-autorizações por e-mail</h3><p class="muted">A profissional acessa com o mesmo Google verificado. Depois do primeiro login, a conta aparece na tabela acima e clique em Editar para associar a ficha profissional e a jornada ali mesmo.</p></div>';
  html+=table(['Nome','E-mail autorizado','Escolas','Situação','Ação'],convites.map(c=>{
   const existe=cadastrados.some(u=>String(u.email||'').toLowerCase()===c.email);
   return '<tr><td>'+safe(c.nome)+'</td><td>'+safe(c.email)+'</td><td>'+safe((c.escolas||[]).map(id=>schoolName(id)).join(', '))+'</td><td>'+safe(!c.ativo?'Suspenso':existe?'Já realizou login':'Aguardando primeiro login')+'</td><td><button type="button" class="btn secondary" data-alternar-convite="'+safe(c.id)+'">'+(c.ativo?'Suspender convite':'Reativar convite')+'</button></td></tr>';
  }));
 }
 if(tab==='Ficha do aluno')html=title('Ficha do aluno','Consultas, acompanhamento e relatórios individuais')+fichaAluno();
-layout(html);document.querySelectorAll('[data-agenda-mes]').forEach(b=>b.onclick=()=>{agendaMes=new Date(agendaMes.getFullYear(),agendaMes.getMonth()+Number(b.dataset.agendaMes),1);agendaDiaSelecionado='';render()});document.querySelectorAll('[data-agenda-dia]').forEach(b=>b.onclick=()=>{agendaDiaSelecionado=b.dataset.agendaDia;render()});const botaoAuditoria=document.getElementById('carregar-auditoria');if(botaoAuditoria)botaoAuditoria.onclick=consultarAcessosAuditoria;const agendaTodos=document.getElementById('agenda-todos');if(agendaTodos)agendaTodos.onclick=()=>{agendaDiaSelecionado='';render()};document.querySelectorAll('[data-print-aluno]').forEach(b=>b.onclick=()=>imprimirAluno(b.dataset.printAluno));const imprimG=document.getElementById('imprimir-gerencial');if(imprimG)imprimG.onclick=imprimirGerencial;const tutorialToggle=document.getElementById('alternar-tutorial');if(tutorialToggle)tutorialToggle.onclick=alternarTutorial;const introOff=document.getElementById('ocultar-tutorial');if(introOff)introOff.onclick=alternarTutorial;document.querySelectorAll('[data-abrir-agendamento]').forEach(b=>b.onclick=()=>abrirAgendamento(b.dataset.abrirAgendamento));document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>abrirTela(el.dataset.go));const novaMeta=document.getElementById('nova-meta');if(novaMeta)novaMeta.onclick=()=>definirMeta();document.querySelectorAll('[data-evolucao-meta]').forEach(b=>b.onclick=()=>registrarEvolucao(b.dataset.evolucaoMeta));document.querySelectorAll('[data-redefinir-meta]').forEach(b=>b.onclick=()=>definirMeta(b.dataset.redefinirMeta));document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>b.dataset.action==='agendar'?abrirNovoAgendamento():b.dataset.action==='vinculo'?abrirFormularioVinculo().catch(showError):openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};abrirTela('Ficha do aluno')});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user));const contaTesteBotao=document.getElementById('criar-conta-teste');if(contaTesteBotao)contaTesteBotao.onclick=abrirCriacaoContaTeste;const copiarTeste=document.getElementById('copiar-acesso-teste');if(copiarTeste)copiarTeste.onclick=()=>{if(credenciaisUltimoTeste)navigator.clipboard.writeText('E-mail: '+credenciaisUltimoTeste.email+'\nSenha: '+credenciaisUltimoTeste.senha).catch(showError)};const ocultarTeste=document.getElementById('ocultar-acesso-teste');if(ocultarTeste)ocultarTeste.onclick=()=>{credenciaisUltimoTeste=null;render()};const conviteBotao=document.getElementById('preautorizar-especialista');if(conviteBotao)conviteBotao.onclick=abrirPreAutorizacao;document.querySelectorAll('[data-alternar-convite]').forEach(b=>b.onclick=()=>alternarConvite(b.dataset.alternarConvite));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
+layout(html);document.querySelectorAll('[data-agenda-mes]').forEach(b=>b.onclick=()=>{agendaMes=new Date(agendaMes.getFullYear(),agendaMes.getMonth()+Number(b.dataset.agendaMes),1);agendaDiaSelecionado='';render()});document.querySelectorAll('[data-agenda-dia]').forEach(b=>b.onclick=()=>{agendaDiaSelecionado=b.dataset.agendaDia;render()});const botaoAuditoria=document.getElementById('carregar-auditoria');if(botaoAuditoria)botaoAuditoria.onclick=consultarAcessosAuditoria;const agendaTodos=document.getElementById('agenda-todos');if(agendaTodos)agendaTodos.onclick=()=>{agendaDiaSelecionado='';render()};document.querySelectorAll('[data-print-aluno]').forEach(b=>b.onclick=()=>imprimirAluno(b.dataset.printAluno));const imprimG=document.getElementById('imprimir-gerencial');if(imprimG)imprimG.onclick=imprimirGerencial;const tutorialToggle=document.getElementById('alternar-tutorial');if(tutorialToggle)tutorialToggle.onclick=alternarTutorial;const introOff=document.getElementById('ocultar-tutorial');if(introOff)introOff.onclick=alternarTutorial;document.querySelectorAll('[data-abrir-agendamento]').forEach(b=>b.onclick=()=>abrirAgendamento(b.dataset.abrirAgendamento));document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>abrirTela(el.dataset.go));const novaMeta=document.getElementById('nova-meta');if(novaMeta)novaMeta.onclick=()=>definirMeta();document.querySelectorAll('[data-evolucao-meta]').forEach(b=>b.onclick=()=>registrarEvolucao(b.dataset.evolucaoMeta));document.querySelectorAll('[data-redefinir-meta]').forEach(b=>b.onclick=()=>definirMeta(b.dataset.redefinirMeta));document.querySelectorAll('[data-consulta-geral]').forEach(el=>el.onchange=()=>{const filtros=el.dataset.grupo==='agenda'?filtrosAgenda:filtrosAtendimentos;filtros[el.dataset.consultaGeral]=el.value;const de=filtros.de,ate=filtros.ate;if(de&&ate&&de>ate){filtros[el.dataset.consultaGeral]='';showError(Error('A data final deve ser igual ou posterior à inicial.'))}render()});document.querySelectorAll('[data-limpar-consultas]').forEach(el=>el.onclick=()=>{if(el.dataset.limparConsultas==='agenda')filtrosAgenda={};else filtrosAtendimentos={};render()});document.querySelectorAll('[data-agenda-profissional]').forEach(el=>el.onclick=()=>{filtrosAgenda={profissional:el.dataset.agendaProfissional};tab='Agenda';render()});document.querySelectorAll('[data-redefinir-vinculo]').forEach(el=>el.onclick=()=>redefinirVinculo(el.dataset.redefinirVinculo));document.querySelectorAll('[data-remover-vinculo]').forEach(el=>el.onclick=()=>removerVinculo(el.dataset.removerVinculo));document.querySelectorAll('[data-consulta]').forEach(el=>el.onchange=()=>{filtrosConsulta[el.dataset.consulta]=el.value;render()});const limparConsultas=document.getElementById('limpar-consultas');if(limparConsultas)limparConsultas.onclick=()=>{filtrosConsulta={};render()};const voltarAlunos=document.getElementById('voltar-alunos');if(voltarAlunos)voltarAlunos.onclick=()=>{tab='Alunos';render()};const novoRelatorio=document.getElementById('novo-relatorio-aluno');if(novoRelatorio)novoRelatorio.onclick=novoRelatorioAluno;document.querySelectorAll('[data-relatorio]').forEach(el=>el.onchange=()=>{filtrosRelatorio[el.dataset.relatorio]=el.value;render()});const limparRelatorio=document.getElementById('limpar-relatorio');if(limparRelatorio)limparRelatorio.onclick=()=>{filtrosRelatorio={de:'',ate:'',escola:'',profissional:'',especialidade:''};render()};document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>b.dataset.action==='agendar'?abrirNovoAgendamento():b.dataset.action==='vinculo'?abrirFormularioVinculo().catch(showError):openForm(b.dataset.action));document.querySelectorAll('[data-student]').forEach(b=>b.onclick=()=>{alunoSelecionado=b.dataset.student;filtrosConsulta={};abrirTela('Ficha do aluno')});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>openUser(b.dataset.user,mostrarUsuariosExcluidos));document.querySelectorAll('[data-excluir-usuario]').forEach(b=>b.onclick=()=>excluirUsuario(b.dataset.excluirUsuario));const alternarUsuarios=document.getElementById('alternar-usuarios-excluidos');if(alternarUsuarios)alternarUsuarios.onclick=()=>{mostrarUsuariosExcluidos=!mostrarUsuariosExcluidos;render()};const contaTesteBotao=document.getElementById('criar-conta-teste');if(contaTesteBotao)contaTesteBotao.onclick=abrirCriacaoContaTeste;const copiarTeste=document.getElementById('copiar-acesso-teste');if(copiarTeste)copiarTeste.onclick=()=>{if(credenciaisUltimoTeste)navigator.clipboard.writeText('E-mail: '+credenciaisUltimoTeste.email+'\nSenha: '+credenciaisUltimoTeste.senha).catch(showError)};const ocultarTeste=document.getElementById('ocultar-acesso-teste');if(ocultarTeste)ocultarTeste.onclick=()=>{credenciaisUltimoTeste=null;render()};const conviteBotao=document.getElementById('preautorizar-especialista');if(conviteBotao)conviteBotao.onclick=abrirPreAutorizacao;document.querySelectorAll('[data-alternar-convite]').forEach(b=>b.onclick=()=>alternarConvite(b.dataset.alternarConvite));document.querySelectorAll('[data-exit]').forEach(b=>b.onclick=()=>registerExit(b.dataset.exit));document.querySelectorAll('[data-edit-aluno]').forEach(b=>b.onclick=()=>editStudent(b.dataset.editAluno));document.querySelectorAll('[data-edit-escola]').forEach(b=>b.onclick=()=>editSchool(b.dataset.editEscola));document.querySelectorAll('[data-archive-aluno]').forEach(b=>b.onclick=()=>archiveStudent(b.dataset.archiveAluno));document.querySelectorAll('[data-cancel-agenda]').forEach(b=>b.onclick=()=>cancelarAgendamento(b.dataset.cancelAgenda));document.querySelectorAll('[data-needs-aluno]').forEach(b=>b.onclick=()=>mostrarAcompanhamento(b.dataset.needsAluno));const seed=document.getElementById('seed-schools');if(seed)seed.onclick=seedSchools;const importador=document.getElementById('importar-servidores');if(importador)importador.onclick=abrirImportadorServidores;const btnAlunos=document.getElementById('importar-alunos');if(btnAlunos)btnAlunos.onclick=abrirImportadorAlunos;document.querySelectorAll('[data-configurar-servidor]').forEach(b=>b.onclick=()=>configurarServidorComoEspecialista(b.dataset.configurarServidor));const procurar=document.getElementById('busca-profissionais'),escolaFiltro=document.getElementById('filtro-escola-profissionais');const filtrarProfissionais=()=>{const termo=(procurar?.value||'').toLocaleLowerCase('pt-BR').trim(),escola=escolaFiltro?.value||'';document.querySelectorAll('[data-profissional-item]').forEach(el=>{el.hidden=!!((termo&&!el.dataset.pesquisa.includes(termo))||(escola&&el.dataset.escola!==escola))})};if(procurar)procurar.oninput=filtrarProfissionais;if(escolaFiltro)escolaFiltro.onchange=filtrarProfissionais}
 
 
 function painelResumoAluno(alunoId){
@@ -745,7 +749,7 @@ function manualAdministrativoSEDUC(){
  '<details class="tutorial-manual-step" open><summary><strong>1. Autorizar a conta Google da profissional</strong><small>Usuários → perfil e escolas</small></summary><div class="tutorial-step-body">'+
  '<p><strong>Opção 1 — preparar antes do primeiro acesso:</strong> na aba Usuários, clique em <strong>Pré-autorizar por e-mail real</strong>, informe nome, e-mail Google e as escolas permitidas. A profissional deverá entrar com esse mesmo Google verificado. O sistema criará sua conta sem exigir UID.</p>'+
  '<p><strong>Homologação sem e-mail pessoal:</strong> na aba Usuários, clique em <strong>+ Criar acesso temporário</strong>, escolha um nome de teste e as escolas. O sistema gera e-mail fictício e senha forte, exibida uma única vez. Não use dados reais em testes. Na implantação, desative as contas temporárias e crie acessos com e-mails reais para permitir redefinição de senha.</p>'+
- '<p><strong>Opção 2 — conta já entrou:</strong> procure a profissional em Usuários, clique em <strong>Permissões</strong>, escolha o perfil Especialista, marque as escolas e altere o acesso para Sim.</p>'+
+ '<p><strong>Opção 2 — conta já entrou:</strong> procure a profissional em Usuários, clique em <strong>Editar</strong>, escolha o perfil Especialista, marque as escolas e altere o acesso para Sim.</p>'+
  '<p>Para a Secretaria administrar profissionais, a conta precisa de permissão de gestão concedida pelo administrador. Uma conta apenas de visualização não habilita cadastros ou vínculos.</p>'+
  link('Usuários')+'</div></details>'+
  '<details class="tutorial-manual-step"><summary><strong>2. Cadastrar ou conferir a ficha profissional</strong><small>Profissionais → Cadastrar especialista</small></summary><div class="tutorial-step-body">'+
@@ -1832,13 +1836,14 @@ function abrirCriacaoContaTeste(){
   '<label class="wide">Identificação da profissional de teste *<input type="text" name="nome" required maxlength="180" placeholder="Ex.: Psicopedagoga Teste"></label>'+
   '<div class="wide"><strong>Escolas autorizadas para o teste *</strong><div class="school-permission-list">'+cache.escolas.map(e=>
    '<label class="check-school"><input type="checkbox" name="escolas" value="'+safe(e.id)+'"> '+safe(e.nome)+'</label>').join('')+'</div></div>'+
-  '<div class="wide booking-check"><strong>Implantação definitiva</strong><small>Um endereço fictício não recebe redefinição de senha. Quando os e-mails reais estiverem disponíveis, desative estas contas e cadastre os acessos definitivos. A redefinição de senha será enviada à caixa postal real de cada profissional.</small></div>',
+  '<div class="wide booking-check"><strong>Implantação definitiva</strong><small>Um endereço fictício não recebe redefinição de senha. Quando os e-mails reais estiverem disponíveis, desative estas contas e cadastre os acessos definitivos. A redefinição de senha será enviada à caixa postal real de cada profissional.</small></div>'+camposVinculoUsuario(),
   async dados=>{
    if(!canManage())throw Error('Sem permissão para criar usuários.');
    const nome=String(dados.nome||'').trim();
    if(nome.length<3||nome.length>180)throw Error('Informe uma identificação válida.');
    const escolas=[...new Set([...document.querySelectorAll('#entry input[name="escolas"]:checked')].map(x=>x.value))];
    if(!escolas.length||escolas.some(id=>!cache.escolas.some(e=>e.id===id)))throw Error('Selecione escolas válidas.');
+   lerVinculoUsuario('validacao',{nome,perfil:'especialista',ativo:true,escolas});
    // Verificação sob demanda: não cria uma conta no Authentication se a versão
    // das regras ainda não permite à gestão consultar a coleção de convites.
    try{
@@ -1855,10 +1860,11 @@ function abrirCriacaoContaTeste(){
     await setPersistence(autenticarTeste,inMemoryPersistence);
     const novo=await createUserWithEmailAndPassword(autenticarTeste,email,senha);
     conta=novo.user;
-    await setDoc(doc(db,'usuarios',conta.uid),{
-     nome,email,ativo:true,perfil:'especialista',gerenciar:false,
-     escolas,conta_teste:true,teste_criado_por:user.uid,criado_em:serverTimestamp()
-    });
+    const novoPerfil={nome,email,ativo:true,perfil:'especialista',gerenciar:false,
+     escolas,conta_teste:true,teste_criado_por:user.uid,criado_em:serverTimestamp()};
+    const batch=writeBatch(db),plano=lerVinculoUsuario(conta.uid,novoPerfil);
+    batch.set(doc(db,'usuarios',conta.uid),novoPerfil);gravarPlanoUsuario(batch,plano);
+    auditarUsuario(batch,conta.uid,'criar',null,novoPerfil);await batch.commit();
     perfilGravado=true;
     credenciaisUltimoTeste={email,senha};
    }catch(e){
@@ -1870,7 +1876,8 @@ function abrirCriacaoContaTeste(){
     try{await signOut(autenticarTeste)}catch{}
     try{await deleteApp(appTemporario)}catch{}
    }
-  },['usuarios']);
+  },['usuarios','profissionais','vinculos']);
+ configurarVinculoUsuario();
 }
 
 function abrirPreAutorizacao(){
@@ -1883,7 +1890,7 @@ function abrirPreAutorizacao(){
  '<label class="wide">E-mail da conta Google *<input type="email" name="email" required maxlength="180" placeholder="profissional@exemplo.com"></label>'+
  '<div class="wide"><strong>Escolas autorizadas *</strong><div class="school-permission-list">'+escolas.map(e=>
  '<label class="check-school"><input type="checkbox" name="escolas" value="'+safe(e.id)+'"> '+safe(e.nome)+'</label>').join('')+'</div></div>'+
- '<div class="wide booking-check"><strong>Segurança de acesso</strong><small>A pré-autorização concede somente o perfil Especialista e as escolas marcadas. A pessoa precisará autenticar-se pelo Google verificado e aceitar os termos de segurança. O vínculo e a jornada serão configurados separadamente.</small></div>',
+ '<div class="wide booking-check"><strong>Segurança de acesso</strong><small>A pré-autorização concede somente o perfil Especialista e as escolas marcadas. A pessoa precisará autenticar-se pelo Google verificado e aceitar os termos de segurança. Depois do primeiro login, configure a ficha e a jornada em Usuários → Editar.</small></div>',
  async d=>{
   const email=String(d.email||'').toLowerCase().trim(),nome=String(d.nome||'').trim();
   if(!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)||email.length>180)
@@ -1893,7 +1900,7 @@ function abrirPreAutorizacao(){
   if(!escolasSelecionadas.length||escolasSelecionadas.some(id=>!cache.escolas.some(e=>e.id===id)))
    throw Error('Selecione ao menos uma escola válida.');
   const cadastrado=cache.usuarios.find(u=>String(u.email||'').toLowerCase()===email);
-  if(cadastrado)throw Error('Esta conta já acessou o SEDUC. Use o botão Permissões na tabela de usuários para aprová-la.');
+  if(cadastrado)throw Error('Esta conta já acessou o SEDUC. Use o botão Editar na tabela de usuários para aprová-la.');
   if(cache.convites_usuarios.some(c=>c.id===email))
    throw Error('Este e-mail já possui pré-autorização. Utilize a ação Suspender/Reativar ou revise a conta existente.');
   await setDoc(doc(db,'convites_usuarios',email),{
@@ -1914,19 +1921,84 @@ async function alternarConvite(email){
  }catch(e){showError(e)}
 }
 
-function openUser(uid){
- const u=cache.usuarios.find(x=>x.id===uid);if(!u||u.perfil==='superadmin')return;
- modal('Permissões de '+safe(u.nome||u.email),
- select('perfil','Perfil',[['pendente','Aguardando'],['especialista','Especialista'],['direcao','Direção escolar'],['secretaria','Secretaria de Educação'],['visualizador','Somente relatórios']])+
- '<label>Permitir acesso?<select name="ativo"><option value="true">Sim</option><option value="false">Não</option></select></label>'+
- '<div class="wide"><strong>Escolas autorizadas</strong><div class="card">'+cache.escolas.map(e=>'<label class="check-school"><input type="checkbox" name="escolas" value="'+safe(e.id)+'" '+((u.escolas||[]).includes(e.id)?'checked':'')+'> '+safe(e.nome)+'</label>').join('')+'</div></div>'+
- (profile.perfil==='superadmin'?'<label>Delegar gestão de usuários e cadastros?<select name="gerenciar"><option value="false">Não</option><option value="true">Sim, para Secretaria de Educação</option></select></label>':''),
- async d=>{
-  const selected=Array.from(document.querySelectorAll('#entry input[name="escolas"]:checked')).map(x=>x.value);
-  if(['especialista','direcao','visualizador'].includes(d.perfil)&&d.ativo==='true'&&!selected.length)throw Error('Selecione pelo menos uma escola.');
-  await updateDoc(doc(db,'usuarios',uid),{perfil:d.perfil,ativo:d.ativo==='true',escolas:selected,gerenciar:profile.perfil==='superadmin'&&d.perfil==='secretaria'&&d.gerenciar==='true'});
- });
- const form=document.getElementById('entry');form.querySelector('[name=perfil]').value=u.perfil;form.querySelector('[name=ativo]').value=String(u.ativo===true);if(form.querySelector('[name=gerenciar]'))form.querySelector('[name=gerenciar]').value=String(u.gerenciar===true);
+function camposVinculoUsuario(uid='',aplicar=true){
+ const fichas=cache.profissionais.filter(p=>!p.uid||p.uid===uid),ficha=cache.profissionais.find(p=>p.uid===uid);
+ return '<div class="wide" id="usuario-vinculo"><h3>Ficha profissional e vínculo</h3><p class="muted">Salve o acesso, a ficha e a jornada juntos. A mesma escala será aplicada às escolas selecionadas; vínculos anteriores ficam preservados.</p>'+
+  '<label class="check-school"><input type="checkbox" name="aplicar_vinculo" value="sim" '+(aplicar?'checked':'')+'> Criar ou atualizar vínculos profissionais neste cadastro</label>'+
+  '<div id="usuario-vinculo-campos"><label>Ficha profissional<select name="ficha_profissional"><option value="">Criar ficha automaticamente</option>'+fichas.map(p=>'<option value="'+safe(p.id)+'" '+(p.id===ficha?.id?'selected':'')+'>'+safe(p.nome)+'</option>').join('')+'</select></label>'+
+  '<label>Especialidade / função<input name="especialidade_usuario" maxlength="150" value="'+safe(ficha?.especialidade||'')+'"></label>'+editorJornadaVisual()+'</div></div>';
 }
+function configurarVinculoUsuario(uid='',horarios=[]){
+ configurarEditorJornada(horarios);
+ const f=document.getElementById('entry'),perfil=f.elements.namedItem('perfil'),ativo=f.elements.namedItem('ativo');
+ const aplicar=f.elements.namedItem('aplicar_vinculo'),gerenciar=f.elements.namedItem('gerenciar');
+ const atualizar=()=>{
+  const papel=perfil?.value||'especialista',ligado=!ativo||ativo.value==='true',clinico=papel==='especialista'&&ligado;
+  const area=f.querySelector('#usuario-vinculo'),campos=f.querySelector('#usuario-vinculo-campos');
+  if(area)area.hidden=!clinico;if(campos)campos.hidden=!aplicar?.checked;
+  const especialidade=f.elements.namedItem('especialidade_usuario');if(especialidade)especialidade.required=clinico&&Boolean(aplicar?.checked);
+  if(gerenciar){const label=gerenciar.closest('label');label.hidden=papel!=='secretaria';gerenciar.disabled=papel!=='secretaria';if(papel!=='secretaria')gerenciar.value='false';}
+  const estado=f.querySelector('#usuario-gestao-status');if(estado)estado.textContent=papel==='superadmin'?'Gerenciamento habilitado pelo perfil de Administração.':papel==='secretaria'&&gerenciar?.value==='true'?'Gerenciamento de usuários habilitado.':'Gerenciamento de usuários não concedido para este perfil.';
+ };
+ for(const el of [perfil,ativo,aplicar,gerenciar])el?.addEventListener('change',atualizar);
+ 
+ atualizar();
+}
+function lerVinculoUsuario(uid,dados){
+ const form=document.getElementById('entry'),aplicar=form.elements.namedItem('aplicar_vinculo')?.checked===true;
+ let horarios=[],jornada='',slots=[];
+ if(dados.perfil==='especialista'&&dados.ativo&&aplicar){const valores=Object.fromEntries(new FormData(form)),escala=jornadaDosCampos(valores);horarios=escala.horarios;jornada=escala.jornada;slots=gerarSlotsSemana(horarios);}
+ return prepararVinculoConta(uid,dados,{aplicar,especialidade:form.elements.namedItem('especialidade_usuario')?.value||'',fichaId:form.elements.namedItem('ficha_profissional')?.value||'',fichas:cache.profissionais,vinculos:cache.vinculos,horarios,jornada,slots});
+}
+function gravarPlanoUsuario(batch,plano){
+ if(plano.ficha){const {id,...ficha}=plano.ficha;batch.set(doc(db,'profissionais',id),ficha);}
+ for(const id of plano.encerrar)batch.update(doc(db,'vinculos',id),{ativo:false});
+ for(const dados of plano.novos)batch.set(doc(collection(db,'vinculos')),dados);
+}
+function auditarUsuario(batch,uid,acao,anterior,novo,motivo=''){
+ batch.set(doc(collection(db,'usuarios',uid,'historico')),{acao,alvo_uid:uid,autor_uid:user.uid,criado_em:serverTimestamp(),
+  perfil_anterior:anterior?.perfil||'',perfil_novo:novo.perfil,ativo_anterior:anterior?.ativo===true,ativo_novo:novo.ativo,
+  gerenciar_anterior:anterior?.gerenciar===true,gerenciar_novo:novo.gerenciar,escolas_anteriores:anterior?.escolas||[],escolas_novas:novo.escolas,motivo});
+}
+async function openUser(uid,restaurar=false){
+ if(!canManage())return;const u=cache.usuarios.find(x=>x.id===uid);
+ if(!u||!podeEditarConta({...profile,id:user.uid},u))return showError(Error('Esta conta está protegida.'));
+ const proprio=uid===user.uid,ficha=cache.profissionais.find(p=>p.uid===uid),vinculo=cache.vinculos.find(v=>v.uid===uid&&v.ativo===true);
+ modal((restaurar?'Restaurar':'Editar')+' usuário',
+  field('nome','Nome completo','text','required maxlength="180"')+
+  '<label>E-mail de acesso<input type="email" value="'+safe(u.email)+'" disabled><small>O endereço pertence à conta de autenticação.</small></label>'+
+  select('perfil','Perfil',[['pendente','Aguardando'],['especialista','Especialista'],['direcao','Direção escolar'],['secretaria','Secretaria de Educação'],['visualizador','Somente relatórios'],...(profile.perfil==='superadmin'?[['superadmin','Administração']]:[])])+
+  '<label>Permitir acesso?<select name="ativo"><option value="true">Sim, ativo</option><option value="false">Não, desativado</option></select></label>'+
+  '<div class="wide"><strong>Escolas autorizadas</strong><div class="card">'+cache.escolas.map(e=>'<label class="check-school"><input type="checkbox" name="escolas" value="'+safe(e.id)+'" '+((u.escolas||[]).includes(e.id)?'checked':'')+'> '+safe(e.nome)+'</label>').join('')+'</div></div>'+
+  (profile.perfil==='superadmin'?'<label>Habilitar gerenciamento de usuários?<select name="gerenciar"><option value="false">Não</option><option value="true">Sim, delegar à Secretaria</option></select></label>':'')+
+  '<p class="wide muted" id="usuario-gestao-status" role="status"></p>'+camposVinculoUsuario(uid,!vinculo||restaurar),
+  async d=>{
+   const escolas=[...document.querySelectorAll('#entry input[name="escolas"]:checked')].map(x=>x.value);
+   const dados=prepararPermissoes({...profile,id:user.uid},u,{perfil:u.perfil,ativo:String(u.ativo),gerenciar:String(u.gerenciar),...d,restaurar},escolas);
+   const plano=lerVinculoUsuario(uid,dados),batch=writeBatch(db);
+   batch.update(doc(db,'usuarios',uid),{...dados,alterado_por:user.uid,alterado_em:serverTimestamp()});
+   gravarPlanoUsuario(batch,plano);auditarUsuario(batch,uid,restaurar?'restaurar':'editar',u,dados);
+   await batch.commit();if(uid===user.uid)profile={...profile,...dados};
+  },['usuarios','profissionais','vinculos']);
+ const f=document.getElementById('entry');f.elements.namedItem('nome').value=u.nome||'';f.elements.namedItem('perfil').value=u.perfil;f.elements.namedItem('ativo').value=restaurar?'true':String(u.ativo===true);
+ if(f.elements.namedItem('gerenciar'))f.elements.namedItem('gerenciar').value=String(u.gerenciar===true);
+ if(f.elements.namedItem('especialidade_usuario'))f.elements.namedItem('especialidade_usuario').value=ficha?.especialidade||vinculo?.cargo||'';
+ configurarVinculoUsuario(uid,vinculo?.horarios||[]);
+ if(proprio){f.elements.namedItem('perfil').disabled=true;f.elements.namedItem('ativo').disabled=true;for(const el of f.querySelectorAll('[name="escolas"]'))el.disabled=true;}
+}
+function excluirUsuario(uid){
+ const u=cache.usuarios.find(x=>x.id===uid);if(!u||uid===user.uid||!podeEditarConta({...profile,id:user.uid},u))return showError(Error('Não é permitido excluir esta conta.'));
+ modal('Excluir acesso de '+safe(u.nome),
+  '<p class="wide">A conta sairá da lista ativa e perderá acesso ao sistema. Os vínculos serão encerrados e os atendimentos anteriores preservados. A administração poderá restaurar o cadastro.</p><label class="wide">Motivo da exclusão<textarea name="motivo" required maxlength="500"></textarea></label>',
+  async d=>{
+   const motivo=String(d.motivo||'').trim();if(!motivo||motivo.length>500)throw Error('Informe o motivo.');
+   const dados={...u,ativo:false,gerenciar:false,escolas:[],excluido:true},batch=writeBatch(db);
+   batch.update(doc(db,'usuarios',uid),{ativo:false,gerenciar:false,escolas:[],excluido:true,motivo_exclusao:motivo,excluido_por:user.uid,excluido_em:serverTimestamp(),alterado_por:user.uid,alterado_em:serverTimestamp()});
+   for(const v of cache.vinculos.filter(v=>v.uid===uid&&v.ativo===true))batch.update(doc(db,'vinculos',v.id),{ativo:false});
+   const convite=cache.convites_usuarios.find(c=>c.email===u.email);if(convite)batch.update(doc(db,'convites_usuarios',convite.id),{ativo:false});
+   auditarUsuario(batch,uid,'excluir',u,dados,motivo);await batch.commit();
+  },['usuarios','profissionais','vinculos','convites_usuarios']);
+}
+
 function openEdit(id){const a=cache.atendimentos.find(x=>x.id===id);if(!a||!(a.autor_uid===user.uid||profile.perfil==='superadmin'))return;modal('Editar / cancelar atendimento','<label class="wide">Observações<textarea name="texto" maxlength="5000" required>'+safe(a.texto)+'</textarea></label>'+select('status','Situação',[['realizado','Realizado'],['cancelado','Cancelado']])+field('motivo','Justificativa da alteração','text','required'),async d=>{const batch=writeBatch(db);batch.update(doc(db,'atendimentos',id),{status:d.status,motivo_ultima_alteracao:d.motivo,alterado_por:user.uid,alterado_em:serverTimestamp()});const revision=Number(cache.notas_atendimento.find(n=>n.id===id)?.revisao||1)+1;batch.update(doc(db,'notas_atendimento',id),{texto:d.texto,revisao:revision,atualizado_em:serverTimestamp()});batch.set(doc(db,'notas_versoes',id+'-'+revision),{atendimento_id:id,escola_id:a.escola_id,autor_uid:a.autor_uid,editado_por:user.uid,texto_anterior:a.texto||'',texto_novo:d.texto,justificativa:d.motivo,versao:revision,em:serverTimestamp()});await batch.commit()});document.querySelector('#entry [name=status]').value=a.status||'realizado'}
 initialize();
