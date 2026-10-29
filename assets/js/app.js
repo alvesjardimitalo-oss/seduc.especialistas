@@ -13,8 +13,8 @@ import {DIAS_JORNADA,jornadaDosCampos,conferirJornadaVisual} from './jornada-vis
 import {prepararCadastroAluno,consultarCEP,formatarCEP,formatarCPF,formatarTelefone} from './cadastro-alunos.mjs';
 import {conferirImportacao,conferirAlunosEspeciais,encontrarEscola,escolasImportacao} from './importacao-servidores.mjs';
 import {cpfValido,lerHorarios,gerarSlotsSemana,podeAgendar,dentroDaJornada} from './validacoes.mjs';
-import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import {getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import {initializeApp,deleteApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged,signOut,signInWithEmailAndPassword,sendPasswordResetEmail,createUserWithEmailAndPassword,setPersistence,inMemoryPersistence,deleteUser} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,writeBatch,runTransaction,serverTimestamp,query,where,orderBy,limit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const root=document.getElementById('app');
@@ -62,10 +62,28 @@ function showLogin(message=''){
  '<div class="auth-security-note" role="note"><strong>Proteção de dados e sigilo profissional</strong><p>Este sistema utiliza informações de alunos e responsáveis. Acesse apenas o necessário para suas funções, não compartilhe senhas, documentos, consultas ou relatórios, e mantenha a sessão protegida. Conforme a LGPD, os dados devem ser tratados para finalidades autorizadas e com segurança.</p><small>Os Termos de Uso são aceitos uma vez por versão. A confirmação será solicitada novamente apenas quando houver atualização.</small></div>'+
  (message?'<div class="alert" role="status">'+safe(message)+'</div>':'')+
  (pendente?'<div class="pending-profile"><strong>Conta aguardando liberação</strong><p>'+safe(user.email)+'</p><label>Identificador para a Secretaria</label><code>'+safe(user.uid)+'</code></div><button class="btn secondary auth-btn" id="trocar">Sair e trocar conta</button>':
- '<button class="btn auth-btn" id="google"><span class="google-mark" aria-hidden="true">G</span> Entrar com Google <span class="auth-arrow" aria-hidden="true">→</span></button>')+
+ '<button class="btn auth-btn" id="google"><span class="google-mark" aria-hidden="true">G</span> Entrar com Google <span class="auth-arrow" aria-hidden="true">→</span></button><div class="auth-divider">ou acesso temporário de homologação</div><form id="email-login" class="auth-email-form"><label>E-mail de teste<input type="email" name="email" required autocomplete="username" placeholder="usuario@seduc-teste.example"></label><label>Senha temporária<input type="password" name="senha" required autocomplete="current-password"></label><button class="btn secondary" type="submit">Entrar com e-mail e senha</button></form><button type="button" class="auth-reset-link" id="redefinir-senha">Esqueci minha senha</button>')+
  '<p class="auth-terms">Acesso restrito a profissionais autorizados pela Secretaria Municipal de Educação.</p></div></div></div>';
  if(pendente)document.getElementById('trocar').onclick=()=>signOut(auth).catch(showError);
- else document.getElementById('google').onclick=()=>signInWithPopup(auth,new GoogleAuthProvider()).catch(showError);
+ else{
+  document.getElementById('google').onclick=()=>signInWithPopup(auth,new GoogleAuthProvider()).catch(showError);
+  document.getElementById('email-login').onsubmit=async e=>{
+   e.preventDefault();const form=e.currentTarget,botao=form.querySelector('[type=submit]');
+   const email=String(form.elements.email.value||'').trim().toLowerCase();
+   const senha=form.elements.senha.value;
+   botao.disabled=true;
+   try{await signInWithEmailAndPassword(auth,email,senha)}catch(e){showError(e)}finally{botao.disabled=false}
+  };
+  document.getElementById('redefinir-senha').onclick=async()=>{
+   const email=prompt('Informe o e-mail real associado à conta. A redefinição só funciona se o endereço receber mensagens.');
+   if(email===null)return;
+   const endereco=String(email).trim().toLowerCase();
+   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(endereco))return showError(Error('Informe um e-mail válido.'));
+   if(endereco.endsWith('@seduc-teste.example'))return showError(Error('Contas fictícias de homologação não têm caixa postal. Quando os e-mails reais estiverem disponíveis, crie acessos definitivos e desative os testes.'));
+   try{await sendPasswordResetEmail(auth,endereco);alert('Se esta conta existir e puder receber mensagens, as instruções de redefinição serão enviadas ao endereço informado.')}
+   catch(e){showError(e)}
+  };
+ }
 }
 
 function textoAvisoSeguranca(){
