@@ -235,6 +235,7 @@ async function abrirTela(tela){
  const pendentes=(extras[tela]||[]).filter(key=>!colecoesCarregadas.has(key));
  try{if(pendentes.length)await refresh(pendentes)}catch(e){showError(e)}
  render();
+ if(tela==='Ficha do aluno')window.scrollTo(0,0);
 }
 function uiIcon(name,cls=''){
  const paths={
