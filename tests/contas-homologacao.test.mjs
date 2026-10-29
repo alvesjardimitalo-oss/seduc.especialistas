@@ -36,7 +36,7 @@ async function simularEntrada({central,local}){
  assert.ok(inicio>=0&&fim>inicio,'Fluxo de termos não encontrado');
  const root={innerHTML:''},elementos=new Map();let entradas=0;
  const deps={
-  user:{uid:'usuario-ficticio'},profile:{ativo:true},db:{},auth:{},TERMOS_VERSAO:'2026-10-28-v1',root,
+  versaoSessao:0,user:{uid:'usuario-ficticio'},profile:{ativo:true},db:{},auth:{},TERMOS_VERSAO:'2026-10-28-v1',root,
   getDoc:async()=>({exists:()=>central,data:()=>({versao:'2026-10-28-v1'})}),doc:()=>({}),
   termosAceitosNesteDispositivo:()=>local,registrarTermosNoDispositivo:()=>{},
   entrarAposTermos:async()=>{entradas++},showError:e=>{throw e},textoAvisoSeguranca:()=>'',

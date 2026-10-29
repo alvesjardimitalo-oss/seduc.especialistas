@@ -360,6 +360,38 @@ service cloud.firestore {
     }
   }
 
+  // Prototype: versioned current school enrollment, separate from clinical records.
+  function pages_validEnrollment(d,alunoId) {
+    return d.keys().hasAll(['aluno_id','escola_id','numero','ano_letivo','turma','turno','professor','revisao','atualizado_por','atualizado_em']) &&
+      d.keys().hasOnly(['aluno_id','escola_id','numero','ano_letivo','turma','turno','professor','revisao','atualizado_por','atualizado_em']) &&
+      d.aluno_id==alunoId && pages_validId(d.escola_id) && pages_validAluno(alunoId,d.escola_id) &&
+      d.numero is string && d.numero.size()<=100 && d.ano_letivo is int && d.ano_letivo>=2020 && d.ano_letivo<=2100 &&
+      d.turma is string && d.turma.size()>0 && d.turma.size()<=120 &&
+      d.turno in ['manha','tarde','noite','integral','outro'] &&
+      d.professor is string && d.professor.size()>0 && d.professor.size()<=180 &&
+      d.revisao is int && d.revisao>0 && d.atualizado_por==request.auth.uid && d.atualizado_em==request.time &&
+      getAfter(/databases/$(database)/documents/matriculas_atuais/$(alunoId)/historico/$(string(d.revisao))).data==d;
+  }
+  match /matriculas_atuais/{alunoId} {
+    allow get: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(
+      get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id));
+    allow list: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
+    allow create: if (pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
+      request.resource.data.revisao==1 && pages_validEnrollment(request.resource.data,alunoId);
+    allow update: if (pages_manage() || pages_specialistIn(resource.data.escola_id)) &&
+      request.resource.data.escola_id==resource.data.escola_id && request.resource.data.aluno_id==resource.data.aluno_id &&
+      request.resource.data.revisao==resource.data.revisao+1 && pages_validEnrollment(request.resource.data,alunoId);
+    allow delete: if false;
+    match /historico/{revisao} {
+      allow read: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(
+        get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id));
+      allow create: if (pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
+        revisao==string(request.resource.data.revisao) && pages_validEnrollment(request.resource.data,alunoId) &&
+        getAfter(/databases/$(database)/documents/matriculas_atuais/$(alunoId)).data==request.resource.data;
+      allow update,delete: if false;
+    }
+  }
+
   match /usuarios/{uid} {
     // Especialistas podem consultar pontualmente colegas ativos da mesma escola.
     allow get: if pages_logged() && (uid == request.auth.uid || pages_manage() ||

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/validacoes.test.mjs",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-seduc-tests 'node --test tests/firestore.rules.test.mjs'"
+    "test:rules": "firebase emulators:exec --only firestore --project demo-seduc-tests 'node --test tests/firestore.rules.test.mjs'",
+    "test:auth": "firebase emulators:exec --only auth,firestore --project demo-seduc-tests \"node tests/equipe-auth.integration.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^6.0.0",

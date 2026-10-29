@@ -9,8 +9,59 @@ const env=await initializeTestEnvironment({
  firestore:{rules:readFileSync(new URL('../firestore.rules',import.meta.url),'utf8')}
 });
 after(async()=>env.cleanup());
+await env.clearFirestore();
 const contexto=uid=>env.authenticatedContext(uid,{email:uid+'@exemplo.test'}).firestore();
 const contextoGoogle=(uid,email)=>env.authenticatedContext(uid,{email,email_verified:true,firebase:{sign_in_provider:'google.com'}}).firestore();
+
+await env.withSecurityRulesDisabled(async ctx=>{
+ const db=ctx.firestore();
+ const docs=[
+  ['usuarios/admin',{nome:'Administrador',email:'admin@exemplo.test',ativo:true,perfil:'superadmin',gerenciar:true,escolas:[]}],
+  ['usuarios/sec',{nome:'Gestora',email:'sec@exemplo.test',ativo:true,perfil:'secretaria',gerenciar:true,escolas:[]}],
+  ['usuarios/secview',{nome:'Secretaria consulta',email:'secview@exemplo.test',ativo:true,perfil:'secretaria',gerenciar:false,escolas:[]}],
+  ['usuarios/espA',{nome:'Especialista A',email:'espA@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['a']}],
+  ['usuarios/espB',{nome:'Especialista B',email:'espB@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['b']}],
+  ['usuarios/espC',{nome:'Especialista C',email:'espC@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['a']}],
+  ['usuarios/dirA',{nome:'Direção A',email:'dirA@exemplo.test',ativo:true,perfil:'direcao',gerenciar:false,escolas:['a']}],
+  ['usuarios/pendente',{nome:'Pendente',email:'pendente@exemplo.test',ativo:false,perfil:'pendente',gerenciar:false,escolas:[]}],
+  ['escolas/a',{nome:'Escola A',inep:'',telefone:'',endereco:'',email:''}],
+  ['escolas/b',{nome:'Escola B',inep:'',telefone:'',endereco:'',email:''}],
+  ['alunos/alunoA',{nome:'Aluno fictício A',escola_id:'a',nascimento:'2018-01-01',criado_por:'espA',ativo:true}],
+  ['alunos_privado/alunoA',{cpf:'',filiacao:'',telefone:'',endereco:'',escola_id:'a',criado_por:'espA'}],
+  ['vinculos/vinculoA',{uid:'espA',escola_id:'a',profissional_id:'profA',cargo:'Especialista',jornada:'20 horas',horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],slots_semana:[64,65,66,67,68,69,70,71],ativo:true}],
+  ['vinculos/vinculoC',{uid:'espC',escola_id:'a',profissional_id:'profC',cargo:'Especialista',jornada:'4 horas',horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],slots_semana:[64,65,66,67,68,69,70,71],ativo:true}],
+  ['atendimentos/atendimentoA',{escola_id:'a',aluno_id:'alunoA',autor_uid:'espA',autor_nome:'Especialista A',status:'realizado'}],
+  ['notas_atendimento/atendimentoA',{escola_id:'a',atendimento_id:'atendimentoA',autor_uid:'espA',texto:'Observação fictícia',revisao:1}]
+ ];
+ for(const [path,data] of docs)await setDoc(doc(db,path),data);
+});
+
+async function salvarMatriculaTeste(uid,revisao,extras={}){
+ const db=contexto(uid),b=writeBatch(db),d={aluno_id:'alunoA',escola_id:'a',numero:'MAT-TESTE',ano_letivo:2026,turma:'5º A',turno:'manha',professor:'Professora Fictícia',revisao,atualizado_por:uid,atualizado_em:serverTimestamp(),...extras};
+ b.set(doc(db,'matriculas_atuais','alunoA'),d);b.set(doc(db,'matriculas_atuais','alunoA','historico',String(revisao)),d);return b.commit();
+}
+test('matrícula atual pode ser criada e atualizada mantendo histórico por escola',async()=>{
+ await assertSucceeds(getDoc(doc(contexto('espA'),'matriculas_atuais','alunoA')));
+ await assertSucceeds(salvarMatriculaTeste('espA',1));await assertSucceeds(salvarMatriculaTeste('admin',2,{turma:'5º B',turno:'tarde'}));
+ const db=contexto('espC');assert.equal((await getDoc(doc(db,'matriculas_atuais','alunoA'))).data().turma,'5º B');
+ const h=await assertSucceeds(getDocs(collection(db,'matriculas_atuais','alunoA','historico')));assert.equal(h.size,2);
+ await assertFails(updateDoc(doc(contexto('admin'),'matriculas_atuais','alunoA','historico','1'),{professor:'Outra pessoa'}));
+});
+test('matrícula rejeita outra escola, revisão repetida, dados inválidos e atualização sem histórico',async()=>{
+ await assertFails(salvarMatriculaTeste('espB',3));await assertFails(salvarMatriculaTeste('espA',2));
+ await assertFails(salvarMatriculaTeste('espA',3,{turno:'inexistente'}));await assertFails(salvarMatriculaTeste('admin',3,{escola_id:'b'}));
+ await assertFails(updateDoc(doc(contexto('espA'),'matriculas_atuais','alunoA'),{turma:'Sem histórico',revisao:3,atualizado_por:'espA',atualizado_em:serverTimestamp()}));
+ await assertFails(getDoc(doc(contexto('espB'),'matriculas_atuais','alunoA')));
+ await assertFails(deleteDoc(doc(contexto('admin'),'matriculas_atuais','alunoA')));
+});
+test('especialistas da escola compartilham o consultório do aluno mantendo autoria e sigilo entre instituições',async()=>{
+ await env.withSecurityRulesDisabled(async c=>{
+  for(const uid of ['espA','espC'])await setDoc(doc(c.firestore(),'atendimentos','equipe-compartilhada-'+uid),{aluno_id:'alunoA',escola_id:'a',autor_uid:uid,status:'realizado'});
+ });
+ const lista=await assertSucceeds(getDocs(query(collection(contexto('espA'),'atendimentos'),where('escola_id','==','a'))));
+ assert.ok(lista.docs.some(s=>s.data().autor_uid==='espC'));assert.ok(lista.docs.some(s=>s.data().autor_uid==='espA'));
+ await assertFails(getDocs(query(collection(contexto('espB'),'atendimentos'),where('escola_id','==','a'))));
+});
 
 async function alvoExclusao(id,status='cancelado'){
  await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'agendamentos',id),{aluno_id:'alunoA',escola_id:'a',autor_uid:'espA',status}));
@@ -91,28 +142,7 @@ test('excluir acesso bloqueia sessão autenticada, preserva histórico e permite
  await assertSucceeds(getDoc(doc(contexto(uid),'alunos','alunoA')));
 });
 
-await env.withSecurityRulesDisabled(async ctx=>{
- const db=ctx.firestore();
- const docs=[
-  ['usuarios/admin',{nome:'Administrador',email:'admin@exemplo.test',ativo:true,perfil:'superadmin',gerenciar:true,escolas:[]}],
-  ['usuarios/sec',{nome:'Gestora',email:'sec@exemplo.test',ativo:true,perfil:'secretaria',gerenciar:true,escolas:[]}],
-  ['usuarios/secview',{nome:'Secretaria consulta',email:'secview@exemplo.test',ativo:true,perfil:'secretaria',gerenciar:false,escolas:[]}],
-  ['usuarios/espA',{nome:'Especialista A',email:'espA@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['a']}],
-  ['usuarios/espB',{nome:'Especialista B',email:'espB@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['b']}],
-  ['usuarios/espC',{nome:'Especialista C',email:'espC@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['a']}],
-  ['usuarios/dirA',{nome:'Direção A',email:'dirA@exemplo.test',ativo:true,perfil:'direcao',gerenciar:false,escolas:['a']}],
-  ['usuarios/pendente',{nome:'Pendente',email:'pendente@exemplo.test',ativo:false,perfil:'pendente',gerenciar:false,escolas:[]}],
-  ['escolas/a',{nome:'Escola A',inep:'',telefone:'',endereco:'',email:''}],
-  ['escolas/b',{nome:'Escola B',inep:'',telefone:'',endereco:'',email:''}],
-  ['alunos/alunoA',{nome:'Aluno fictício A',escola_id:'a',nascimento:'2018-01-01',criado_por:'espA',ativo:true}],
-  ['alunos_privado/alunoA',{cpf:'',filiacao:'',telefone:'',endereco:'',escola_id:'a',criado_por:'espA'}],
-  ['vinculos/vinculoA',{uid:'espA',escola_id:'a',profissional_id:'profA',cargo:'Especialista',jornada:'20 horas',horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],slots_semana:[64,65,66,67,68,69,70,71],ativo:true}],
-  ['vinculos/vinculoC',{uid:'espC',escola_id:'a',profissional_id:'profC',cargo:'Especialista',jornada:'4 horas',horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],slots_semana:[64,65,66,67,68,69,70,71],ativo:true}],
-  ['atendimentos/atendimentoA',{escola_id:'a',aluno_id:'alunoA',autor_uid:'espA',autor_nome:'Especialista A',status:'realizado'}],
-  ['notas_atendimento/atendimentoA',{escola_id:'a',atendimento_id:'atendimentoA',autor_uid:'espA',texto:'Observação fictícia',revisao:1}]
- ];
- for(const [path,data] of docs)await setDoc(doc(db,path),data);
-});
+
 
 
 test('gestão pré-autoriza especialista sem precisar do UID e mantém perfil restrito',async()=>{

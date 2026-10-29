@@ -27,7 +27,7 @@ test('início antecipado abre consulta com horário real, substitui cache antigo
 test('atualizações parciais substituem os registros, inclusive em múltiplos lotes de escolas',async()=>{
  const initial={escolas:Array.from({length:11},(_,i)=>({id:String(i)})),agendamentos:[{id:'antigo',status:'agendado'}],atendimentos:[],notas_atendimento:[]};
  let chamadas=0;
- const deps={aplicarExclusoes,canManage:()=>false,profile:{perfil:'especialista'},db:{},collection:(db,key)=>key,where:(...args)=>args,query:(...args)=>args,
+ const deps={versaoSessao:0,aplicarExclusoes,canManage:()=>false,profile:{perfil:'especialista'},db:{},collection:(db,key)=>key,where:(...args)=>args,query:(...args)=>args,
  getDocs:async()=>({docs:[{id:'novo'+(++chamadas%2),data:()=>({status:'em_atendimento'})}]}),colecoesCarregadas:new Set()};
  const executar=new Function('deps','initial',`const {${Object.keys(deps).join(',')}}=deps;let cache=initial,erroRelatorios,erroMetas,errosCarregamento;`+
  trecho('async function refresh(','async function abrirTela(')+';return {refresh,cache:()=>cache};');
