@@ -17,4 +17,4 @@ jobs:
       - run: npm --prefix functions ci
       - run: npm test
       - run: npm run build
-      - run: npx firebase emulators:exec --only firestore --project demo-seduc "node tests/firestore.integration.mjs"
+      - run: npx firebase emulators:exec --only firestore --project demo-seduc "node scripts/test-firestore.mjs"
