@@ -23,8 +23,8 @@ export function resumirAluno(alunoId,atendimentos=[],agendamentos=[],revisoes=[]
  const reavaliacao=avaliacoes.filter(x=>x.evolucao_observada==='reavaliacao_necessaria').length;
  const revisoesAluno=revisoes.filter(x=>x.aluno_id===alunoId);
  const metasAtingidas=revisoesAluno.filter(x=>x.status==='atingida').length;
- const profissionais=[...new Set(consultas.map(x=>x.autor_nome||x.autor_uid).filter(Boolean))];
- const especialidades=[...new Set(consultas.map(x=>x.especialidade).filter(Boolean))];
+ const profissionais=[...new Set([...consultas,...agenda].map(x=>x.autor_nome||x.autor_uid).filter(Boolean))];
+ const especialidades=[...new Set([...consultas,...agenda].map(x=>x.especialidade).filter(Boolean))];
  const datas=consultas.map(x=>dataRegistro(x.data||x.inicio)).filter(Boolean);
  return {
   consultas:consultas.length,faltasAluno:faltas.filter(x=>x.status==='falta_aluno').length,

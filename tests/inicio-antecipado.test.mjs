@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {aplicarExclusoes} from '../assets/js/perfil-acompanhamento.mjs';
 const source=readFileSync(new URL('../assets/js/app.js',import.meta.url),'utf8');
 const trecho=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b,source.indexOf(a)));
 test('início antecipado abre consulta com horário real, substitui cache antigo e retoma sem duplicar',async()=>{
@@ -26,7 +27,7 @@ test('início antecipado abre consulta com horário real, substitui cache antigo
 test('atualizações parciais substituem os registros, inclusive em múltiplos lotes de escolas',async()=>{
  const initial={escolas:Array.from({length:11},(_,i)=>({id:String(i)})),agendamentos:[{id:'antigo',status:'agendado'}],atendimentos:[],notas_atendimento:[]};
  let chamadas=0;
- const deps={canManage:()=>false,profile:{perfil:'especialista'},db:{},collection:(db,key)=>key,where:(...args)=>args,query:(...args)=>args,
+ const deps={aplicarExclusoes,canManage:()=>false,profile:{perfil:'especialista'},db:{},collection:(db,key)=>key,where:(...args)=>args,query:(...args)=>args,
  getDocs:async()=>({docs:[{id:'novo'+(++chamadas%2),data:()=>({status:'em_atendimento'})}]}),colecoesCarregadas:new Set()};
  const executar=new Function('deps','initial',`const {${Object.keys(deps).join(',')}}=deps;let cache=initial,erroRelatorios,erroMetas,errosCarregamento;`+
  trecho('async function refresh(','async function abrirTela(')+';return {refresh,cache:()=>cache};');

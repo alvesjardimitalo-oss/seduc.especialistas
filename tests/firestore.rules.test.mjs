@@ -12,6 +12,47 @@ after(async()=>env.cleanup());
 const contexto=uid=>env.authenticatedContext(uid,{email:uid+'@exemplo.test'}).firestore();
 const contextoGoogle=(uid,email)=>env.authenticatedContext(uid,{email,email_verified:true,firebase:{sign_in_provider:'google.com'}}).firestore();
 
+async function alvoExclusao(id,status='cancelado'){
+ await env.withSecurityRulesDisabled(c=>setDoc(doc(c.firestore(),'agendamentos',id),{aluno_id:'alunoA',escola_id:'a',autor_uid:'espA',status}));
+}
+function mudarExclusao(id,uid,ativo=true,{semEvento=false,extras={}}={}){
+ const db=contexto(uid),ref=doc(db,'consultas_excluidas','agendamentos_'+id),evento=doc(collection(ref,'historico')),b=writeBatch(db);
+ const atualizacao={ativo,alterado_por:uid,alterado_em:serverTimestamp(),ultimo_evento_id:evento.id};
+ if(ativo)b.set(ref,{...atualizacao,tipo:'agendamentos',registro_id:id,escola_id:'a',aluno_id:'alunoA',autor_uid:'espA',motivo:'Consulta de teste',...extras});
+ else b.update(ref,atualizacao);
+ if(!semEvento)b.set(evento,{acao:ativo?'excluir':'restaurar',autor_uid:uid,em:serverTimestamp(),motivo:'Solicitação de teste'});
+ return b.commit();
+}
+test('admin e profissional excluem consulta cancelada e podem restaurar preservando original e auditoria',async()=>{
+ for(const uid of ['admin','espA']){
+  const id='exclusao-'+uid;await alvoExclusao(id);await assertSucceeds(mudarExclusao(id,uid));
+  assert.equal((await getDoc(doc(contexto('admin'),'agendamentos',id))).data().status,'cancelado');
+  await assertSucceeds(mudarExclusao(id,uid,false));
+  assert.equal((await getDoc(doc(contexto(uid),'consultas_excluidas','agendamentos_'+id))).data().ativo,false);
+  const eventos=await getDocs(collection(contexto(uid),'consultas_excluidas','agendamentos_'+id,'historico'));assert.equal(eventos.size,2);
+  await assertFails(deleteDoc(eventos.docs[0].ref));
+ }
+});
+test('exclusão rejeita outra profissional, secretaria, alvo ativo, metadados falsos e operação sem auditoria',async()=>{
+ await alvoExclusao('negar-exclusao');
+ for(const uid of ['espB','espC','sec','secview','pendente'])await assertFails(mudarExclusao('negar-exclusao',uid));
+ await assertFails(mudarExclusao('negar-exclusao','admin',true,{semEvento:true}));
+ await assertFails(mudarExclusao('negar-exclusao','admin',true,{extras:{aluno_id:'outro'}}));
+ await alvoExclusao('exclusao-ativa','em_atendimento');await assertFails(mudarExclusao('exclusao-ativa','admin'));
+ await assertFails(mudarExclusao('nao-existe','admin'));
+});
+test('diagnóstico é registrado por profissional autorizada ou admin, versionado e restrito a escopo clínico',async()=>{
+ const d={aluno_id:'alunoA',escola_id:'a',diagnostico:'Diagnóstico fictício informado',origem:'Documento de teste',plano:'Objetivo fictício',data_documento:'2026-10-29',autor_uid:'espA',autor_nome:'Especialista A',criado_em:serverTimestamp()};
+ await assertSucceeds(setDoc(doc(contexto('espA'),'alunos_diagnosticos','diagnostico-teste'),d));
+ await assertSucceeds(getDocs(query(collection(contexto('espC'),'alunos_diagnosticos'),where('escola_id','==','a'))));
+ await assertFails(getDoc(doc(contexto('espB'),'alunos_diagnosticos','diagnostico-teste')));
+ await assertFails(getDoc(doc(contexto('dirA'),'alunos_diagnosticos','diagnostico-teste')));
+ await assertFails(getDoc(doc(contexto('sec'),'alunos_diagnosticos','diagnostico-teste')));
+ await assertFails(updateDoc(doc(contexto('espA'),'alunos_diagnosticos','diagnostico-teste'),{diagnostico:'Sobrescrito'}));
+ await assertFails(setDoc(doc(contexto('espA'),'alunos_diagnosticos','diagnostico-mal'),{...d,aluno_id:'alunoB'}));
+ await assertSucceeds(setDoc(doc(contexto('admin'),'alunos_diagnosticos','diagnostico-admin'),{...d,autor_uid:'admin',autor_nome:'Administrador'}));
+});
+
 test('admin salva delegação, nome e estado de acesso e não pode remover a própria administração',async()=>{
  const db=contexto('admin'),alvo=doc(db,'usuarios','gestao-nova');
  await env.withSecurityRulesDisabled(ctx=>setDoc(doc(ctx.firestore(),'usuarios','gestao-nova'),{nome:'Gestão Nova',email:'nova@exemplo.test',ativo:false,perfil:'pendente',escolas:[],gerenciar:false}));

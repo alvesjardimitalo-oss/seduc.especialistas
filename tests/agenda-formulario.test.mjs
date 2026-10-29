@@ -121,8 +121,8 @@ test('detalhes mostram Iniciar consulta para o UID correto e explicam outra cont
   user:{uid:'uid-correto',email:'ficticia@exemplo.test'},profile:{nome:'Profissional fictícia',perfil:'especialista',ativo:true},
   canWrite:()=>true,canManage:()=>false,avaliarAcessoConsulta,
   safe:v=>String(v??''),schoolName:()=> 'Escola fictícia',formatDate:()=> 'Data fictícia',professionalName:()=> 'Profissional fictícia',dataMs:()=>0,
-  showError:e=>{throw e},mostrarHistoricoAgendamento:()=>{},
-  document:{body:{insertAdjacentHTML:(pos,conteudo)=>{html=conteudo}},getElementById:()=>({querySelector:id=>id==='#fechar-agendamento'?{}:null})}
+  showError:e=>{throw e},mostrarHistoricoAgendamento:()=>{},botaoExcluirConsulta:()=>'',
+  document:{body:{insertAdjacentHTML:(pos,conteudo)=>{html=conteudo}},getElementById:()=>({querySelectorAll:()=>[],querySelector:id=>id==='#fechar-agendamento'?{}:null})}
  };
  vm.createContext(sandbox);vm.runInContext(app.slice(inicio,fim),sandbox);
  sandbox.abrirAgendamento('a1');
