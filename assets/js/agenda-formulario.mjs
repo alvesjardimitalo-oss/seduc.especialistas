@@ -58,3 +58,10 @@ export function diagnosticarProfissionaisDaEscola({escolaId,usuarios=[],vinculos
    habilitado:!motivo,motivo};
  }).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
 }
+
+export function avaliarAcessoConsulta({agendamento,uid,perfil,ativo}){
+ if(!uid||ativo!==true)return {codigo:'sem_acesso',mensagem:'Entre com uma conta ativa para acessar a consulta.'};
+ if(perfil!=='especialista')return {codigo:'consulta',mensagem:'Esta conta pode consultar a agenda. O atendimento deve ser iniciado pela especialista responsável.'};
+ if(!agendamento?.autor_uid||agendamento.autor_uid!==uid)return {codigo:'outra_conta',mensagem:'Esta consulta está vinculada a outra conta de acesso. O nome exibido pode ser igual, mas os identificadores das contas são diferentes. A Secretaria deve conferir a conta selecionada ao agendar.'};
+ return {codigo:'responsavel',mensagem:'Você está na conta responsável por esta consulta.'};
+}

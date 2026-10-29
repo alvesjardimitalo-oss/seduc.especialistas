@@ -7,7 +7,7 @@ import {resumirAluno,agruparConsultasPorAluno,etiquetasEvolucao} from './consult
 import {montarDocumentoAluno,montarDocumentoGerencial} from './relatorios-impressao.mjs';
 import {buscarAlunosDisponiveis} from './busca-alunos.mjs';
 import {montarGradeAgenda,diaLocal} from './agenda-calendario.mjs';
-import {listarProfissionaisDaEscola,horariosLivres,diagnosticarProfissionaisDaEscola} from './agenda-formulario.mjs';
+import {listarProfissionaisDaEscola,horariosLivres,diagnosticarProfissionaisDaEscola,avaliarAcessoConsulta} from './agenda-formulario.mjs';
 import {criarEmailAgendamento} from './notificacoes-email.mjs';
 import {DIAS_JORNADA,jornadaDosCampos,conferirJornadaVisual} from './jornada-visual.mjs';
 import {prepararCadastroAluno,consultarCEP,formatarCEP,formatarCPF,formatarTelefone} from './cadastro-alunos.mjs';
@@ -1090,6 +1090,7 @@ function abrirAgendamento(id){
  if(!a)return showError(Error('Agendamento não encontrado. Atualize a agenda.'));
  const estudante=cache.alunos.find(x=>x.id===a.aluno_id);
  const dono=canWrite()&&a.autor_uid===user.uid;
+ const acesso=avaliarAcessoConsulta({agendamento:a,uid:user.uid,perfil:profile.perfil,ativo:profile.ativo});
  const situacao={agendado:'Agendado',em_atendimento:'Em atendimento',realizado:'Realizado',cancelado:'Cancelado',remarcado:'Remarcado',falta_aluno:'Falta do aluno',falta_profissional:'Falta profissional'}[a.status]||a.status||'Não informada';
  const acoes=dono&&a.status==='agendado'
   ?'<button type="button" class="btn" id="iniciar-consulta">Iniciar consulta</button><button type="button" class="btn secondary" id="reagendar-consulta">Reagendar</button>'+(dataMs(a.inicio)<=Date.now()?'<button type="button" class="btn secondary" id="registrar-falta">Registrar falta</button>':'')+'<button type="button" class="btn secondary" id="cancelar-consulta">Cancelar</button>'
@@ -1110,6 +1111,8 @@ function abrirAgendamento(id){
   '<div><span>Profissional</span><strong>'+safe(a.autor_nome||professionalName(a.autor_uid))+'</strong></div>'+
   '<div><span>Data e horário</span><strong>'+safe(formatDate(a.inicio))+' · '+safe(a.duracao_min)+' minutos</strong></div>'+
   '<div><span>Especialidade</span><strong>'+safe(a.especialidade||'Não informada')+'</strong></div></div>'+
+  (!dono?'<div class="alert" role="status"><strong>Por que não aparece Iniciar consulta?</strong><p>'+safe(acesso.mensagem)+'</p><p>Conta logada: '+safe(profile.nome||user.displayName)+' · '+safe(user.email||profile.email||'')+'</p>'+
+   (canWrite()?'<details><summary>Identificadores para conferir com a Secretaria</summary><p>Seu acesso: <code>'+safe(user.uid)+'</code></p><p>Conta responsável pela consulta: <code>'+safe(a.autor_uid||'Não informada')+'</code></p><p>Entre com a conta responsável, ou peça à gestão para conferir o agendamento. O sistema não identifica uma profissional somente pelo nome.</p></details>':'')+'</div>':'')+
   (a.status==='em_atendimento'?'<p class="appointment-tip">Atendimento iniciado. Você pode continuar e registrar a evolução da consulta.</p>':'')+
   (a.motivo_falta?'<p class="appointment-tip"><strong>Justificativa de ausência:</strong> '+safe(a.motivo_falta)+'</p>':'')+
   (a.motivo_remarcacao?'<p class="appointment-tip"><strong>Motivo da remarcação:</strong> '+safe(a.motivo_remarcacao)+'</p>':'')+

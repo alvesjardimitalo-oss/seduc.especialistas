@@ -2,7 +2,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {horariosLivres,listarProfissionaisDaEscola,diagnosticarProfissionaisDaEscola} from '../assets/js/agenda-formulario.mjs';
+import {horariosLivres,listarProfissionaisDaEscola,diagnosticarProfissionaisDaEscola,avaliarAcessoConsulta} from '../assets/js/agenda-formulario.mjs';
 import {buscarAlunosDisponiveis} from '../assets/js/busca-alunos.mjs';
 const escola='a',usuario='espA';
 const vinculos=[{uid:'espA',escola_id:'a',ativo:true,horarios:[{dia:1,inicio:'08:00',fim:'12:00'}],cargo:'Psicopedagoga'}];
@@ -100,4 +100,14 @@ test('configurar uma conta existente cria ficha e jornada no mesmo lote sem cria
  assert.equal(operacoes[1].dados.uid,'espA');
  assert.equal(operacoes[1].dados.escola_id,'a');
  assert.equal(operacoes[1].dados.slots_semana.length,8);
+});
+
+test('mesmo nome não libera atendimento de outra conta; responsável usa UID do acesso',()=>{
+ const agendamento={autor_nome:'Profissional Fictícia',autor_uid:'conta-original',status:'agendado'};
+ const outra=avaliarAcessoConsulta({agendamento,uid:'outra-conta',perfil:'especialista',ativo:true});
+ assert.equal(outra.codigo,'outra_conta');assert.match(outra.mensagem,/identificadores/);
+ assert.equal(avaliarAcessoConsulta({agendamento,uid:'conta-original',perfil:'especialista',ativo:true}).codigo,'responsavel');
+ assert.equal(avaliarAcessoConsulta({agendamento,uid:'conta-original',perfil:'secretaria',ativo:true}).codigo,'consulta');
+ assert.equal(avaliarAcessoConsulta({agendamento,uid:'conta-original',perfil:'especialista',ativo:false}).codigo,'sem_acesso');
+ assert.equal(avaliarAcessoConsulta({agendamento:{},uid:'',perfil:'especialista',ativo:true}).codigo,'sem_acesso');
 });
