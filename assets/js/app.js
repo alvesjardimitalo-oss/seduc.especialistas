@@ -59,7 +59,7 @@ function showLogin(message=''){
  '<div class="auth-panel"><div class="auth-card"><div class="auth-mobile-brand"><span class="brand-symbol" aria-hidden="true">✳</span><strong>SEDUC Especialistas</strong></div>'+
  '<div class="auth-welcome"><span class="eyebrow">ACESSO À PLATAFORMA</span><h1>Bem-vindo(a) de volta</h1><p>Entre para acompanhar as atividades da rede de ensino.</p></div>'+
  '<div class="auth-warning"><span aria-hidden="true">ⓘ</span> Ambiente de homologação. Use apenas informações fictícias de alunos.</div>'+ 
- '<div class="auth-security-note" role="note"><strong>Proteção de dados e sigilo profissional</strong><p>Este sistema utiliza informações de alunos e responsáveis. Acesse apenas o necessário para suas funções, não compartilhe senhas, documentos, consultas ou relatórios, e mantenha a sessão protegida. Conforme a LGPD, os dados devem ser tratados para finalidades autorizadas e com segurança.</p><small>Após o login, será solicitado que você leia e confirme a ciência dos Termos de Uso e Responsabilidade.</small></div>'+
+ '<div class="auth-security-note" role="note"><strong>Proteção de dados e sigilo profissional</strong><p>Este sistema utiliza informações de alunos e responsáveis. Acesse apenas o necessário para suas funções, não compartilhe senhas, documentos, consultas ou relatórios, e mantenha a sessão protegida. Conforme a LGPD, os dados devem ser tratados para finalidades autorizadas e com segurança.</p><small>Os Termos de Uso são aceitos uma vez por versão. A confirmação será solicitada novamente apenas quando houver atualização.</small></div>'+
  (message?'<div class="alert" role="status">'+safe(message)+'</div>':'')+
  (pendente?'<div class="pending-profile"><strong>Conta aguardando liberação</strong><p>'+safe(user.email)+'</p><label>Identificador para a Secretaria</label><code>'+safe(user.uid)+'</code></div><button class="btn secondary auth-btn" id="trocar">Sair e trocar conta</button>':
  '<button class="btn auth-btn" id="google"><span class="google-mark" aria-hidden="true">G</span> Entrar com Google <span class="auth-arrow" aria-hidden="true">→</span></button>')+
@@ -76,14 +76,44 @@ function textoAvisoSeguranca(){
  '<p><strong>Responsabilidade:</strong> a confirmação abaixo registra ciência dos deveres de uso da plataforma. <strong>Não substitui a base legal de tratamento, o aviso de privacidade institucional nem eventual consentimento de pais ou responsáveis quando exigido.</strong></p></div>'+
  '<p class="privacy-law">Referência: <a target="_blank" rel="noopener noreferrer" href="https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm">Lei 13.709/2018 (LGPD)</a> — especialmente art. 14 para crianças e adolescentes.</p>';
 }
+function termosLocalKey(){
+ return 'seduc-termos-aceitos-'+(user?.uid||'nao-identificado')+'-'+TERMOS_VERSAO;
+}
+function termosAceitosNesteDispositivo(){
+ try{return localStorage.getItem(termosLocalKey())==='1'}catch{return false}
+}
+function registrarTermosNoDispositivo(){
+ try{localStorage.setItem(termosLocalKey(),'1')}catch{}
+}
+async function entrarAposTermos({gravado=true}={}){
+ let acessoRegistrado=true;
+ try{
+  await addDoc(collection(db,'acessos_sistema'),{
+   uid:user.uid,perfil:profile.perfil,evento:'login_confirmado',em:serverTimestamp()
+  });
+ }catch(e){acessoRegistrado=false;console.warn('Registro de acesso indisponível:',e.code||e.message)}
+ termosSessaoConfirmados=true;
+ await refresh();render();
+ if(!gravado||!acessoRegistrado){
+  const aviso=document.createElement('p');aviso.className='alert privacy-storage-warning';aviso.setAttribute('role','alert');
+  aviso.textContent='A ciência dos termos ou o log de acesso não pôde ser validado no registro central. A administração deve publicar as regras do Firestore antes do uso com dados reais.';
+  root.querySelector('.app-content')?.prepend(aviso);
+ }
+}
+
 async function mostrarTermosSeguranca(){
  if(!user||!profile?.ativo)return;
  let aceiteAnterior=false,registroDisponivel=true;
  try{const s=await getDoc(doc(db,'termos_aceites',user.uid+'_'+TERMOS_VERSAO));aceiteAnterior=s.exists()&&s.data()?.versao===TERMOS_VERSAO}
  catch(e){registroDisponivel=false;console.warn('Registro de ciência dos termos indisponível:',e.code||e.message)}
+ if(aceiteAnterior||termosAceitosNesteDispositivo()){
+  if(aceiteAnterior)registrarTermosNoDispositivo();
+  try{await entrarAposTermos({gravado:aceiteAnterior})}catch(e){showError(e)}
+  return;
+ }
  root.innerHTML='<div class="lgpd-gate"><section class="lgpd-panel" role="dialog" aria-modal="true" aria-labelledby="lgpd-title">'+
  '<span class="eyebrow">ACESSO SEGURO · LGPD</span><h1 id="lgpd-title">Proteção de dados e responsabilidade</h1>'+
- '<p class="muted">Antes de acessar informações de alunos, leia o aviso de segurança. Este lembrete aparece em cada login.</p>'+
+ '<p class="muted">Leia e aceite estes termos uma única vez nesta versão. Se os termos forem alterados, uma nova confirmação será solicitada.</p>'+
  textoAvisoSeguranca()+
  (!registroDisponivel?'<p class="alert" role="alert">Registro central de termos indisponível. A ciência poderá ser confirmada nesta sessão, mas sua gravação no Firestore ainda depende das regras publicadas.</p>':'')+
  '<label class="privacy-check"><input id="lgpd-confirmar" type="checkbox"><span>Li e compreendi os deveres de sigilo, uso autorizado e segurança da informação, e me comprometo a respeitá-los.</span></label>'+
@@ -110,21 +140,9 @@ async function mostrarTermosSeguranca(){
     registrado=false;
    }
   }
-  let acessoRegistrado=true;
-  try{
-   await addDoc(collection(db,'acessos_sistema'),{
-    uid:user.uid,perfil:profile.perfil,evento:'login_confirmado',em:serverTimestamp()
-   });
-  }catch(e){acessoRegistrado=false;console.warn('Registro de acesso indisponível:',e.code||e.message)}
-  termosSessaoConfirmados=true;
-  try{
-   await refresh();render();
-   if(!registrado||!acessoRegistrado){
-    const aviso=document.createElement('p');aviso.className='alert privacy-storage-warning';aviso.setAttribute('role','alert');
-    aviso.textContent='A ciência dos termos ou o log de acesso não foram persistidos. A administração precisa publicar e validar as regras do Firestore antes do uso com dados reais.';
-    root.querySelector('.app-content')?.prepend(aviso);
-   }
-  }catch(e){termosSessaoConfirmados=false;showError(e);button.disabled=false}
+  registrarTermosNoDispositivo();
+  try{await entrarAposTermos({gravado:registrado})}
+  catch(e){termosSessaoConfirmados=false;showError(e);button.disabled=false}
  };
 }
 
