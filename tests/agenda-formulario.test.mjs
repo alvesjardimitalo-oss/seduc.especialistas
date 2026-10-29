@@ -111,3 +111,24 @@ test('mesmo nome não libera atendimento de outra conta; responsável usa UID do
  assert.equal(avaliarAcessoConsulta({agendamento,uid:'conta-original',perfil:'especialista',ativo:false}).codigo,'sem_acesso');
  assert.equal(avaliarAcessoConsulta({agendamento:{},uid:'',perfil:'especialista',ativo:true}).codigo,'sem_acesso');
 });
+
+test('detalhes mostram Iniciar consulta para o UID correto e explicam outra conta',()=>{
+ const inicio=app.indexOf('function abrirAgendamento(id)');
+ const fim=app.indexOf('function abrirRegistroFalta(',inicio);
+ let html='';
+ const sandbox={
+  cache:{agendamentos:[{id:'a1',aluno_id:'al1',autor_uid:'uid-correto',autor_nome:'Profissional fictícia',status:'agendado',escola_id:'escola',inicio:new Date(),duracao_min:30}],alunos:[{id:'al1',nome:'Aluno fictício'}]},
+  user:{uid:'uid-correto',email:'ficticia@exemplo.test'},profile:{nome:'Profissional fictícia',perfil:'especialista',ativo:true},
+  canWrite:()=>true,canManage:()=>false,avaliarAcessoConsulta,
+  safe:v=>String(v??''),schoolName:()=> 'Escola fictícia',formatDate:()=> 'Data fictícia',professionalName:()=> 'Profissional fictícia',dataMs:()=>0,
+  showError:e=>{throw e},mostrarHistoricoAgendamento:()=>{},
+  document:{body:{insertAdjacentHTML:(pos,conteudo)=>{html=conteudo}},getElementById:()=>({querySelector:id=>id==='#fechar-agendamento'?{}:null})}
+ };
+ vm.createContext(sandbox);vm.runInContext(app.slice(inicio,fim),sandbox);
+ sandbox.abrirAgendamento('a1');
+ assert.ok(html.includes('id="iniciar-consulta"'));assert.ok(!html.includes('Por que não aparece'));
+ sandbox.user.uid='uid-diferente';
+ sandbox.abrirAgendamento('a1');
+ assert.ok(!html.includes('id="iniciar-consulta"'));assert.ok(html.includes('Por que não aparece Iniciar consulta?'));
+ assert.ok(html.includes('uid-diferente'));assert.ok(html.includes('uid-correto'));
+});

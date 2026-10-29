@@ -7,7 +7,7 @@ import {resumirAluno,agruparConsultasPorAluno,etiquetasEvolucao} from './consult
 import {montarDocumentoAluno,montarDocumentoGerencial} from './relatorios-impressao.mjs';
 import {buscarAlunosDisponiveis} from './busca-alunos.mjs';
 import {montarGradeAgenda,diaLocal} from './agenda-calendario.mjs';
-import {listarProfissionaisDaEscola,horariosLivres,diagnosticarProfissionaisDaEscola,avaliarAcessoConsulta} from './agenda-formulario.mjs';
+import {listarProfissionaisDaEscola,horariosLivres,diagnosticarProfissionaisDaEscola,avaliarAcessoConsulta} from './agenda-formulario.mjs?v=20261028-consulta10';
 import {criarEmailAgendamento} from './notificacoes-email.mjs';
 import {DIAS_JORNADA,jornadaDosCampos,conferirJornadaVisual} from './jornada-visual.mjs';
 import {prepararCadastroAluno,consultarCEP,formatarCEP,formatarCPF,formatarTelefone} from './cadastro-alunos.mjs';
