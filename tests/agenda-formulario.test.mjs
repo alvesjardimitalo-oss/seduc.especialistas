@@ -40,7 +40,7 @@ test('novo agendamento da gestao aparece na agenda e salva responsavel e ator se
   '+ Novo agendamento',
   'function formularioNovoAgendamento()',
   'function configurarFormularioNovoAgendamento()',
-  'async function abrirNovoAgendamento()',
+  'async function abrirNovoAgendamento(alunoId="")',
   'profissional_uid','aluno_id','dia_consulta','hora_consulta','agendado_por_uid',
   "registrarEvento(tx,'agendamento',ref.id,'agendado'"
  ];
