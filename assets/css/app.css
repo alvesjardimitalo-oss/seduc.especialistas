@@ -400,3 +400,18 @@ code{background:#eef5f7;color:#375568;padding:3px 6px;border-radius:5px;overflow
 .school-permission-list .check-school{display:flex;align-items:flex-start;gap:9px;margin:0;padding:9px;border:1px solid #e2eded;border-radius:9px;background:#fff;font-size:12px;line-height:1.5}
 .school-permission-list input[type=checkbox]{flex:none;width:17px;height:17px;min-width:17px;margin:0;accent-color:#0b837b}
 @media(max-width:740px){.users-onboarding{flex-direction:column;align-items:flex-start}.users-onboarding .actions{width:100%}.users-onboarding .actions .btn{width:100%}.school-permission-list{grid-template-columns:1fr}}
+
+/* Contas temporarias de homologacao: credenciais exibidas uma unica vez. */
+.auth-divider{text-align:center;margin:18px 0 12px;color:#8296a2;font-size:11px;font-weight:750}
+.auth-email-form{display:grid;gap:12px;margin:0 0 8px}
+.auth-email-form label{display:grid;gap:6px;text-align:left;font-weight:700;color:#476171;font-size:11px}
+.auth-email-form input{height:43px;border:1px solid #d8e4e9;border-radius:9px;padding:9px 12px;font-size:13px;background:#fff;color:#263f51}
+.auth-email-form button{width:100%;min-height:43px}
+.auth-reset-link{width:100%;padding:7px 0;border:0;background:none;color:#0c8079;font-size:11px;font-weight:750;cursor:pointer}
+.auth-reset-link:hover{text-decoration:underline}
+.test-credentials{display:flex;justify-content:space-between;align-items:center;gap:18px;background:#f4fbf5;border:1px solid #a8dac2}
+.test-credentials h3{font-size:17px;color:#0a7263}
+.test-credentials p{font-size:12px;line-height:1.6;margin:6px 0}
+.test-credentials code{word-break:break-all;color:#2b5362}
+.test-credentials .actions{flex-wrap:wrap}
+@media(max-width:760px){.test-credentials{flex-direction:column;align-items:stretch}.test-credentials .actions{justify-content:flex-start}}
