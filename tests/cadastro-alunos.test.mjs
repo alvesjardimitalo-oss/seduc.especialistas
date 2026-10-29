@@ -60,5 +60,6 @@ test('aviso LGPD exige confirmação para continuar e consta no tutorial',()=>{
  assert.match(app,/button\.disabled=!checkbox\.checked/);
  assert.match(app,/await mostrarTermosSeguranca\(\)/);
  assert.match(app,/textoAvisoSeguranca\(\)/);
- assert.match(app,/Termos de Uso e Responsabilidade/);
+ assert.match(app,/Os Termos de Uso são aceitos uma vez por versão/);
+ assert.match(app,/termosAceitosNesteDispositivo\(\)/);
 });
