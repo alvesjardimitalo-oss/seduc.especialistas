@@ -1922,7 +1922,7 @@ async function alternarConvite(email){
 }
 
 function camposVinculoUsuario(uid='',aplicar=true){
- const fichas=cache.profissionais.filter(p=>!p.uid||p.uid===uid),ficha=cache.profissionais.find(p=>p.uid===uid);
+ const fichas=cache.profissionais.filter(p=>!p.uid||p.uid===uid),ficha=uid?cache.profissionais.find(p=>p.uid===uid):null;
  return '<div class="wide" id="usuario-vinculo"><h3>Ficha profissional e vínculo</h3><p class="muted">Salve o acesso, a ficha e a jornada juntos. A mesma escala será aplicada às escolas selecionadas; vínculos anteriores ficam preservados.</p>'+
   '<label class="check-school"><input type="checkbox" name="aplicar_vinculo" value="sim" '+(aplicar?'checked':'')+'> Criar ou atualizar vínculos profissionais neste cadastro</label>'+
   '<div id="usuario-vinculo-campos"><label>Ficha profissional<select name="ficha_profissional"><option value="">Criar ficha automaticamente</option>'+fichas.map(p=>'<option value="'+safe(p.id)+'" '+(p.id===ficha?.id?'selected':'')+'>'+safe(p.nome)+'</option>').join('')+'</select></label>'+
