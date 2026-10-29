@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env*
+!.env.example
+.firebase/
+*-debug.log
+.local/
+playwright-report/
+test-results/
+.test-results/
