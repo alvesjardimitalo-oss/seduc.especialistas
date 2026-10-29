@@ -1782,6 +1782,14 @@ function abrirCriacaoContaTeste(){
    if(nome.length<3||nome.length>180)throw Error('Informe uma identificação válida.');
    const escolas=[...new Set([...document.querySelectorAll('#entry input[name="escolas"]:checked')].map(x=>x.value))];
    if(!escolas.length||escolas.some(id=>!cache.escolas.some(e=>e.id===id)))throw Error('Selecione escolas válidas.');
+   // Verificação sob demanda: não cria uma conta no Authentication se a versão
+   // das regras ainda não permite à gestão consultar a coleção de convites.
+   try{
+    await getDocs(query(collection(db,'convites_usuarios'),limit(1)));
+   }catch(e){
+    if(e.code==='permission-denied')throw Error('As regras de segurança atualizadas ainda não estão publicadas no Firebase. Publique o arquivo firestore.rules do projeto antes de criar acessos temporários. Nenhuma conta foi criada.');
+    throw e;
+   }
    const email=criarIdentidadeTemporaria(nome),senha=senhaSeguraTemporaria();
    const appTemporario=initializeApp(firebaseConfig,'seduc-homolog-'+Date.now()+'-'+Math.floor(Math.random()*1000000));
    const autenticarTeste=getAuth(appTemporario);
@@ -1799,6 +1807,7 @@ function abrirCriacaoContaTeste(){
    }catch(e){
     if(conta&&!perfilGravado)try{await deleteUser(conta)}catch(erro){console.error('Falha ao limpar conta de teste:',erro.code||erro.message)}
     if(e.code==='auth/operation-not-allowed')throw Error('Ative o provedor E-mail/Senha em Firebase Authentication → Método de login para criar contas de homologação.');
+    if(e.code==='permission-denied')throw Error('O Firestore bloqueou o perfil da conta temporária. Confirme a publicação das regras atualizadas em seduc-especialistas (Firestore → Regras). O usuário de teste criado no Authentication foi descartado quando possível.');
     throw e;
    }finally{
     try{await signOut(autenticarTeste)}catch{}
