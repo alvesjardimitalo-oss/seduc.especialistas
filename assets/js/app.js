@@ -125,7 +125,7 @@ async function mostrarTermosSeguranca(){
  let aceiteAnterior=false,registroDisponivel=true;
  try{const s=await getDoc(doc(db,'termos_aceites',user.uid+'_'+TERMOS_VERSAO));aceiteAnterior=s.exists()&&s.data()?.versao===TERMOS_VERSAO}
  catch(e){registroDisponivel=false;console.warn('Registro de ciência dos termos indisponível:',e.code||e.message)}
- if(aceiteAnterior||termosAceitosNesteDispositivo()){
+ if(aceiteAnterior){
   if(aceiteAnterior)registrarTermosNoDispositivo();
   try{await entrarAposTermos({gravado:aceiteAnterior})}catch(e){showError(e)}
   return;
