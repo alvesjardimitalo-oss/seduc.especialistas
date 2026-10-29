@@ -32,7 +32,7 @@ jobs:
           node --check assets/js/profissionais-visao.mjs
           node --check tests/firestore.rules.test.mjs
       - name: Validar regras de negócio
-        run: node --test tests/contas-homologacao.test.mjs tests/convites-interface.test.mjs tests/jornada-visual.test.mjs tests/agenda-formulario.test.mjs tests/agenda-auditoria.test.mjs tests/cadastro-alunos.test.mjs tests/busca-alunos.test.mjs tests/agendamento-interface.test.mjs tests/consultas-resumo.test.mjs tests/validacoes.test.mjs tests/firebase-config.test.mjs tests/importacao-servidores.test.mjs tests/importacao-alunos.test.mjs tests/profissionais-visao.test.mjs tests/relatorios.test.mjs tests/aluno-historico.test.mjs tests/evolucao.test.mjs tests/gestao-agenda.test.mjs tests/gestao-usuarios.test.mjs tests/inicio-antecipado.test.mjs tests/perfil-acompanhamento.test.mjs
+        run: node --test tests/contas-homologacao.test.mjs tests/convites-interface.test.mjs tests/jornada-visual.test.mjs tests/agenda-formulario.test.mjs tests/agenda-auditoria.test.mjs tests/cadastro-alunos.test.mjs tests/busca-alunos.test.mjs tests/agendamento-interface.test.mjs tests/consultas-resumo.test.mjs tests/validacoes.test.mjs tests/firebase-config.test.mjs tests/importacao-servidores.test.mjs tests/importacao-alunos.test.mjs tests/profissionais-visao.test.mjs tests/relatorios.test.mjs tests/aluno-historico.test.mjs tests/evolucao.test.mjs tests/gestao-agenda.test.mjs tests/gestao-usuarios.test.mjs tests/inicio-antecipado.test.mjs tests/perfil-acompanhamento.test.mjs tests/ficha-aluno.test.mjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
