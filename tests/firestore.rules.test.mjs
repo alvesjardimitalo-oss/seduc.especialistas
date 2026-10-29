@@ -450,6 +450,8 @@ test('profissional inicia e conclui consulta pelo agendamento sem duplicar atend
  const ag=await assertSucceeds(getDoc(doc(db,'agendamentos',id)));
  const visita=await assertSucceeds(getDoc(doc(db,'atendimentos','agenda_'+id)));
  assert.equal(ag.data().status,'realizado');
+ assert.ok(ag.data().iniciado_em.toMillis()<inicio.getTime(),'A profissional pode antecipar a consulta');
+ assert.equal(ag.data().inicio.toMillis(),inicio.getTime(),'Preserva o horário originalmente agendado');
  assert.equal(visita.data().agendamento_id,id);
  await assertFails(updateDoc(doc(db,'agendamentos',id),{status:'em_atendimento'}));
  await assertFails(updateDoc(doc(db,'agendamentos',id),{status:'cancelado'}));

@@ -28,7 +28,9 @@ test('navegação de calendário usa dados do cache e tem trilha de auditoria',(
   'data-action="atendimento"','agenda-active-user','agendaDiaSelecionado',
   'function registrarEvento(','registrarEvento(tx,\'agendamento\',id,\'reagendado\'',
   'async function mostrarHistoricoAgendamento','cacheHistoricos.has(id)',
-  'async function refresh(colecoes=null)',"await refresh(['agendamentos'])"
+  'async function refresh(colecoes=null)'
  ];
  for(const trecho of esperados)assert.ok(sourceApp.includes(trecho),'Trecho ausente: '+trecho);
+ const calendario=sourceApp.slice(sourceApp.indexOf('function calendarioAgenda(lista)'),sourceApp.indexOf('function calendarioAgenda(lista)')+1500);
+ assert.ok(!calendario.includes('getDocs('),'Navegar pelo calendário não deve reler a coleção');
 });

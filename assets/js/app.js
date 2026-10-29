@@ -213,6 +213,7 @@ async function refresh(colecoes=null){
    if(manager){if(profile.perfil==='secretaria'&&['notas_atendimento','alunos_privado'].includes(key))continue;if(key==='alunos_necessidades'&&profile.perfil!=='superadmin')continue;const r=await getDocs(collection(db,key));out[key]=r.docs.map(d=>({id:d.id,...d.data()}));continue}
    if(key==='profissionais'||key==='usuarios'||key==='servidores'||(key==='alunos_necessidades'&&profile.perfil!=='especialista')||(key==='notas_atendimento'&&profile.perfil!=='especialista')){continue}
    // Firestore rules don't filter query results. Restrict every read to authorized school IDs.
+   out[key]=[];
    for(let i=0;i<ids.length;i+=10){
     const chunk=ids.slice(i,i+10);if(!chunk.length)continue;
     const r=await getDocs(query(collection(db,key),where('escola_id','in',chunk)));
@@ -1123,7 +1124,8 @@ function abrirAgendamento(id){
   '<div><span>Especialidade</span><strong>'+safe(a.especialidade||'Não informada')+'</strong></div></div>'+
   (!dono?'<div class="alert" role="status"><strong>Por que não aparece Iniciar consulta?</strong><p>'+safe(acesso.mensagem)+'</p><p>Conta logada: '+safe(profile.nome||user.displayName)+' · '+safe(user.email||profile.email||'')+'</p>'+
    (canWrite()?'<details><summary>Identificadores para conferir com a Secretaria</summary><p>Seu acesso: <code>'+safe(user.uid)+'</code></p><p>Conta responsável pela consulta: <code>'+safe(a.autor_uid||'Não informada')+'</code></p><p>Entre com a conta responsável, ou peça à gestão para conferir o agendamento. O sistema não identifica uma profissional somente pelo nome.</p></details>':'')+'</div>':'')+
-  (a.status==='em_atendimento'?'<p class="appointment-tip">Atendimento iniciado. Você pode continuar e registrar a evolução da consulta.</p>':'')+
+  (a.status==='agendado'?'<p class="appointment-tip">A profissional responsável pode iniciar antes do horário agendado. O sistema registra o início real e preserva o horário previsto.</p>':'')+
+  (a.status==='em_atendimento'?'<p class="appointment-tip">Atendimento iniciado em '+safe(formatDate(a.iniciado_em))+'. Você pode continuar e registrar a evolução da consulta.</p>':'')+
   (a.motivo_falta?'<p class="appointment-tip"><strong>Justificativa de ausência:</strong> '+safe(a.motivo_falta)+'</p>':'')+
   (a.motivo_cancelamento?'<p class="appointment-tip"><strong>Motivo do cancelamento:</strong> '+safe(a.motivo_cancelamento)+'</p>':'')+
   (a.motivo_remarcacao?'<p class="appointment-tip"><strong>Motivo da remarcação:</strong> '+safe(a.motivo_remarcacao)+'</p>':'')+
@@ -1236,11 +1238,16 @@ async function iniciarConsultaAgendada(id){
   if(!snap.exists())throw Error('Agendamento não encontrado.');
   const a=snap.data();
   if(a.autor_uid!==user.uid)throw Error('Somente a profissional responsável pode iniciar a consulta.');
+  if(a.status==='em_atendimento')return;
   if(a.status!=='agendado')throw Error('Esta consulta não está mais disponível para iniciar. Atualize a agenda.');
   tx.update(ref,{status:'em_atendimento',iniciado_em:serverTimestamp()});
   registrarEvento(tx,'agendamento',id,'iniciado',a,'agendado','em_atendimento');
  });
- await refresh(['agendamentos']);render();
+ // Read only the changed appointment, including its server-confirmed actual start.
+ const atualizado=await getDoc(ref);
+ if(!atualizado.exists())throw Error('Agendamento não encontrado após o início.');
+ const dados={id:atualizado.id,...atualizado.data()};
+ cache.agendamentos=[...cache.agendamentos.filter(a=>a.id!==id),dados];render();
 }
 function abrirConsultaAgendada(id){
  const a=cache.agendamentos.find(x=>x.id===id);
@@ -1249,7 +1256,7 @@ function abrirConsultaAgendada(id){
  }
  const aluno=cache.alunos.find(x=>x.id===a.aluno_id);
  modal('Consulta em andamento',
-  '<div class="wide consult-info"><strong>'+safe(aluno?.nome||'Aluno')+'</strong><span>'+safe(schoolName(a.escola_id))+' · '+safe(a.especialidade)+' · '+safe(formatDate(a.inicio))+'</span></div>'+
+  '<div class="wide consult-info"><strong>'+safe(aluno?.nome||'Aluno')+'</strong><span>'+safe(schoolName(a.escola_id))+' · '+safe(a.especialidade)+'</span><span>Horário agendado: '+safe(formatDate(a.inicio))+'</span><span>Início real: '+safe(formatDate(a.iniciado_em))+'</span></div>'+
   camposRegistroConsulta()+
   '<p class="wide muted">Ao finalizar, o registro será salvo e vinculado à consulta. Se fechar sem concluir, a consulta continuará em andamento; textos não finalizados não são salvos.</p>',
   async d=>finalizarConsultaAgendada(id,registroConsultaTexto(d),d.evolucao_observada),['agendamentos','atendimentos','notas_atendimento']);
