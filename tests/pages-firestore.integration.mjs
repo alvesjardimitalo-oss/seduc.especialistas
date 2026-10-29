@@ -12,6 +12,44 @@ after(async()=>env.cleanup());
 const contexto=uid=>env.authenticatedContext(uid,{email:uid+'@exemplo.test'}).firestore();
 const contextoGoogle=(uid,email)=>env.authenticatedContext(uid,{email,email_verified:true,firebase:{sign_in_provider:'google.com'}}).firestore();
 
+test('admin salva delegação, nome e estado de acesso e não pode remover a própria administração',async()=>{
+ const db=contexto('admin'),alvo=doc(db,'usuarios','gestao-nova');
+ await env.withSecurityRulesDisabled(ctx=>setDoc(doc(ctx.firestore(),'usuarios','gestao-nova'),{nome:'Gestão Nova',email:'nova@exemplo.test',ativo:false,perfil:'pendente',escolas:[],gerenciar:false}));
+ await assertSucceeds(updateDoc(alvo,{nome:'Secretaria Nova',perfil:'secretaria',ativo:true,gerenciar:true,escolas:[],excluido:false,alterado_por:'admin',alterado_em:serverTimestamp()}));
+ assert.equal((await getDoc(alvo)).data().gerenciar,true);
+ await assertSucceeds(getDocs(collection(contexto('gestao-nova'),'usuarios')));
+ await assertFails(updateDoc(doc(db,'usuarios','admin'),{ativo:false,alterado_por:'admin',alterado_em:serverTimestamp()}));
+ await assertFails(updateDoc(alvo,{email:'trocado@exemplo.test',alterado_por:'admin',alterado_em:serverTimestamp()}));
+ await assertFails(updateDoc(doc(contexto('sec'),'usuarios','gestao-nova'),{ativo:false,gerenciar:false,alterado_por:'sec',alterado_em:serverTimestamp()}));
+});
+
+test('cadastro de usuário, ficha, jornada e auditoria é atômico e histórico não pode ser apagado',async()=>{
+ const db=contexto('admin'),uid='conta-integrada',batch=writeBatch(db);
+ const dados={nome:'Profissional Integrada',email:'integrada@seduc-teste.example',ativo:true,perfil:'especialista',gerenciar:false,escolas:['a'],conta_teste:true,teste_criado_por:'admin',criado_em:serverTimestamp()};
+ batch.set(doc(db,'usuarios',uid),dados);
+ batch.set(doc(db,'profissionais','integrada'),{nome:dados.nome,uid,especialidade:'Fono',escolas:['a']});
+ batch.set(doc(db,'vinculos','integrado'),{uid,profissional_id:'integrada',escola_id:'a',cargo:'Fono',jornada:'10 horas',horarios:[{dia:3,inicio:'07:00',fim:'17:00'}],slots_semana:[158],ativo:true});
+ const evento=doc(db,'usuarios',uid,'historico','criacao');
+ batch.set(evento,{acao:'criar',alvo_uid:uid,autor_uid:'admin',criado_em:serverTimestamp(),perfil_anterior:'',perfil_novo:'especialista',ativo_anterior:false,ativo_novo:true,gerenciar_anterior:false,gerenciar_novo:false,escolas_anteriores:[],escolas_novas:['a'],motivo:''});
+ await assertSucceeds(batch.commit());
+ await assertSucceeds(getDoc(doc(contexto(uid),'vinculos','integrado')));
+ await assertFails(deleteDoc(evento));await assertFails(updateDoc(evento,{motivo:'alterado'}));
+ const falha=writeBatch(db);falha.update(doc(db,'usuarios',uid),{nome:'Não deve persistir',alterado_por:'admin',alterado_em:serverTimestamp()});falha.set(doc(db,'profissionais','invalido'),{nome:'Inválido',segredo:'campo proibido'});
+ await assertFails(falha.commit());assert.equal((await getDoc(doc(db,'usuarios',uid))).data().nome,dados.nome);
+});
+
+test('excluir acesso bloqueia sessão autenticada, preserva histórico e permite restauração',async()=>{
+ const uid='exclusao-conta',db=contexto('admin');
+ await env.withSecurityRulesDisabled(ctx=>setDoc(doc(ctx.firestore(),'usuarios',uid),{nome:'Conta Excluir',email:'excluir@exemplo.test',perfil:'especialista',ativo:true,gerenciar:false,escolas:['a']}));
+ await assertSucceeds(getDoc(doc(contexto(uid),'alunos','alunoA')));
+ await assertSucceeds(updateDoc(doc(db,'usuarios',uid),{ativo:false,gerenciar:false,escolas:[],excluido:true,motivo_exclusao:'Fim do acesso',excluido_por:'admin',excluido_em:serverTimestamp(),alterado_por:'admin',alterado_em:serverTimestamp()}));
+ await assertFails(getDoc(doc(contexto(uid),'alunos','alunoA')));
+ await assertFails(deleteDoc(doc(db,'usuarios',uid)));
+ await assertFails(updateDoc(doc(db,'usuarios',uid),{ativo:true,alterado_por:'admin',alterado_em:serverTimestamp()}));
+ await assertSucceeds(updateDoc(doc(db,'usuarios',uid),{ativo:true,excluido:false,escolas:['a'],alterado_por:'admin',alterado_em:serverTimestamp()}));
+ await assertSucceeds(getDoc(doc(contexto(uid),'alunos','alunoA')));
+});
+
 await env.withSecurityRulesDisabled(async ctx=>{
  const db=ctx.firestore();
  const docs=[
