@@ -298,6 +298,68 @@ service cloud.firestore {
        request.resource.data.gerenciar_novo == false));
     allow update,delete: if false;
   }
+  // Prototype: clinician-entered diagnosis versions, no automated clinical inference.
+  function pages_validDiagnosis(d) {
+    return d.keys().hasAll(['aluno_id','escola_id','diagnostico','origem','plano','data_documento','autor_uid','autor_nome','criado_em']) &&
+      d.keys().hasOnly(['aluno_id','escola_id','diagnostico','origem','plano','data_documento','autor_uid','autor_nome','criado_em']) &&
+      pages_validId(d.aluno_id) && pages_validId(d.escola_id) &&
+      d.diagnostico is string && d.diagnostico.size()>0 && d.diagnostico.size()<=1000 &&
+      d.origem is string && d.origem.size()>0 && d.origem.size()<=300 &&
+      d.plano is string && d.plano.size()>0 && d.plano.size()<=3000 &&
+      d.data_documento is string && (d.data_documento=='' || d.data_documento.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')) &&
+      d.autor_uid==request.auth.uid && d.autor_nome==pages_me().nome &&
+      d.autor_nome is string && d.autor_nome.size()>0 && d.autor_nome.size()<=180 && d.criado_em==request.time &&
+      pages_validAluno(d.aluno_id,d.escola_id);
+  }
+  match /alunos_diagnosticos/{id} {
+    allow get,list: if pages_admin() || pages_specialistIn(resource.data.escola_id);
+    allow create: if (pages_admin() || pages_specialistIn(request.resource.data.escola_id)) && pages_validDiagnosis(request.resource.data);
+    // Updating a diagnosis creates an immutable new version instead.
+    allow update,delete: if false;
+  }
+  function pages_exclusionTarget(d) {
+    return /databases/$(database)/documents/$(d.tipo)/$(d.registro_id);
+  }
+  function pages_canExclude(d) {
+    return pages_admin() || (pages_specialistIn(d.escola_id) && d.autor_uid==request.auth.uid);
+  }
+  function pages_validExclusion(d,id) {
+    let alvo=get(pages_exclusionTarget(d)).data;
+    let evento=getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)/historico/$(d.ultimo_evento_id)).data;
+    return d.keys().hasAll(['tipo','registro_id','escola_id','aluno_id','autor_uid','ativo','motivo','alterado_por','alterado_em','ultimo_evento_id']) &&
+      d.keys().hasOnly(['tipo','registro_id','escola_id','aluno_id','autor_uid','ativo','motivo','alterado_por','alterado_em','ultimo_evento_id']) &&
+      d.tipo in ['agendamentos','atendimentos'] && pages_validId(d.registro_id) &&
+      id==d.tipo+'_'+d.registro_id && pages_validId(d.ultimo_evento_id) && d.ativo is bool &&
+      d.escola_id==alvo.escola_id && d.aluno_id==alvo.aluno_id && d.autor_uid==alvo.autor_uid &&
+      alvo.status in ['cancelado','realizado','remarcado','falta_aluno','falta_profissional'] &&
+      d.motivo is string && d.motivo.size()>0 && d.motivo.size()<=500 &&
+      d.alterado_por==request.auth.uid && d.alterado_em==request.time &&
+      evento.autor_uid==request.auth.uid && evento.em==request.time &&
+      evento.acao==(d.ativo?'excluir':'restaurar');
+  }
+  match /consultas_excluidas/{id} {
+    allow get,list: if pages_active() && (pages_admin() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
+    allow create: if pages_canExclude(request.resource.data) && request.resource.data.ativo==true && pages_validExclusion(request.resource.data,id);
+    allow update: if pages_canExclude(resource.data) && pages_validExclusion(request.resource.data,id) &&
+      request.resource.data.ativo!=resource.data.ativo &&
+      request.resource.data.ultimo_evento_id!=resource.data.ultimo_evento_id &&
+      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo','motivo','alterado_por','alterado_em','ultimo_evento_id']);
+    allow delete: if false;
+    match /historico/{eventoId} {
+      allow read: if pages_canExclude(get(/databases/$(database)/documents/consultas_excluidas/$(id)).data);
+      allow create: if request.resource.data.keys().hasAll(['acao','autor_uid','em','motivo']) &&
+        request.resource.data.keys().hasOnly(['acao','autor_uid','em','motivo']) &&
+        request.resource.data.acao in ['excluir','restaurar'] && request.resource.data.autor_uid==request.auth.uid && request.resource.data.em==request.time &&
+        request.resource.data.motivo is string && request.resource.data.motivo.size()>0 && request.resource.data.motivo.size()<=500 &&
+        pages_canExclude(getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data) &&
+        getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data.ultimo_evento_id==eventoId &&
+        getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data.alterado_por==request.auth.uid &&
+        getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data.alterado_em==request.time &&
+        request.resource.data.acao==(getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data.ativo?'excluir':'restaurar');
+      allow update,delete: if false;
+    }
+  }
+
   match /usuarios/{uid} {
     // Especialistas podem consultar pontualmente colegas ativos da mesma escola.
     allow get: if pages_logged() && (uid == request.auth.uid || pages_manage() ||
