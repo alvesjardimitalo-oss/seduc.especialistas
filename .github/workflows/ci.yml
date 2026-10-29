@@ -18,3 +18,4 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx firebase emulators:exec --only firestore --project demo-seduc "node scripts/test-firestore.mjs"
+      - run: npx firebase emulators:exec --only auth,firestore --project demo-seduc-tests "node tests/equipe-auth.integration.mjs"

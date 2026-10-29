@@ -22,6 +22,7 @@ const env = await initializeTestEnvironment({
   projectId: "demo-seduc",
   firestore: { rules: await readFile("firestore.rules", "utf8") },
 });
+await env.clearFirestore();
 const profiles = {
   root: {
     id: "root",
