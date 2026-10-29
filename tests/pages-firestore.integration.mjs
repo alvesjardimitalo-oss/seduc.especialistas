@@ -602,3 +602,71 @@ test('metas e revisões recusam troca de autoria, órfãos, campos inválidos e 
  await assertFails(updateDoc(doc(db,'revisoes_metas/secretaria'),{status:'revisar'}));
  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'metas_alunos/metaA')));
 });
+
+
+// Administrative mutations preserve the responsible clinician and are atomic
+// with reservations and an immutable actor-specific history record.
+async function prepararGestao(rotulo,status='agendado'){
+ const uid='espGestao_'+rotulo,id='gestao-'+rotulo,inicio=new Date('2035-01-01T11:00:00Z');
+ const dados={escola_id:'a',aluno_id:'aluno-'+id,vinculo_id:'vinculo-'+id,inicio,duracao_min:60,especialidade:'Teste',autor_uid:uid,autor_nome:'Profissional fictícia',criado_em:new Date('2030-01-01'),status};
+ await env.withSecurityRulesDisabled(async c=>{
+  const db=c.firestore();
+  await setDoc(doc(db,'usuarios',uid),{nome:'Profissional fictícia',email:uid+'@exemplo.test',ativo:true,perfil:'especialista',gerenciar:false,escolas:['a']});
+  await setDoc(doc(db,'alunos',dados.aluno_id),{nome:'Aluno fictício',escola_id:'a',ativo:true});
+  await setDoc(doc(db,'vinculos','vinculo-'+id),{uid,escola_id:'a',profissional_id:'profGestao',cargo:'Especialista',jornada:'Teste',horarios:[],slots_semana:Array.from({length:336},(_,i)=>i),ativo:true});
+  await setDoc(doc(db,'agendamentos',id),dados);
+  for(const n of [0,30]){const t=new Date(+inicio+n*60000);await setDoc(doc(db,'agenda_slots',uid+'_'+(+t)),{autor_uid:uid,escola_id:'a',agendamento_id:id,inicio:t,status:'reservado'});}
+ });return{id,dados,uid,inicio};
+}
+function eventoGestao(b,db,id,acao,uid,anterior,atual,aluno){
+ b.set(doc(db,'agendamentos',id,'historico',acao),{acao,alvo_tipo:'agendamento',alvo_id:id,escola_id:'a',aluno_id:aluno,autor_uid:uid,autor_nome:'Ator fictício',criado_em:serverTimestamp(),situacao_anterior:anterior,situacao_nova:atual});
+}
+function cancelarPelaGestao(f,uid,{motivo='Pedido da família',auditar=true}={}){
+ const db=contexto(uid),b=writeBatch(db);
+ b.update(doc(db,'agendamentos',f.id),{status:'cancelado',motivo_cancelamento:motivo,cancelado_em:serverTimestamp(),alterado_por_uid:uid});
+ for(const n of [0,30])b.update(doc(db,'agenda_slots',f.uid+'_'+(+f.inicio+n*60000)),{status:'liberado'});
+ if(auditar)eventoGestao(b,db,f.id,'cancelado',uid,'agendado','cancelado',f.dados.aluno_id);
+ return b.commit();
+}
+test('admin cancela consulta de outra profissional com motivo, histórico e liberação dos horários',async()=>{
+ const f=await prepararGestao('cancelar');await assertSucceeds(cancelarPelaGestao(f,'admin'));
+ const salvo=(await getDoc(doc(contexto('admin'),'agendamentos',f.id))).data();assert.equal(salvo.autor_uid,f.uid);assert.equal(salvo.alterado_por_uid,'admin');
+ assert.equal((await getDoc(doc(contexto('admin'),'agendamentos',f.id,'historico','cancelado'))).data().autor_uid,'admin');
+ await assertFails(deleteDoc(doc(contexto('admin'),'agendamentos',f.id)));
+});
+test('secretaria delegada cancela; secretaria sem delegação e especialista de outra conta não cancelam',async()=>{
+ await assertSucceeds(cancelarPelaGestao(await prepararGestao('sec'),'sec'));
+ await assertFails(cancelarPelaGestao(await prepararGestao('secview'),'secview'));
+ await assertFails(cancelarPelaGestao(await prepararGestao('outra'),'espC'));
+});
+test('gestão não cancela sem motivo, sem auditoria, consulta iniciada ou realizada',async()=>{
+ await assertFails(cancelarPelaGestao(await prepararGestao('sem-motivo'),'admin',{motivo:''}));
+ await assertFails(cancelarPelaGestao(await prepararGestao('sem-auditoria'),'admin',{auditar:false}));
+ await assertFails(cancelarPelaGestao(await prepararGestao('iniciada','em_atendimento'),'admin'));
+ await assertFails(cancelarPelaGestao(await prepararGestao('realizada','realizado'),'admin'));
+});
+test('gestão não libera slot isolado e não inicia atendimento de outra profissional',async()=>{
+ const f=await prepararGestao('sem-mudanca');const db=contexto('admin');
+ await assertFails(updateDoc(doc(db,'agenda_slots',f.uid+'_'+(+f.inicio)),{status:'liberado'}));
+ await assertFails(updateDoc(doc(db,'agendamentos',f.id),{status:'em_atendimento',iniciado_em:serverTimestamp()}));
+});
+async function remarcarPelaGestao(f,uid,{trocarAutor=false,ocupar=false}={}){
+ const db=contexto(uid),novoId=f.id+'-novo',inicio=new Date('2035-01-02T11:00:00Z');
+ if(ocupar)await env.withSecurityRulesDisabled(async c=>setDoc(doc(c.firestore(),'agenda_slots',f.uid+'_'+(+inicio)),{autor_uid:f.uid,escola_id:'a',agendamento_id:'outra-consulta',inicio,status:'reservado'}));
+ const b=writeBatch(db);
+ b.update(doc(db,'agendamentos',f.id),{status:'remarcado',novo_agendamento_id:novoId,remarcado_em:serverTimestamp(),motivo_remarcacao:'Pedido da família',alterado_por_uid:uid});
+ for(const n of [0,30])b.update(doc(db,'agenda_slots',f.uid+'_'+(+f.inicio+n*60000)),{status:'liberado'});
+ const autor=trocarAutor?'espC':f.uid;
+ b.set(doc(db,'agendamentos',novoId),{...f.dados,inicio,autor_uid:autor,criado_em:serverTimestamp(),status:'agendado',remarcado_de:f.id,agendado_por_uid:uid});
+ for(const n of [0,30]){const t=new Date(+inicio+n*60000);b.set(doc(db,'agenda_slots',autor+'_'+(+t)),{autor_uid:autor,escola_id:'a',agendamento_id:novoId,inicio:t,status:'reservado'});}
+ eventoGestao(b,db,f.id,'reagendado',uid,'agendado','remarcado',f.dados.aluno_id);eventoGestao(b,db,novoId,'agendado',uid,'','agendado',f.dados.aluno_id);
+ return b.commit();
+}
+test('admin e secretaria delegada remarcam mantendo responsável e auditando o ator',async()=>{
+ for(const uid of ['admin','sec']){const f=await prepararGestao('remarcar-'+uid);await assertSucceeds(remarcarPelaGestao(f,uid));const salvo=(await getDoc(doc(contexto(uid),'agendamentos',f.id+'-novo'))).data();assert.equal(salvo.autor_uid,f.uid);assert.equal(salvo.agendado_por_uid,uid);}
+});
+test('remarcação administrativa não troca autora, não aceita conflito nem perfil sem delegação',async()=>{
+ await assertFails(remarcarPelaGestao(await prepararGestao('troca-autora'),'admin',{trocarAutor:true}));
+ await assertFails(remarcarPelaGestao(await prepararGestao('conflito'),'admin',{ocupar:true}));
+ await assertFails(remarcarPelaGestao(await prepararGestao('remarcar-negado'),'secview'));
+});

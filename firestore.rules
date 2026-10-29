@@ -139,17 +139,13 @@ service cloud.firestore {
   function pages_userPath() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
   function pages_userExists() { return pages_logged() && exists(pages_userPath()); }
   function pages_me() { return get(pages_userPath()).data; }
-  function pages_active() { return pages_userExists() && pages_me().ativo == true; }
-  function pages_admin() { return pages_active() && pages_me().perfil == 'superadmin'; }
-  function pages_seduc() { return pages_active() && pages_me().perfil == 'secretaria'; }
-  function pages_manage() { return pages_admin() || (pages_seduc() && pages_me().get('gerenciar', false) == true); }
-  function pages_specialist() { return pages_active() && pages_me().perfil == 'especialista'; }
-  function pages_schoolAllowed(escolaId) {
-    return pages_active() && (pages_admin() || pages_seduc() || escolaId in pages_me().get('escolas', []));
-  }
-  function pages_specialistIn(escolaId) {
-    return pages_specialist() && escolaId in pages_me().get('escolas', []);
-  }
+  function pages_active() { return pages_logged() && pages_me().ativo == true; }
+  function pages_admin() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='superadmin'; }
+  function pages_seduc() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='secretaria'; }
+  function pages_manage() { let p=pages_me(); return pages_logged() && p.ativo==true && (p.perfil=='superadmin' || (p.perfil=='secretaria' && p.get('gerenciar',false)==true)); }
+  function pages_specialist() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='especialista'; }
+  function pages_schoolAllowed(escolaId) { let p=pages_me(); return pages_logged() && p.ativo==true && (p.perfil in ['superadmin','secretaria'] || escolaId in p.get('escolas',[])); }
+  function pages_specialistIn(escolaId) { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='especialista' && escolaId in p.get('escolas',[]); }
   function pages_validAluno(alunoId, escolaId) {
     return exists(/databases/$(database)/documents/alunos/$(alunoId)) &&
       get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id == escolaId &&
@@ -614,6 +610,7 @@ service cloud.firestore {
       a.escola_id == e.escola_id && a.aluno_id == e.aluno_id &&
       a.status == e.situacao_nova &&
       (a.autor_uid == request.auth.uid ||
+       (pages_manage() && e.acao in ['cancelado','reagendado'] && a.get('alterado_por_uid','') == request.auth.uid) ||
        ((pages_manage() || pages_specialistIn(e.escola_id)) && e.acao == 'agendado' &&
         a.get('agendado_por_uid','') == request.auth.uid));
   }
@@ -654,6 +651,53 @@ service cloud.firestore {
     allow update,delete: if false;
   }
 
+  function pages_managementAudit(id,action) {
+    let e=getAfter(/databases/$(database)/documents/agendamentos/$(id)/historico/$(action)).data;
+    return e.autor_uid==request.auth.uid && e.acao==action && e.criado_em==request.time &&
+      e.escola_id==resource.data.escola_id && e.aluno_id==resource.data.aluno_id;
+  }
+  function pages_managementChange(id) {
+    let d=request.resource.data;
+    return pages_manage() && pages_sameAuthorAndScope() && d.get('alterado_por_uid','')==request.auth.uid &&
+      (
+        (resource.data.status=='agendado' && d.status=='cancelado' &&
+         d.diff(resource.data).affectedKeys().hasOnly(['status','motivo_cancelamento','cancelado_em','alterado_por_uid']) &&
+         d.motivo_cancelamento is string && d.motivo_cancelamento.size()>0 && d.motivo_cancelamento.size()<=500 &&
+         d.cancelado_em==request.time && pages_appointmentHasSlots(id,resource.data,'liberado') && pages_managementAudit(id,'cancelado'))
+        ||
+        (resource.data.status in ['agendado','falta_aluno','falta_profissional'] &&
+         !resource.data.keys().hasAny(['novo_agendamento_id']) &&
+         d.diff(resource.data).affectedKeys().hasOnly(['status','novo_agendamento_id','remarcado_em','motivo_remarcacao','alterado_por_uid']) &&
+         d.motivo_remarcacao is string && d.motivo_remarcacao.size()>0 && d.motivo_remarcacao.size()<=500 &&
+         d.remarcado_em==request.time && d.novo_agendamento_id is string && d.novo_agendamento_id.size()>0 && d.novo_agendamento_id.size()<=128 &&
+         (resource.data.status=='agendado' ? (d.status=='remarcado' && pages_appointmentHasSlots(id,resource.data,'liberado')) : d.status==resource.data.status) &&
+         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.remarcado_de==id &&
+         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.autor_uid==resource.data.autor_uid &&
+         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.escola_id==resource.data.escola_id &&
+         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.aluno_id==resource.data.aluno_id &&
+         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.status=='agendado' && pages_managementAudit(id,'reagendado'))
+      );
+  }
+  function pages_managementSlot(id) {
+    let d=request.resource.data;
+    let a=getAfter(pages_appointmentPath(resource.data.agendamento_id)).data;
+    return pages_manage() && id==resource.data.autor_uid+'_'+string(resource.data.inicio.toMillis()) &&
+      (
+        (resource.data.status=='reservado' && d.status=='liberado' &&
+         d.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+         a.get('alterado_por_uid','')==request.auth.uid &&
+         ((a.status=='cancelado' && a.cancelado_em==request.time) ||
+          (a.status in ['remarcado','falta_aluno','falta_profissional'] && a.remarcado_em==request.time)))
+        ||
+        (resource.data.status=='liberado' && d.status=='reservado' &&
+         d.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
+         d.autor_uid==resource.data.autor_uid && d.inicio==resource.data.inicio &&
+         pages_validSlotBooking(d) &&
+         getAfter(pages_appointmentPath(d.agendamento_id)).data.get('agendado_por_uid','')==request.auth.uid &&
+         getAfter(pages_appointmentPath(d.agendamento_id)).data.criado_em==request.time)
+      );
+  }
+
   match /agendamentos/{id} {
     allow read: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
     allow create: if (pages_specialistIn(request.resource.data.escola_id) || pages_manage()) &&
@@ -680,17 +724,22 @@ service cloud.firestore {
         (request.resource.data.remarcado_de is string &&
           request.resource.data.remarcado_de != id &&
           exists(pages_appointmentPath(request.resource.data.remarcado_de)) &&
-          get(pages_appointmentPath(request.resource.data.remarcado_de)).data.autor_uid == request.auth.uid &&
+          (pages_manage() || get(pages_appointmentPath(request.resource.data.remarcado_de)).data.autor_uid == request.auth.uid) &&
+          get(pages_appointmentPath(request.resource.data.remarcado_de)).data.autor_uid == request.resource.data.autor_uid &&
           get(pages_appointmentPath(request.resource.data.remarcado_de)).data.aluno_id == request.resource.data.aluno_id &&
           get(pages_appointmentPath(request.resource.data.remarcado_de)).data.escola_id == request.resource.data.escola_id &&
           getAfter(pages_appointmentPath(request.resource.data.remarcado_de)).data.novo_agendamento_id == id));
+    allow update: if pages_managementChange(id);
     // O próprio especialista inicia a consulta, mantendo escola, aluno e agenda intactos.
     // A conclusão exige criar o atendimento e sua nota na mesma transação.
     allow update: if pages_specialist() && resource.data.autor_uid == request.auth.uid &&
       pages_sameAuthorAndScope() &&
       (
         (resource.data.status == 'agendado' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) ||
+           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','motivo_cancelamento','cancelado_em','alterado_por_uid']) &&
+            request.resource.data.motivo_cancelamento is string && request.resource.data.motivo_cancelamento.size()>0 && request.resource.data.motivo_cancelamento.size()<=500 &&
+            request.resource.data.cancelado_em==request.time && request.resource.data.alterado_por_uid==request.auth.uid)) &&
           request.resource.data.status == 'cancelado' &&
           pages_appointmentHasSlots(id,resource.data,'liberado'))
         ||
@@ -711,7 +760,8 @@ service cloud.firestore {
           pages_appointmentHasSlots(id,resource.data,'liberado'))
         ||
         (resource.data.status in ['agendado','falta_aluno','falta_profissional'] &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','novo_agendamento_id','remarcado_em','motivo_remarcacao']) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','novo_agendamento_id','remarcado_em','motivo_remarcacao','alterado_por_uid']) &&
+          request.resource.data.get('alterado_por_uid',request.auth.uid)==request.auth.uid &&
           !resource.data.keys().hasAny(['novo_agendamento_id']) &&
           request.resource.data.motivo_remarcacao is string &&
           request.resource.data.motivo_remarcacao.size() > 0 &&
@@ -767,6 +817,7 @@ service cloud.firestore {
           request.resource.data.escola_id in
            get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.get('escolas', []))
       );
+    allow update: if pages_managementSlot(id);
     allow update: if pages_specialist() && resource.data.autor_uid == request.auth.uid &&
       id == request.auth.uid + '_' + string(resource.data.inicio.toMillis()) &&
       (
