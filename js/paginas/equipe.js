@@ -33,6 +33,7 @@ export async function render(main, vigente) {
   main.innerHTML = h;
 
   $$('[data-editar]', main).forEach(b => b.onclick = () => editar(usuarios.find(u => u.id === b.dataset.editar)));
+  $$('[data-trocar-email]', main).forEach(b => b.onclick = () => trocarEmail(usuarios.find(u => u.id === b.dataset.trocarEmail)));
   $$('[data-excluir]', main).forEach(b => b.onclick = () => excluir(usuarios.find(u => u.id === b.dataset.excluir)));
   $$('[data-restaurar]', main).forEach(b => b.onclick = async () => {
     const u = usuarios.find(x => x.id === b.dataset.restaurar); b.disabled = true;
@@ -56,7 +57,7 @@ export async function render(main, vigente) {
     if (gerencia && !protegido) {
       if (u.excluido) botoes = '<button class="btn sec pequeno" data-restaurar="' + esc(u.id) + '">Restaurar acesso</button>' + (pode.admin() ? '<button class="btn sec pequeno perigo" data-apagar="' + esc(u.id) + '">Apagar definitivamente</button>' : '');
       else if (u.perfil === 'pendente') botoes = '<button class="btn pequeno" data-editar="' + esc(u.id) + '">Liberar acesso</button><button class="btn sec pequeno perigo" data-recusar="' + esc(u.id) + '">Recusar</button>';
-      else botoes = '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">Editar</button><button class="btn sec pequeno perigo" data-excluir="' + esc(u.id) + '">Excluir acesso</button>';
+      else botoes = '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">Editar</button><button class="btn sec pequeno" data-trocar-email="' + esc(u.id) + '">Trocar e-mail</button><button class="btn sec pequeno perigo" data-excluir="' + esc(u.id) + '">Excluir acesso</button>';
     } else if (gerencia && u.id === S.user.uid) botoes = '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">Editar</button>';
     return '<div class="pessoa"><span class="avatar">' + esc(iniciais(u.nome)) + '</span><div class="pessoa-info"><strong>' + esc(u.nome) + ' ' + situacao + '</strong>'
       + '<small>' + esc(papel) + (u.registro_profissional ? ' · ' + esc(u.registro_profissional) : '') + (gerencia ? ' · ' + esc(u.email) : '') + (u.perfil === 'direcao' ? ' · ' + esc((u.escolas || []).map(escolaCurta).join(', ')) : '') + '</small>'
@@ -111,6 +112,26 @@ export async function render(main, vigente) {
     $('#mais-faixa', form).onclick = () => { box.insertAdjacentHTML('beforeend', linhaJ()); ligarRemover(); };
     const ligarRemover = () => $$('[data-tirar]', box).forEach(b => b.onclick = () => b.parentElement.remove());
     ligarRemover();
+  }
+
+  async function trocarEmail(u) {
+    let n = 0;
+    try { n = await dados.registrosDaConta(u.id); } catch (e) { return erro(e); }
+    if (n) return modal({
+      titulo: 'Trocar e-mail — ' + u.nome, somenteLeitura: true,
+      corpo: '<p>E-mail de login atual: <strong>' + esc(u.email) + '</strong></p><p><strong>' + esc(u.nome) + '</strong> já tem ' + n + ' registro(s) de atendimento, agenda ou relatório, ligados ao login dela. Para não perder a autoria, a troca é feita pela própria profissional:</p>'
+        + '<ol><li>Ela entra no sistema com o e-mail atual.</li><li>Clica no próprio nome, no alto da tela (<strong>Minha conta</strong>).</li><li>Informa o novo e-mail e a senha atual.</li><li>Abre o link que chega no novo e-mail. Pronto: passa a entrar com ele.</li></ol>'
+        + '<p class="nota">Se ela não lembra a senha, use "Esqueci minha senha" na tela de entrada.</p>'
+    });
+    modal({
+      titulo: 'Trocar e-mail — ' + u.nome, botao: 'Trocar e-mail',
+      corpo: '<p>E-mail de login atual: <strong>' + esc(u.email) + '</strong></p><div class="grade">' + campo('email', 'Novo e-mail de login', { tipo: 'email', obrig: true, extra: 'maxlength="200"' }) + '</div>'
+        + '<p class="nota">O acesso passa para o novo e-mail com o mesmo perfil, instituições e jornada. O novo endereço recebe um link para definir a senha; o e-mail antigo deixa de entrar.</p>',
+      aoSalvar: async d => {
+        await dados.trocarEmailDaConta(u, d.email);
+        aviso('E-mail trocado. ' + d.email.trim().toLowerCase() + ' vai receber o link para definir a senha.'); render(main, vigente);
+      }
+    });
   }
 
   async function excluir(u) {
