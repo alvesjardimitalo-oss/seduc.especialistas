@@ -190,7 +190,7 @@ service cloud.firestore {
     }
 
     // ---------- prontuário: atendimentos ----------
-    function tipoValido(t) { return t in ['avaliacao', 'sessao', 'reavaliacao', 'devolutiva', 'orientacao', 'alta']; }
+    function tipoValido(t) { return t in ['avaliacao', 'sessao', 'grupo', 'observacao_sala', 'reavaliacao', 'reuniao', 'devolutiva', 'orientacao', 'alta']; }
     function evolucaoValida(e) { return e in ['avancou', 'estavel', 'regrediu', 'nao_avaliado']; }
     function camposClinicosValidos(d) {
       return tipoValido(d.tipo) && evolucaoValida(d.evolucao) && d.data is timestamp
@@ -203,7 +203,8 @@ service cloud.firestore {
       allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
       allow create: if equipe()
         && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
-            'tipo', 'evolucao', 'data', 'duracao_min', 'agendamento_id', 'codigo', 'situacao', 'versao', 'criado_em', 'atualizado_em'])
+            'tipo', 'evolucao', 'data', 'duracao_min', 'agendamento_id', 'codigo', 'orientacao_escola', 'situacao', 'versao', 'criado_em', 'atualizado_em'])
+        && txt(request.resource.data.get('orientacao_escola', ''), 500)
         && request.resource.data.profissional_uid == request.auth.uid
         && codigoValido(request.resource.data.codigo)
         && request.resource.data.especialidade == eu().especialidade
@@ -231,7 +232,8 @@ service cloud.firestore {
           // retificação pela autora
           (equipe() && resource.data.profissional_uid == request.auth.uid
             && request.resource.data.situacao == 'valido'
-            && soMudar(['tipo', 'evolucao', 'data', 'duracao_min', 'versao', 'atualizado_em'])
+            && soMudar(['tipo', 'evolucao', 'data', 'duracao_min', 'orientacao_escola', 'versao', 'atualizado_em'])
+            && txt(request.resource.data.get('orientacao_escola', ''), 500)
             && camposClinicosValidos(request.resource.data))
           ||
           // anulação (registro feito por engano): autora ou administração, com motivo
@@ -294,6 +296,12 @@ service cloud.firestore {
         && getAfter(doc('reservas', idReserva(uid, inicio))).data.agendamento_id == agId;
     }
     function liberado(uid, inicio) { return !existsAfter(doc('reservas', idReserva(uid, inicio))); }
+    // Calendário escolar: dia bloqueado para a rede ("d<dia>") ou para uma escola ("d<dia>_<escola>").
+    function numeroDoDia(t) { return (t - duration.value(3, 'h')).toMillis() / 86400000; }
+    function diaLivre(t, escola) {
+      return !exists(doc('bloqueios', 'd' + string(numeroDoDia(t))))
+        && !exists(doc('bloqueios', 'd' + string(numeroDoDia(t)) + '_' + escola));
+    }
 
     match /agendamentos/{id} {
       allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
@@ -307,6 +315,7 @@ service cloud.firestore {
         && request.resource.data.duracao_min in [30, 60]
         && request.resource.data.inicio is timestamp && request.resource.data.inicio > request.time
         && request.resource.data.inicio.toMillis() % 1800000 == 0
+        && diaLivre(request.resource.data.inicio, request.resource.data.escola_id)
         && get(doc('usuarios', request.resource.data.profissional_uid)).data.ativo == true
         && get(doc('usuarios', request.resource.data.profissional_uid)).data.perfil == 'especialista'
         && get(doc('usuarios', request.resource.data.profissional_uid)).data.especialidade == request.resource.data.especialidade
@@ -359,6 +368,21 @@ service cloud.firestore {
       allow delete: if ativo()
         && get(doc('agendamentos', resource.data.agendamento_id)).data.status == 'agendado'
         && getAfter(doc('agendamentos', resource.data.agendamento_id)).data.status == 'cancelado';
+      allow update: if false;
+    }
+
+    // ---------- calendário escolar ----------
+    match /bloqueios/{id} {
+      allow get, list: if ativo();
+      allow create: if gerencia()
+        && request.resource.data.keys().hasOnly(['dia', 'data', 'escola_id', 'motivo', 'criado_por', 'criado_em'])
+        && request.resource.data.dia is int && txt(request.resource.data.data, 10)
+        && request.resource.data.escola_id is string
+        && (request.resource.data.escola_id == '' || exists(doc('escolas', request.resource.data.escola_id)))
+        && id == 'd' + string(request.resource.data.dia) + (request.resource.data.escola_id == '' ? '' : '_' + request.resource.data.escola_id)
+        && txtObr(request.resource.data.motivo, 120)
+        && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time;
+      allow delete: if gerencia();
       allow update: if false;
     }
 

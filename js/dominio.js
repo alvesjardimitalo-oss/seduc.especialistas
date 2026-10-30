@@ -20,8 +20,11 @@ export const PERFIS = Object.freeze({
 
 export const TIPOS_ATENDIMENTO = Object.freeze({
   avaliacao: 'Avaliação inicial',
-  sessao: 'Sessão / intervenção',
+  sessao: 'Sessão individual',
+  grupo: 'Atendimento em grupo',
+  observacao_sala: 'Observação em sala de aula',
   reavaliacao: 'Reavaliação',
+  reuniao: 'Reunião com professora / família',
   devolutiva: 'Devolutiva à família',
   orientacao: 'Orientação à escola',
   alta: 'Alta / encerramento'
@@ -164,8 +167,10 @@ export function horariosLivres({ dia, slots = [], ocupados = [], duracao = 30, a
   return livres;
 }
 
-export function validarAgendamento({ inicio, duracao, slots = [], ocupados = [], agora = Date.now() }) {
+export function validarAgendamento({ inicio, duracao, slots = [], ocupados = [], agora = Date.now(), bloqueios = [], escola = '' }) {
   const t = ms(inicio);
+  const b = bloqueioDoDia(diaMunicipal(t), escola, bloqueios);
+  if (b) throw Error('Dia bloqueado no calendário escolar: ' + b.motivo + '.');
   if (!Number.isFinite(t)) throw Error('Horário inválido.');
   if (t % MEIA_HORA !== 0) throw Error('Escolha hora cheia ou meia hora.');
   if (t <= agora) throw Error('O agendamento precisa ser no futuro.');
@@ -214,6 +219,8 @@ export function validarRegistro(d) {
   const total = r.trabalhado.length + r.desenvolvido.length + r.orientacoes.length;
   if (total > LIMITES.texto) throw Error('O registro da consulta aceita até ' + LIMITES.texto + ' caracteres no total (agora: ' + total + ').');
   if (!r.trabalhado) throw Error('Descreva o que foi trabalhado no atendimento.');
+  r.orientacao_escola = String(d.orientacao_escola || '').trim();
+  if (r.orientacao_escola.length > LIMITES.texto) throw Error('A orientação para a escola aceita até ' + LIMITES.texto + ' caracteres.');
   if (!TIPOS_ATENDIMENTO[d.tipo]) throw Error('Selecione o tipo de atendimento.');
   if (!EVOLUCAO[d.evolucao]) throw Error('Selecione a evolução observada.');
   return r;
@@ -362,4 +369,22 @@ export function consultasDoPainel({ agendamentos = [], atendimentos = [], estuda
     && (!filtros.escola || c.escola_id === filtros.escola)
     && (filtros.mostrarCancelados || c.status !== 'cancelado'))
     .sort((x, y) => ms(x.inicio) - ms(y.inicio));
+}
+
+// ---------- calendário escolar (dias sem atendimento) ----------
+/** Número do dia (dias desde 1970 no calendário municipal) — igual ao calculado nas regras do Firestore. */
+export function numeroDoDia(dia) { const [a, m, d] = String(dia).split('-').map(Number); return Date.UTC(a, m - 1, d) / 864e5; }
+export const idBloqueio = (dia, escola = '') => 'd' + numeroDoDia(dia) + (escola ? '_' + escola : '');
+/** Bloqueio que atinge o dia (da rede toda ou da escola), ou null. */
+export function bloqueioDoDia(dia, escola, bloqueios = []) {
+  return bloqueios.find(b => b.id === idBloqueio(dia)) || (escola ? bloqueios.find(b => b.id === idBloqueio(dia, escola)) : null) || null;
+}
+/** Valida um período de bloqueio e devolve os dias (no máximo 92). */
+export function diasDoBloqueio({ de, ate, motivo }) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(de || '') || !/^\d{4}-\d{2}-\d{2}$/.test(ate || de || '')) throw Error('Informe as datas.');
+  const fim = ate || de;
+  if (fim < de) throw Error('A data final deve ser igual ou posterior à inicial.');
+  if (!String(motivo || '').trim()) throw Error('Informe o motivo (ex.: recesso escolar, feriado).');
+  const dias = []; for (let d = de; d <= fim; d = somarDias(d, 1)) { dias.push(d); if (dias.length > 92) throw Error('Período máximo de 92 dias por vez.'); }
+  return dias;
 }

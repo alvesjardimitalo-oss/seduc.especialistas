@@ -8,7 +8,7 @@ import {
 } from '../dominio.js';
 import { esc, iniciais, vazio, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from '../ui.js';
 import { chipsAcompanhamento } from './alunos.js';
-import { imprimirProntuario, imprimirRelatorio } from '../impressao.js';
+import { imprimirProntuario, imprimirRelatorio, imprimirFichaEscola } from '../impressao.js';
 
 const ABAS = [['prontuario', 'Prontuário'], ['agenda', 'Agenda'], ['relatorios', 'Relatórios'], ['ficha', 'Ficha cadastral']];
 let filtroEsp = '', mostrarAnulados = false;
@@ -41,6 +41,7 @@ export async function render(main, vigente) {
     + '<div class="acoes-linha">'
     + (pode.registrar() && e.situacao !== 'arquivado' ? '<button class="btn" data-acao="registrar">+ Registrar atendimento</button>' : '')
     + (pode.agendar() && e.situacao !== 'arquivado' ? '<button class="btn sec" data-acao="agendar">Agendar</button>' : '')
+    + '<button class="btn sec" data-acao="ficha-escola">Ficha para a professora</button>'
     + (clinico ? '<button class="btn sec" data-acao="imprimir">Imprimir prontuário</button>' : '')
     + '</div></header>'
     + (proximo ? '<div class="faixa-proximo">Próximo atendimento: <strong>' + esc(formatarDataHora(proximo.inicio)) + '</strong> com ' + esc(proximo.profissional_nome) + ' (' + esc(ESPECIALIDADES[proximo.especialidade]) + ')</div>' : '')
@@ -60,6 +61,7 @@ export async function render(main, vigente) {
     if (a === 'registrar') formAtendimento({ estudanteId: id });
     if (a === 'agendar') formAgendar({ estudanteId: id });
     if (a === 'imprimir') opcoesImpressao(e, atendimentos, reg, privado, saude);
+    if (a === 'ficha-escola') fichaEscola(e, atendimentos, agenda, saude, clinico);
     if (a === 'editar') formAluno(id);
     if (a === 'arquivar') arquivarAluno(id);
     if (a === 'relatorio') formRelatorio(e, atendimentos, reg);
@@ -118,7 +120,8 @@ function cardAtendimento(a, r, clinico, aberto) {
     + '<div class="card-corpo">'
     + (anulado ? '<p class="alerta-caixa aviso">Registro anulado: ' + esc(a.motivo_anulacao) + '</p>' : '')
     + (clinico ? (r ? secao('O que foi trabalhado', r.trabalhado) + secao('O que foi desenvolvido / resposta do aluno', r.desenvolvido) + secao('Orientações e próximos passos', r.orientacoes) : '<p class="nota">Texto indisponível.</p>')
-      : '<p class="nota">Conteúdo restrito à equipe de especialistas.</p>')
+      : '<p class="nota">O registro clínico é restrito à equipe de especialistas.</p>')
+    + (a.orientacao_escola && !anulado ? '<div class="orientacao-escola"><h4>Orientação para a professora / escola</h4><p>' + esc(a.orientacao_escola) + '</p></div>' : '')
     + (clinico ? '<div class="acoes-linha pequeno">'
       + (autor && !anulado && pode.registrar() ? '<button type="button" class="btn sec pequeno" data-retificar="' + esc(a.id) + '">Editar</button>' : '')
       + ((autor || pode.admin()) && !anulado ? '<button type="button" class="btn sec pequeno perigo" data-anular="' + esc(a.id) + '">Anular</button>' : '')
@@ -220,5 +223,14 @@ function opcoesImpressao(e, atendimentos, reg, privado, saude) {
       const lista = linhaDoTempo(atendimentos, { especialidade: d.especialidade, incluirAnulados: false }).filter(a => noPeriodo(a.data, d.de, d.ate)).reverse();
       imprimirProntuario({ estudante: e, privado, saude, atendimentos: lista, registros: reg, filtros: d });
     }
+  });
+}
+
+function fichaEscola(e, atendimentos, agenda, saude, clinico) {
+  modal({
+    titulo: 'Ficha para a professora', botao: 'Gerar ficha',
+    corpo: '<p>Resumo de uma página para a professora e a escola: quem acompanha o aluno, as orientações para a sala de aula e os próximos atendimentos. <strong>Não inclui o registro clínico.</strong></p>'
+      + (clinico && saude?.necessidade_informada ? '<label class="check"><input type="checkbox" name="condicao"> Incluir a condição informada (' + esc(saude.necessidade_informada) + ') — somente com autorização da família</label>' : ''),
+    aoSalvar: async d => imprimirFichaEscola({ estudante: e, atendimentos, agenda, condicao: d.condicao ? saude.necessidade_informada : '' })
   });
 }

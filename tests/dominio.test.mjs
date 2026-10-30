@@ -56,7 +56,7 @@ test('registro clínico exige o que foi trabalhado e respeita limites', () => {
   assert.throws(() => d.validarRegistro({ trabalhado: 'x', tipo: 'outro', evolucao: 'avancou' }), /tipo/);
   assert.throws(() => d.validarRegistro({ trabalhado: 'x'.repeat(300), desenvolvido: 'y'.repeat(201), tipo: 'sessao', evolucao: 'avancou' }), /500/);
   assert.ok(d.validarRegistro({ trabalhado: 'x'.repeat(300), desenvolvido: 'y'.repeat(200), tipo: 'sessao', evolucao: 'avancou' }));
-  assert.deepEqual(d.validarRegistro({ trabalhado: ' a ', desenvolvido: '', orientacoes: 'c', tipo: 'sessao', evolucao: 'estavel' }), { trabalhado: 'a', desenvolvido: '', orientacoes: 'c' });
+  assert.deepEqual(d.validarRegistro({ trabalhado: ' a ', desenvolvido: '', orientacoes: 'c', tipo: 'sessao', evolucao: 'estavel' }), { trabalhado: 'a', desenvolvido: '', orientacoes: 'c', orientacao_escola: '' });
 });
 
 test('situação do acompanhamento por especialidade, com alta e anulados', () => {
@@ -146,4 +146,22 @@ test('importação reconhece escola cadastrada com outro identificador', () => {
   const regs = [{ estudante: { escola_id: 'creche-sebastiana-duarte-cabral' } }, { estudante: { escola_id: 'monteiro-lobato' } }];
   const r = d.resolverEscolasImportacao(regs, escolas);
   assert.equal(r.registros[0].estudante.escola_id, 'Xy7'); assert.deepEqual(r.faltando, ['monteiro-lobato']);
+});
+
+test('calendário escolar: bloqueio da rede e da escola', () => {
+  const bloqueios = [{ id: d.idBloqueio('2026-12-24'), motivo: 'Recesso' }, { id: d.idBloqueio('2026-11-20', 'monteiro-lobato'), motivo: 'Conselho de classe' }];
+  assert.equal(d.bloqueioDoDia('2026-12-24', 'qualquer', bloqueios).motivo, 'Recesso');
+  assert.equal(d.bloqueioDoDia('2026-11-20', 'monteiro-lobato', bloqueios).motivo, 'Conselho de classe');
+  assert.equal(d.bloqueioDoDia('2026-11-20', 'outra', bloqueios), null);
+  assert.equal(d.numeroDoDia('1970-01-02'), 1);
+  assert.deepEqual(d.diasDoBloqueio({ de: '2026-12-30', ate: '2027-01-02', motivo: 'Férias' }), ['2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02']);
+  assert.throws(() => d.diasDoBloqueio({ de: '2026-12-30', ate: '2026-12-01', motivo: 'x' }), /posterior/);
+  const { slots } = d.prepararJornada([{ dia: 2, inicio: '08:00', fim: '09:00' }]);
+  assert.throws(() => d.validarAgendamento({ inicio: d.instante('2026-11-24', '08:00'), duracao: 30, slots, agora: d.instante('2026-11-01', '00:00').getTime(), bloqueios: [{ id: d.idBloqueio('2026-11-24'), motivo: 'Feriado' }] }), /Feriado/);
+});
+
+test('orientação para a escola separada do registro clínico', () => {
+  const r = d.validarRegistro({ trabalhado: 'x'.repeat(500), orientacao_escola: 'Sentar perto da professora.', tipo: 'observacao_sala', evolucao: 'estavel' });
+  assert.equal(r.orientacao_escola, 'Sentar perto da professora.');
+  assert.throws(() => d.validarRegistro({ trabalhado: 'x', orientacao_escola: 'y'.repeat(501), tipo: 'grupo', evolucao: 'estavel' }), /escola/);
 });

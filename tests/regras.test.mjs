@@ -4,7 +4,8 @@ import { test, before, after, beforeEach } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, collection, query, where, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { instante, somarDias, diaMunicipal, diaDaSemana, prepararJornada } from '../js/dominio.js';
+import { instante, somarDias, diaMunicipal, diaDaSemana, prepararJornada, numeroDoDia } from '../js/dominio.js';
+import assert from 'node:assert/strict';
 
 let env;
 const ESC_A = 'monteiro-lobato', ESC_B = 'prefeito-jose-pedro';
@@ -379,4 +380,29 @@ test('código único: obrigatório e igual ao do agendamento', async () => {
   const certo = loteAtendimento(f, 'fono', { id: 'k4', ag: 'ag1' });
   certo.update(doc(f, 'agendamentos', 'ag1'), { status: 'realizado', atendimento_id: 'k4', alterado_por: 'fono', alterado_em: serverTimestamp() });
   await assertSucceeds(certo.commit());
+});
+
+// ---------- v2.2: adaptações escolares ----------
+test('calendário escolar: só a gestão bloqueia; agendamento em dia bloqueado é recusado', async () => {
+  const n = numeroDoDia(terca), bloq = (f, por, escola = '') => setDoc(doc(f, 'bloqueios', 'd' + n + (escola ? '_' + escola : '')), { dia: n, data: terca, escola_id: escola, motivo: 'Conselho de classe', criado_por: por, criado_em: serverTimestamp() });
+  await assertFails(bloq(db('fono'), 'fono'));
+  await assertFails(bloq(db('dirA'), 'dirA'));
+  await assertFails(setDoc(doc(db('sec'), 'bloqueios', 'dqualquer'), { dia: n, data: terca, escola_id: '', motivo: 'X', criado_por: 'sec', criado_em: serverTimestamp() }));
+  await assertSucceeds(bloq(db('sec'), 'sec', ESC_B));
+  await assertSucceeds(loteAgenda(db('fono'), { criador: 'fono' }).commit()); // ESC_A não bloqueada
+  await assertSucceeds(bloq(db('sec'), 'sec'));
+  await assertFails(loteAgenda(db('fono'), { id: 'ag2', criador: 'fono', hora: '10:00' }).commit()); // rede toda bloqueada
+  await assertSucceeds(getDoc(doc(db('fono'), 'bloqueios', 'd' + n)));
+  await assertSucceeds(deleteDoc(doc(db('sec'), 'bloqueios', 'd' + n)));
+  await assertSucceeds(loteAgenda(db('fono'), { id: 'ag3', criador: 'fono', hora: '10:00' }).commit());
+});
+
+test('orientação para a escola: a direção lê; tipos escolares aceitos', async () => {
+  const f = db('fono'), b = writeBatch(f);
+  b.set(doc(f, 'atendimentos', 'os1'), { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'observacao_sala', evolucao: 'nao_avaliado', data: Timestamp.now(), duracao_min: 50, agendamento_id: '', codigo: 'C261103-OS01', orientacao_escola: 'Dar comandos curtos, um de cada vez.', situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+  b.set(doc(f, 'atendimentos_registro', 'os1'), { estudante_id: 'alunoA', profissional_uid: 'fono', trabalhado: 'Observação da aluna na aula de português.', versao: 1 });
+  await assertSucceeds(b.commit());
+  const vista = await getDoc(doc(db('dirA'), 'atendimentos', 'os1'));
+  assert.equal(vista.data().orientacao_escola, 'Dar comandos curtos, um de cada vez.');
+  await assertFails(getDoc(doc(db('dirA'), 'atendimentos_registro', 'os1')));
 });

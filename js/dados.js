@@ -232,7 +232,7 @@ async function comVersao(id, motivo, alterar) {
 export function retificarAtendimento(id, meta, registro, motivo) {
   return comVersao(id, motivo, (tx, aRef, rRef, atual, reg) => {
     const versao = atual.versao + 1;
-    tx.update(aRef, { tipo: meta.tipo, evolucao: meta.evolucao, data: ts(meta.data), duracao_min: meta.duracao_min, versao, atualizado_em: serverTimestamp() });
+    tx.update(aRef, { tipo: meta.tipo, evolucao: meta.evolucao, data: ts(meta.data), duracao_min: meta.duracao_min, orientacao_escola: meta.orientacao_escola || '', versao, atualizado_em: serverTimestamp() });
     tx.update(rRef, { ...registro, versao: (reg?.versao || 1) + 1 });
   });
 }
@@ -277,6 +277,19 @@ export async function cancelarAgendamento(ag, motivo) {
 }
 export async function marcarFalta(ag, motivo) {
   await writeBatch(db).update(doc(db, 'agendamentos', ag.id), { status: 'falta', motivo: motivo || '', alterado_por: uidAtual(), alterado_em: serverTimestamp() }).commit();
+}
+
+// ---------- calendário escolar ----------
+export const listarBloqueios = async () => lista(await getDocs(collection(db, 'bloqueios')));
+export async function criarBloqueios(dias, escolaId, motivo, idBloqueio, numeroDoDia) {
+  for (const grupo of pedacos(dias, 100)) {
+    const b = writeBatch(db);
+    for (const dia of grupo) b.set(doc(db, 'bloqueios', idBloqueio(dia, escolaId)), { dia: numeroDoDia(dia), data: dia, escola_id: escolaId, motivo, criado_por: uidAtual(), criado_em: serverTimestamp() });
+    await b.commit();
+  }
+}
+export async function removerBloqueios(ids) {
+  for (const grupo of pedacos(ids, 100)) { const b = writeBatch(db); grupo.forEach(id => b.delete(doc(db, 'bloqueios', id))); await b.commit(); }
 }
 
 // ---------- relatórios descritivos ----------

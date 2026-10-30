@@ -288,3 +288,16 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
   .busca-consultas { grid-template-columns: 1fr 1fr; } .busca-grande { grid-column: 1 / -1; }
   .inst-atual { max-width: 50vw; } .inst-atual strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+
+/* ---------- v2.2: adaptações escolares ---------- */
+.campo-escola { background: #f2f8ff; border: 1px solid #d3e3f1; border-radius: 12px; padding: .7rem .9rem; }
+.orientacao-escola { background: #f2f8ff; border-left: 4px solid var(--fono); border-radius: 10px; padding: .6rem .9rem; margin-top: .7rem; }
+.orientacao-escola h4 { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--fono); margin-bottom: .2rem; }
+.orientacao-escola p { margin: 0; white-space: pre-wrap; }
+.orientacao-txt { display: block; color: var(--tinta); font-size: .88rem; margin-top: .2rem; white-space: pre-wrap; }
+.hoje-escola { background: var(--acento-claro); border: 1px solid #bfe5df; border-radius: 14px; padding: .9rem 1rem; margin: .4rem 0 1rem; }
+.hoje-escola h3 { color: var(--acento-esc); font-size: 1rem; margin-bottom: .6rem; }
+.hoje-escola .linha-agenda { padding: .75rem .9rem; }
+.anteriores { margin-top: 1rem; } .anteriores > summary { cursor: pointer; color: var(--suave); font-weight: 600; }
+.dia.bloqueado { background: repeating-linear-gradient(-45deg, #fafbfc, #fafbfc 8px, #f1f3f5 8px, #f1f3f5 16px); }
+.faixa-bloqueio { font-size: .74rem; background: #fdf0dc; color: #8a5a10; border-radius: 6px; padding: .2rem .4rem; font-weight: 600; }
