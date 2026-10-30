@@ -138,3 +138,12 @@ test('importação v2: dados pessoais opcionais validados', () => {
   const [inval] = d.conferirImportacaoAlunos({ esquema: 'seduc_alunos_especiais_v2', alunos: [{ ...base, nascimento: '01/05/2018', cpf: '123' }] });
   assert.equal(inval.estudante.nascimento, ''); assert.equal(inval.privado, null);
 });
+
+test('importação reconhece escola cadastrada com outro identificador', () => {
+  const escolas = [{ id: 'doutor-joao-souza-lima', nome: 'EM Doutor João de Souza Lima' }, { id: 'Xy7', nome: 'CRECHE SEBASTIANA DUARTE CABRAL' }];
+  assert.equal(d.localizarEscola('creche-sebastiana-duarte-cabral', escolas).id, 'Xy7');
+  assert.equal(d.localizarEscola('monteiro-lobato', escolas), null);
+  const regs = [{ estudante: { escola_id: 'creche-sebastiana-duarte-cabral' } }, { estudante: { escola_id: 'monteiro-lobato' } }];
+  const r = d.resolverEscolasImportacao(regs, escolas);
+  assert.equal(r.registros[0].estudante.escola_id, 'Xy7'); assert.deepEqual(r.faltando, ['monteiro-lobato']);
+});
