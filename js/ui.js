@@ -46,6 +46,7 @@ export function modal({ titulo, corpo, botao = 'Salvar', aoSalvar, largo = false
       msg.hidden = false; enviar.disabled = false; enviar.textContent = enviar.dataset.texto;
     }
   };
+  ativarContadores(form);
   setTimeout(() => form.querySelector('input:not([type=hidden]),select,textarea')?.focus(), 30);
   return form;
 }
