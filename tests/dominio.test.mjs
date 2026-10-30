@@ -129,3 +129,12 @@ test('painel junta agendamentos e atendimentos avulsos com busca, data, profissi
   assert.deepEqual(ids({ escola: 'e1' }), ['x2', 'g1']);
   assert.deepEqual(ids({ dia: '2026-11-04' }), []);
 });
+
+test('importação v2: dados pessoais opcionais validados', () => {
+  const base = { id: 'alu_' + 'b'.repeat(24), nome: 'Teste Ficticio', escola_id: 'monteiro-lobato', turma: '1º ano A', deficiencia: 'Autismo; TDAH', ano_letivo: 2026 };
+  const [r] = d.conferirImportacaoAlunos({ esquema: 'seduc_alunos_especiais_v2', alunos: [{ ...base, nascimento: '2018-05-01', cpf: '529.982.247-25', mae: 'Mãe Teste', pai: '', telefone: '(33) 99999-0000', endereco: 'Rua A, 1', turno: 'integral', observacoes: 'Recursos: ledor.' }] });
+  assert.equal(r.estudante.nascimento, '2018-05-01'); assert.equal(r.estudante.turno, 'integral');
+  assert.equal(r.privado.cpf, '52998224725'); assert.equal(r.privado.mae, 'Mãe Teste'); assert.equal(r.necessidade, 'Autismo; TDAH'); assert.equal(r.observacoes, 'Recursos: ledor.');
+  const [inval] = d.conferirImportacaoAlunos({ esquema: 'seduc_alunos_especiais_v2', alunos: [{ ...base, nascimento: '01/05/2018', cpf: '123' }] });
+  assert.equal(inval.estudante.nascimento, ''); assert.equal(inval.privado, null);
+});

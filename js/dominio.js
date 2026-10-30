@@ -303,17 +303,23 @@ export function csv(linhas) {
 // ---------- importação do arquivo privado de alunos 2026 ----------
 const ESCOLAS_IMPORTACAO = new Set(['doutor-joao-souza-lima', 'professora-terezinha-sarmento', 'creche-wilma-gloria', 'prefeito-jose-pedro', 'monteiro-lobato', 'creche-sebastiana-duarte-cabral']);
 export function conferirImportacaoAlunos(dados) {
-  if (!dados || dados.esquema !== 'seduc_alunos_especiais_v1' || !Array.isArray(dados.alunos)) throw Error('Arquivo incompatível. Use o JSON privado de alunos (seduc_alunos_especiais_v1).');
+  if (!dados || !['seduc_alunos_especiais_v1', 'seduc_alunos_especiais_v2'].includes(dados.esquema) || !Array.isArray(dados.alunos)) throw Error('Arquivo incompatível. Use o JSON privado de alunos (seduc_alunos_especiais).');
   if (!dados.alunos.length || dados.alunos.length > 2000) throw Error('Quantidade de registros inválida.');
   const ids = new Set();
+  const txt = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
   return dados.alunos.map(x => {
     if (typeof x.id !== 'string' || !/^alu_[a-f0-9]{24}$/.test(x.id) || ids.has(x.id)) throw Error('ID duplicado ou inválido no arquivo.');
     if (!ESCOLAS_IMPORTACAO.has(x.escola_id)) throw Error('Escola não reconhecida: ' + x.escola_id);
     ids.add(x.id);
+    const nasc = /^\d{4}-\d{2}-\d{2}$/.test(x.nascimento || '') && idade(x.nascimento) != null ? x.nascimento : '';
+    const cpf = cpfValido(x.cpf) ? String(x.cpf).replace(/\D/g, '') : '';
+    const privado = { mae: txt(x.mae, 180), pai: txt(x.pai, 180), telefone: txt(x.telefone, 40), endereco: txt(x.endereco, 300), cpf };
     return {
       id: x.id,
-      estudante: { ...validarEstudante({ nome: x.nome, escola_id: x.escola_id, turma: x.turma, ano_letivo: x.ano_letivo }) },
-      necessidade: String(x.deficiencia || '').trim().slice(0, 500)
+      estudante: { ...validarEstudante({ nome: x.nome, escola_id: x.escola_id, turma: x.turma, ano_letivo: x.ano_letivo, nascimento: nasc }), turno: x.turno === 'integral' ? 'integral' : '' },
+      privado: Object.values(privado).some(Boolean) ? privado : null,
+      necessidade: txt(x.deficiencia, 1000),
+      observacoes: txt(x.observacoes, 3000)
     };
   });
 }

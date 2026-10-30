@@ -45,13 +45,13 @@ export async function render(main, vigente) {
 function importar() {
   const form = modal({
     titulo: 'Importar alunos da planilha 2026',
-    corpo: '<p>Selecione o arquivo privado <code>seduc_alunos_especiais_2026_importacao_privada.json</code>. Ele <strong>não</strong> deve ser enviado ao GitHub. Alunos já existentes são preservados; a importação pode ser repetida com segurança.</p><label class="campo largo"><span>Arquivo JSON</span><input type="file" name="arquivo" accept="application/json,.json" required></label><div data-previa></div>',
+    corpo: '<p>Selecione o arquivo privado <code>seduc_alunos_especiais_2026_importacao_privada.json</code>. Ele <strong>não</strong> deve ser enviado ao GitHub. Alunos já cadastrados não são duplicados: só os campos vazios são completados, sem apagar o que a equipe editou. A importação pode ser repetida com segurança.</p><label class="campo largo"><span>Arquivo JSON</span><input type="file" name="arquivo" accept="application/json,.json" required></label><div data-previa></div>',
     botao: 'Importar',
     aoSalvar: async (_, f) => {
       const arq = f.arquivo.files[0]; if (!arq) throw Error('Selecione o arquivo.');
       const registros = conferirImportacaoAlunos(JSON.parse(await arq.text()));
       const r = await dados.importarEstudantes(registros, n => { $('[type=submit]', f).textContent = 'Importando ' + n + '/' + registros.length; });
-      await carregarBase(); aviso(r.criados + ' aluno(s) importado(s); ' + r.existentes + ' já existiam.');
+      await carregarBase(); aviso(r.criados + ' aluno(s) novo(s); ' + r.completados + ' completado(s) com dados que faltavam; ' + r.iguais + ' sem alteração.');
       irPara('#/alunos');
     }
   });
