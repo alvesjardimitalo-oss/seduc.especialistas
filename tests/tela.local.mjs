@@ -42,7 +42,7 @@ const seed = {
   'estudantes/a2': { nome: 'Bruno Henrique Lima', escola_id: 'prefeito-jose-pedro', nascimento: '2016-09-02', turma: '4º ano', situacao: 'ativo', criado_em: Date.now() - 20 * dia },
   'estudantes_privado/a1': { responsavel: 'Maria Souza', parentesco: 'Mãe', telefone: '(33) 99999-0000', motivo_encaminhamento: 'Troca de fonemas na leitura e escrita; dificuldade de atenção em sala.' },
   'estudantes_clinico/a1': { necessidade_informada: 'Hipótese de dislalia (avaliação externa pendente)', fonte: 'Relato da família' },
-  'atendimentos/x1': { estudante_id: 'a1', escola_id: 'monteiro-lobato', profissional_uid: 'psico', profissional_nome: 'Paula Psicopedagoga', especialidade: 'psicopedagogia', tipo: 'avaliacao', evolucao: 'nao_avaliado', data: Date.now() - 10 * dia, duracao_min: 50, agendamento_id: '', situacao: 'valido', versao: 1 },
+  'atendimentos/x1': { estudante_id: 'a1', escola_id: 'monteiro-lobato', profissional_uid: 'psico', profissional_nome: 'Paula Psicopedagoga', especialidade: 'psicopedagogia', tipo: 'avaliacao', evolucao: 'nao_avaliado', data: Date.now() - 10 * dia, duracao_min: 50, agendamento_id: '', situacao: 'valido', versao: 1, orientacao_escola: 'Usar letra bastão e dar comandos curtos.' },
   'atendimentos_registro/x1': { estudante_id: 'a1', profissional_uid: 'psico', trabalhado: 'Avaliação psicopedagógica inicial: provas operatórias e leitura de palavras.', desenvolvido: 'Reconhece letras, lê sílabas simples com apoio.', orientacoes: 'Sugerida avaliação fonoaudiológica.', versao: 1 }
 };
 
@@ -105,9 +105,12 @@ try {
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.form-erro:not([hidden])');
   assert.match(await pg.textContent('.form-erro'), /500/);
   await pg.fill('[name=trabalhado]', 'Leitura de sílabas complexas com apoio visual.'); await pg.fill('[name=desenvolvido]', 'Leu 6 de 10.');
+  await pg.fill('[name=orientacao_escola]', 'Ler junto com o aluno, apontando as sílabas.'); await pg.selectOption('[name=tipo]', 'observacao_sala');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(300);
   await pg.click('#conteudo .linha-agenda'); await pg.waitForSelector('.registro-consulta');
   assert.match(await pg.textContent('.registro-consulta'), /sílabas complexas/);
+  assert.match(await pg.textContent('#modal .orientacao-escola'), /apontando as sílabas/);
+  assert.match(await pg.textContent('.registro-consulta'), /Observação em sala/);
   await pg.click('#modal [data-fechar]');
   await pg.fill('#busca [name=busca]', ''); await pg.waitForTimeout(400);
   await pg.click('a[href="#/alunos"]'); await pg.waitForSelector('.aluno-item');
@@ -218,6 +221,11 @@ try {
   await dir.goto(url + '#/aluno/a1'); await dir.waitForSelector('.linha-tempo');
   assert.doesNotMatch(await dir.textContent('#conteudo'), /provas operatórias/);
   assert.match(await dir.textContent('#conteudo'), /restrito à equipe/);
+  await dir.locator('.card-atendimento summary').first().click();
+  assert.match(await dir.textContent('.card-atendimento .orientacao-escola'), /letra bastão/);
+  await dir.click('[data-acao=ficha-escola]'); assert.doesNotMatch(await dir.textContent('#modal'), /Incluir a condição/); await dir.click('#modal [data-fechar]');
+  await dir.goto(url + '#/painel'); await dir.waitForSelector('#busca');
+  assert.match(await dir.textContent('#conteudo'), /Orientações recentes para a escola[\s\S]*letra bastão/);
   await foto(dir, '10-prontuario-direcao');
   await dir.close();
 
@@ -252,6 +260,21 @@ try {
   await adm.click('[data-recusar=pend2]'); await adm.click('#modal [type=submit]');
   await adm.waitForSelector('#modal', { state: 'detached' }); await adm.waitForTimeout(200);
   assert.equal(await adm.evaluate(() => window.__banco.has('usuarios/pend2')), false);
+  // calendário escolar: bloquear amanhã para a rede toda
+  await adm.goto(url + '#/agenda'); await adm.click('#calendario');
+  const amanhaTxt = new Date(amanha.getTime()).toISOString().slice(0, 10);
+  await adm.fill('#modal [name=de]', amanhaTxt); await adm.fill('#modal [name=ate]', amanhaTxt); await adm.fill('#modal [name=motivo]', 'Conselho de classe');
+  await foto(adm, '13c-calendario');
+  await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
+  assert.equal(await adm.evaluate(() => [...window.__banco.keys()].filter(k => k.startsWith('bloqueios/')).length), 1);
+  await adm.goto(url + '#/agenda'); await adm.waitForSelector('.semana');
+  await adm.selectOption('#prof', 'fono'); await adm.waitForTimeout(300);
+  if (await adm.$('.faixa-bloqueio') === null) { await adm.click('#prox'); await adm.waitForSelector('.semana'); }
+  assert.match(await adm.textContent('.faixa-bloqueio'), /Conselho de classe/);
+  await adm.click('#agendar'); await adm.selectOption('#modal [name=profissional_uid]', 'fono'); await adm.fill('#modal [name=dia]', amanhaTxt);
+  await adm.locator('#modal [name=dia]').dispatchEvent('change'); await adm.waitForSelector('text=Sem atendimento neste dia');
+  await adm.click('#modal [data-fechar]');
+  await adm.goto(url + '#/equipe'); await adm.waitForSelector('.pessoa');
   // excluir acesso (com agendamentos futuros cancelados) e restaurar
   await adm.click('[data-excluir=fono]'); await adm.waitForSelector('[name=cancelar]');
   assert.match(await adm.textContent('#modal'), /agendamento\(s\) futuro/);

@@ -4,7 +4,7 @@ import { S, pode, nomeEscola, escolaCurta, especialistas, estudante, escolasVisi
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, LIMITES, validarEstudante, possiveisDuplicados, validarRegistro,
   instante, diaMunicipal, horaMunicipal, horariosLivres, validarAgendamento, somarDias, formatarData, formatarDataHora,
-  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF
+  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF, bloqueioDoDia
 } from './dominio.js';
 import { esc, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from './ui.js';
 
@@ -134,6 +134,7 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
     + area('desenvolvido', 'O que foi desenvolvido / resposta do aluno', { valor: registro?.desenvolvido, max: LIMITES.texto, linhas: 3, dica: 'Desempenho, avanços e dificuldades' })
     + area('orientacoes', 'Orientações e próximos passos', { valor: registro?.orientacoes, max: LIMITES.texto, linhas: 2, dica: 'Para a família, a escola e a equipe' })
     + '<p class="contador-total largo" aria-live="polite">Total do registro: <b data-total>0</b>/' + LIMITES.texto + ' caracteres</p>'
+    + '<div class="campo-escola">' + area('orientacao_escola', 'Orientação para a professora / escola', { valor: atendimento?.orientacao_escola, max: LIMITES.texto, linhas: 2, dica: 'A direção e a escola leem este campo. Escreva estratégias para a sala de aula, sem diagnóstico' }) + '</div>'
     + '<div class="grade">' + opcoes('evolucao', 'Evolução observada', EVOLUCAO, { valor: atendimento?.evolucao || 'nao_avaliado', obrig: true }) + '</div>'
     + (ret ? campo('motivo', 'Motivo da edição (opcional)', { largo: true, extra: 'maxlength="300"', dica: 'A versão anterior fica guardada no histórico da consulta' }) : '')
     + '<p class="nota">O registro fica visível para toda a equipe de especialistas no prontuário do aluno. Somente você pode editá-lo.</p>';
@@ -143,10 +144,10 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
     aoSalvar: async d => {
       if (!d.estudante_id) throw Error('Selecione o aluno.');
       const e = estudante(d.estudante_id);
-      const registroNovo = validarRegistro(d);
+      const { orientacao_escola, ...registroNovo } = validarRegistro(d);
       const data = instante(d.dia, d.hora);
       if (!data || data.getTime() > Date.now() + 5 * 60000) throw Error('A data e hora não podem estar no futuro. Para atendimentos futuros, use Agendar.');
-      const meta = { estudante_id: e.id, escola_id: e.escola_id, profissional_nome: S.perfil.nome, especialidade: S.perfil.especialidade, tipo: d.tipo, evolucao: d.evolucao, data, duracao_min: Number(d.duracao_min) };
+      const meta = { estudante_id: e.id, escola_id: e.escola_id, profissional_nome: S.perfil.nome, especialidade: S.perfil.especialidade, tipo: d.tipo, evolucao: d.evolucao, data, duracao_min: Number(d.duracao_min), orientacao_escola };
       if (ret) await dados.retificarAtendimento(atendimento.id, meta, registroNovo, d.motivo.trim() || 'Edição do registro pela autora');
       else await dados.registrarAtendimento({ meta, registro: registroNovo, agendamentoId: agendamento?.id || '', codigo: agendamento?.codigo || '' });
       invalidarAtendimentos();
@@ -195,7 +196,7 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', 
       const prof = S.usuarios.find(u => u.id === d.profissional_uid), e = estudante(d.estudante_id);
       const inicio = new Date(Number(d.horario)), duracao = Number(d.duracao_min);
       const ocupados = await dados.listarAgendamentos({ profissional: prof.id, de: instante(d.dia, '00:00'), ate: instante(somarDias(d.dia, 1), '00:00') });
-      validarAgendamento({ inicio, duracao, slots: prof.slots || [], ocupados });
+      validarAgendamento({ inicio, duracao, slots: prof.slots || [], ocupados, bloqueios: S.bloqueios, escola: e.escola_id });
       await dados.agendar({ estudante_id: e.id, escola_id: e.escola_id, profissional_uid: prof.id, profissional_nome: prof.nome, especialidade: prof.especialidade, inicio, duracao_min: duracao, observacao: d.observacao.trim() });
       // Remarcação: o novo horário é reservado primeiro; só então o antigo é cancelado.
       if (remarcar) await dados.cancelarAgendamento(remarcar, ('Remarcado para ' + formatarDataHora(inicio) + '. ' + d.motivo_remarcacao.trim()).slice(0, 500));
@@ -207,6 +208,8 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', 
     const prof = S.usuarios.find(u => u.id === d.profissional_uid);
     if (!prof || !d.dia) { box.innerHTML = '<p class="nota">Selecione a profissional e o dia.</p>'; return; }
     if (!(prof.slots || []).length) { box.innerHTML = '<p class="nota alerta">Esta profissional ainda não tem jornada cadastrada.</p>'; return; }
+    const bloq = bloqueioDoDia(d.dia, estudante(d.estudante_id)?.escola_id || '', S.bloqueios);
+    if (bloq) { box.innerHTML = '<p class="nota alerta">Sem atendimento neste dia (calendário escolar): ' + esc(bloq.motivo) + '.</p>'; return; }
     box.innerHTML = '<p class="nota">Consultando agenda…</p>';
     try {
       const ocupados = await dados.listarAgendamentos({ profissional: prof.id, de: instante(d.dia, '00:00'), ate: instante(somarDias(d.dia, 1), '00:00') });
@@ -257,6 +260,8 @@ export async function abrirConsulta(item) {
       + (propria ? '<button type="button" class="btn" data-c="sim">Sim — registrar consulta</button>' : '')
       + '<button type="button" class="btn sec" data-c="nao"' + (passou ? '' : ' disabled title="Disponível depois do horário marcado"') + '>Não compareceu</button></div>'
       + (passou ? '' : '<small class="nota">A falta só pode ser registrada depois do horário marcado.</small>') + '</div>' : '')
+    // Orientação para a escola (visível também à direção)
+    + (at?.orientacao_escola && at.situacao !== 'anulado' ? '<div class="orientacao-escola"><h4>Orientação para a professora / escola</h4><p>' + esc(at.orientacao_escola) + '</p></div>' : '')
     // Registro da consulta realizada
     + (at ? '<div class="registro-consulta' + (at.situacao === 'anulado' ? ' anulado' : '') + '"><h4>' + esc(TIPOS_ATENDIMENTO[at.tipo]) + ' · Evolução: ' + esc(EVOLUCAO[at.evolucao]) + (at.versao > 1 ? ' · editada' : '') + (at.situacao === 'anulado' ? ' · ANULADA: ' + esc(at.motivo_anulacao) : '') + '</h4>'
       + (pode.clinico() ? (reg ? secao('O que foi trabalhado', reg.trabalhado) + secao('O que foi desenvolvido', reg.desenvolvido) + secao('Orientações', reg.orientacoes) : '') : '<p class="nota">Conteúdo restrito à equipe de especialistas.</p>') + '</div>' : '')

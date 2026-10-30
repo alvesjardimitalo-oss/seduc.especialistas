@@ -4,7 +4,7 @@ import { mapaAcompanhamento } from './dominio.js';
 
 export const S = {
   user: null, perfil: null,
-  escolas: [], usuarios: [], estudantes: [],
+  escolas: [], usuarios: [], estudantes: [], bloqueios: [],
   atendimentos: null,          // metadados (carregados sob demanda)
   rota: { pagina: 'painel', id: '', aba: '' },
   instituicao: '',             // escola escolhida após o login ('' = todas)
@@ -42,7 +42,8 @@ export const especialistasDaEscola = escolaId => especialistas().filter(u => !es
 export const escopoEscolas = () => p().perfil === 'direcao' ? (p().escolas || []) : null;
 
 export async function carregarBase() {
-  const [escolas, usuarios, estudantes] = await Promise.all([dados.listarEscolas(), dados.listarUsuarios(), dados.listarEstudantes(p())]);
+  const [escolas, usuarios, estudantes, bloqueios] = await Promise.all([dados.listarEscolas(), dados.listarUsuarios(), dados.listarEstudantes(p()), dados.listarBloqueios().catch(() => [])]);
+  S.bloqueios = bloqueios;
   S.escolas = escolas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   S.usuarios = usuarios; S.estudantes = estudantes; S.atendimentos = null;
 }

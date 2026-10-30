@@ -1,6 +1,6 @@
 // Documentos para impressão / PDF (gerados no navegador, sem envio a terceiros).
 import { S, nomeEscola, escolaCurta } from './estado.js';
-import { ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade } from './dominio.js';
+import { ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms } from './dominio.js';
 import { esc, imprimir } from './ui.js';
 
 const cabecalho = titulo => '<header class="doc-cab"><div><strong>Prefeitura Municipal de Frei Inocêncio/MG</strong><span>Secretaria Municipal de Educação · Atendimento Educacional Especializado</span></div><h1>' + esc(titulo) + '</h1></header>';
@@ -56,4 +56,21 @@ export function imprimirGerencial(r, filtros, nomes) {
     + '<h2>Por tipo de atendimento</h2><table class="doc-tab"><tbody>' + Object.entries(r.porTipo).map(([k, v]) => linha(TIPOS_ATENDIMENTO[k] || k, v)).join('') + '</tbody></table>'
     + '<p class="doc-nota">Relatório quantitativo, sem conteúdo clínico.</p>' + rodape();
   imprimir('Relatório gerencial', h);
+}
+
+/** Ficha de uma página para a professora: sem registro clínico. */
+export function imprimirFichaEscola({ estudante: e, atendimentos, agenda, condicao = '' }) {
+  const validos = atendimentos.filter(a => a.situacao !== 'anulado').sort((a, b) => ms(b.data) - ms(a.data));
+  const porEsp = new Map();
+  for (const a of validos) if (!porEsp.has(a.especialidade)) porEsp.set(a.especialidade, a);
+  const orient = validos.filter(a => a.orientacao_escola).slice(0, 6);
+  const proximos = agenda.filter(a => a.status === 'agendado' && ms(a.inicio) > Date.now()).sort((a, b) => ms(a.inicio) - ms(b.inicio)).slice(0, 5);
+  let h = cabecalho('Ficha de acompanhamento para a escola') + identificacao(e)
+    + (condicao ? '<p><b>Condição informada:</b> ' + esc(condicao) + '</p>' : '')
+    + '<h2>Quem acompanha</h2>' + (porEsp.size ? '<table class="doc-tab"><thead><tr><th>Especialidade</th><th>Profissional</th><th>Último atendimento</th><th>Situação</th></tr></thead><tbody>'
+      + [...porEsp.values()].map(a => '<tr><td>' + esc(ESPECIALIDADES[a.especialidade]) + '</td><td>' + esc(a.profissional_nome) + '</td><td>' + esc(formatarData(a.data)) + '</td><td>' + (a.tipo === 'alta' ? 'Alta' : 'Em acompanhamento') + '</td></tr>').join('') + '</tbody></table>' : '<p>Aguardando o primeiro atendimento.</p>')
+    + '<h2>Orientações para a sala de aula</h2>' + (orient.length ? orient.map(a => '<article class="doc-reg"><header><strong>' + esc(formatarData(a.data)) + '</strong> · ' + esc(a.profissional_nome) + ' (' + esc(ESPECIALIDADES[a.especialidade]) + ')</header><p class="pre">' + esc(a.orientacao_escola) + '</p></article>').join('') : '<p>Ainda não há orientações registradas.</p>')
+    + '<h2>Próximos atendimentos</h2>' + (proximos.length ? '<ul>' + proximos.map(a => '<li>' + esc(formatarDataHora(a.inicio)) + ' — ' + esc(a.profissional_nome) + ' (' + esc(ESPECIALIDADES[a.especialidade]) + ')</li>').join('') + '</ul>' : '<p>Nenhum agendado.</p>')
+    + '<p class="doc-nota">Documento de uso interno da escola. Não contém registro clínico.</p>' + rodape();
+  imprimir('Ficha para a escola — ' + e.nome, h);
 }

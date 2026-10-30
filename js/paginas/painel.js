@@ -3,7 +3,7 @@
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta, estudante, garantirAtendimentos, escopoEscolas, escolaAtual, especialistasDaEscola } from '../estado.js';
 import { formAtendimento, formAgendar, formAluno, abrirConsulta } from '../formularios.js';
-import { ESPECIALIDADES, STATUS_AGENDA, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel } from '../dominio.js';
+import { ESPECIALIDADES, STATUS_AGENDA, TIPOS_ATENDIMENTO, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel, bloqueioDoDia } from '../dominio.js';
 import { esc, vazio, $, $$ } from '../ui.js';
 
 const filtros = { busca: '', dia: '', profissional: null, mostrarCancelados: false };
@@ -39,9 +39,19 @@ export async function render(main, vigente) {
   const saudacao = agora.getHours() < 12 ? 'Bom dia' : agora.getHours() < 18 ? 'Boa tarde' : 'Boa noite';
   const profs = especialistasDaEscola(escolaAtual());
 
+  const grupo = (d, itens) => '<div class="grupo-dia' + (d === hoje ? ' hoje' : '') + '"><h3>' + (d === hoje ? 'Hoje' : d === somarDias(hoje, 1) ? 'Amanhã' : DIAS[diaDaSemana(d)]) + ' · ' + formatarData(instante(d, '12:00')) + '</h3><div class="lista-agenda">' + itens.map(c => linhaAgenda(c, { mostrarProf: !filtros.profissional })).join('') + '</div></div>';
+  const bloqHoje = bloqueioDoDia(hoje, escolaAtual(), S.bloqueios);
+  const blocoHoje = () => '<div class="hoje-escola"><h3>Hoje' + (escolaAtual() ? ' em ' + esc(escolaCurta(escolaAtual())) : '') + ' · ' + formatarData(Date.now()) + '</h3>'
+    + (bloqHoje ? '<p class="alerta-caixa aviso">Sem atendimento hoje (calendário escolar): ' + esc(bloqHoje.motivo) + '.</p>' : '')
+    + (porDia.get(hoje)?.length ? '<div class="lista-agenda">' + porDia.get(hoje).map(c => linhaAgenda(c, { mostrarProf: !filtros.profissional })).join('') + '</div>'
+      : '<p class="nota">Nenhuma consulta agendada para hoje.' + (pode.registrar() ? ' Atendeu alguém sem agendamento? Use + → Registrar atendimento.' : '') + '</p>') + '</div>';
+  const orientacoes = atendimentos.filter(a => a.orientacao_escola && a.situacao !== 'anulado' && (!escolaAtual() || a.escola_id === escolaAtual()))
+    .sort((a, b) => ms(b.data) - ms(a.data)).slice(0, 6);
+
   // agrupa por dia
   const porDia = new Map();
   for (const c of lista) { const d = diaMunicipal(c.inicio); if (!porDia.has(d)) porDia.set(d, []); porDia.get(d).push(c); }
+  const anteriores = [...porDia].filter(([d]) => d < hoje).reverse();
 
   let h = '<header class="pagina-topo painel-topo"><div><span class="sobre-escuro">' + esc(DIAS[diaDaSemana(hoje)] + ', ' + formatarData(Date.now())) + '</span><h1>' + saudacao + ', ' + esc(String(eu.nome).split(' ')[0]) + '</h1></div>'
     + '<div class="menu-mais"><button class="btn mais" id="mais" aria-haspopup="true" aria-expanded="false" aria-label="Novo">+</button><div class="menu-mais-lista" hidden>'
@@ -58,9 +68,13 @@ export async function render(main, vigente) {
     + '<label class="campo"><span>Profissional</span><select name="profissional"><option value="">Toda a equipe</option>' + profs.map(u => '<option value="' + esc(u.id) + '"' + (filtros.profissional === u.id ? ' selected' : '') + '>' + esc(u.nome) + ' — ' + esc(ESPECIALIDADES[u.especialidade] || '') + '</option>').join('') + '</select></label>'
     + '<label class="check"><input type="checkbox" name="mostrarCancelados"' + (filtros.mostrarCancelados ? ' checked' : '') + '> Cancelados</label></form>'
     + '<p class="nota" role="status">' + lista.length + ' consulta(s) ' + (filtros.dia ? 'em ' + formatarData(instante(filtros.dia, '12:00')) : 'de ' + formatarData(instante(de, '12:00')).slice(0, 5) + ' a ' + formatarData(instante(ate, '12:00')).slice(0, 5)) + (escolaAtual() ? ' · ' + esc(escolaCurta(escolaAtual())) : '') + '</p>'
-    + (lista.length ? [...porDia].map(([d, itens]) => '<div class="grupo-dia' + (d === hoje ? ' hoje' : '') + '"><h3>' + (d === hoje ? 'Hoje' : d === somarDias(hoje, 1) ? 'Amanhã' : DIAS[diaDaSemana(d)]) + ' · ' + formatarData(instante(d, '12:00')) + '</h3><div class="lista-agenda">' + itens.map(c => linhaAgenda(c, { mostrarProf: !filtros.profissional })).join('') + '</div></div>').join('')
-      : vazio('Nenhuma consulta encontrada.', filtros.busca || filtros.dia ? 'Revise a busca ou a data.' : 'Use o botão + para agendar.'))
+    + (filtros.dia || filtros.busca ? (lista.length ? [...porDia].map(([d, itens]) => grupo(d, itens)).join('') : vazio('Nenhuma consulta encontrada.', 'Revise a busca ou a data.'))
+      : blocoHoje() + ([...porDia].filter(([d]) => d > hoje).map(([d, itens]) => grupo(d, itens)).join('') || '<p class="nota">Sem consultas nos próximos 30 dias.</p>')
+        + (anteriores.length ? '<details class="anteriores"><summary>Consultas dos últimos 7 dias (' + anteriores.reduce((n, [, i]) => n + i.length, 0) + ')</summary>' + anteriores.map(([d, itens]) => grupo(d, itens)).join('') + '</details>' : ''))
     + '</section>';
+
+  if (orientacoes.length) h += '<section class="cartao"><header class="cartao-topo"><h2>Orientações recentes para a escola</h2></header><ul class="lista-simples">'
+    + orientacoes.map(a => '<li><a href="#/aluno/' + esc(a.estudante_id) + '"><strong>' + esc(estudante(a.estudante_id)?.nome || 'Aluno') + '</strong><small>' + esc(formatarData(a.data)) + ' · ' + esc(a.profissional_nome) + ' (' + esc(ESPECIALIDADES[a.especialidade]) + ')</small><span class="orientacao-txt">' + esc(a.orientacao_escola) + '</span></a></li>').join('') + '</ul></section>';
 
   h += '<section class="cartao"><header class="cartao-topo"><h2>Aguardando primeiro atendimento (' + aguardando.length + ')</h2><a href="#/alunos" class="link">Ver alunos →</a></header>'
     + (aguardando.length ? '<ul class="lista-simples">' + aguardando.slice(0, 6).map(e => '<li><a href="#/aluno/' + esc(e.id) + '"><strong>' + esc(e.nome) + '</strong><small>' + esc(escolaCurta(e.escola_id)) + (e.turma ? ' · ' + esc(e.turma) : '') + '</small></a></li>').join('') + '</ul>' : vazio('Nenhum aluno aguardando.'))
