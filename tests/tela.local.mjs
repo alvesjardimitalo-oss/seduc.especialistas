@@ -147,7 +147,7 @@ try {
   await pg.goto(url + '#/aluno/a1'); await pg.waitForSelector('.linha-tempo');
   assert.equal(await pg.locator('.card-atendimento').count(), 3);
   // anular registro feito por engano: some da lista, aparece riscado com "Mostrar anulados"
-  await pg.locator('.card-atendimento', { hasText: 'pseudopalavras' }).locator('summary').click();
+  await pg.locator('.card-atendimento', { hasText: 'pseudopalavras' }).evaluate(d => { d.open = true; });
   await pg.locator('.card-atendimento', { hasText: 'pseudopalavras' }).locator('[data-anular]').click();
   await pg.fill('[name=motivo]', 'Registrado no aluno errado.'); await pg.click('#modal [type=submit]');
   await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(200);
