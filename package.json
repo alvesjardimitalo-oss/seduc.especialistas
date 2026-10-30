@@ -1,0 +1,17 @@
+{
+  "name": "seduc-especialistas",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/dominio.test.mjs",
+    "test:regras": "firebase emulators:exec --only firestore --project demo-seduc \"node --test tests/regras.test.mjs\"",
+    "test:tela": "node tests/tela.local.mjs capturas",
+    "dev": "firebase emulators:start --only auth,firestore --project demo-seduc"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.0.0",
+    "firebase-tools": "^14.0.0"
+  }
+}
