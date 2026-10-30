@@ -95,6 +95,14 @@ export async function excluirAcesso(usuario, motivo, cancelarFuturos = false) {
 export async function restaurarAcesso(usuario) {
   await salvarUsuario(usuario.id, { ativo: true, excluido: false, motivo_exclusao: '' }, usuario);
 }
+/** Quantos registros clínicos e de agenda a conta tem (para impedir apagar autor de prontuário). */
+export async function registrosDaConta(uid) {
+  const [at, ag, rel] = await Promise.all([
+    getDocs(query(collection(db, 'atendimentos'), where('profissional_uid', '==', uid))),
+    getDocs(query(collection(db, 'agendamentos'), where('profissional_uid', '==', uid))),
+    getDocs(query(collection(db, 'relatorios'), where('profissional_uid', '==', uid)))]);
+  return at.docs.length + ag.docs.length + rel.docs.length;
+}
 export async function apagarSolicitacao(uid) { await writeBatch(db).delete(doc(db, 'usuarios', uid)).commit(); }
 export const listarConvites = async () => lista(await getDocs(collection(db, 'convites')));
 export async function salvarConvite(d) {

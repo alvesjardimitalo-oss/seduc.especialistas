@@ -55,7 +55,7 @@ export async function getDocs(q) {
     });
     if (ok) docs.push(snap({ caminho: k }, d));
   }
-  return { docs };
+  return { docs, size: docs.length, empty: !docs.length };
 }
 function aplicar(ops) {
   for (const o of ops) {
