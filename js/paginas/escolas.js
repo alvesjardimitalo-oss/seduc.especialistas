@@ -9,7 +9,7 @@ const INICIAIS = [
   ['prefeito-jose-pedro', 'Escola Municipal Prefeito José Pedro da Silva', 'escola'],
   ['monteiro-lobato', 'Escola Municipal Monteiro Lobato', 'escola'],
   ['creche-wilma-gloria', 'Creche Municipal Wilma Glória Nunes Mourão', 'creche'],
-  ['creche-sebastiana-duarte-cabral', 'Creche Sebastiana Duarte Cabral', 'creche']
+  ['creche-sebastiana-duarte-cabral', 'Creche Sebastiana Duarte Cabral', 'creche', 'Povoado de Bom Jesus do Prata, Frei Inocêncio/MG']
 ];
 
 export async function render(main) {
@@ -25,7 +25,7 @@ export async function render(main) {
   $('#nova', main)?.addEventListener('click', () => editar());
   $$('[data-editar]', main).forEach(b => b.onclick = () => editar(S.escolas.find(e => e.id === b.dataset.editar)));
   $('#semear', main)?.addEventListener('click', async () => {
-    try { for (const [id, nome, tipo] of faltam) await dados.salvarEscola(id, { nome, tipo, inep: '', telefone: '', endereco: '', email: '', direcao: '' }); await carregarBase(); aviso('Escolas adicionadas.'); render(main); } catch (e) { erro(e); }
+    try { for (const [id, nome, tipo, endereco = ''] of faltam) await dados.salvarEscola(id, { nome, tipo, inep: '', telefone: '', endereco, email: '', direcao: '' }); await carregarBase(); aviso('Escolas adicionadas.'); render(main); } catch (e) { erro(e); }
   });
 
   function editar(e = {}) {
