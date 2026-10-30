@@ -29,12 +29,12 @@ jobs:
         run: |
           set -o pipefail
           npm run test:regras 2>&1 | tee regras.log || {
-            grep -E "^not ok|^# Subtest|Error|expected|PERMISSION|evaluation error|L[0-9]+" regras.log | grep -v "^# Subtest" | head -40 | while IFS= read -r l; do echo "::error title=regras::$l"; done
-            exit 1; }
+            msg=$(grep -E "not ok|^\s+error: |location: |^# (pass|fail)" regras.log | grep -v "^#.*evaluation" | head -60 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            echo "::error title=regras::$msg"; exit 1; }
       - name: Interface no navegador (simulador, dados fictícios)
         run: |
           set -o pipefail
-          node tests/tela.local.mjs capturas 2>&1 | tee tela.log || { tail -15 tela.log | while IFS= read -r l; do echo "::error title=tela::$l"; done; exit 1; }
+          node tests/tela.local.mjs capturas 2>&1 | tee tela.log || { msg=$(tail -25 tela.log | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g'); echo "::error title=tela::$msg"; exit 1; }
       - name: Guardar capturas de tela
         if: always()
         uses: actions/upload-artifact@v4
