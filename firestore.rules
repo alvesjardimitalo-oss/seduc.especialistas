@@ -92,6 +92,10 @@ service cloud.firestore {
       // A própria pessoa só registra o aceite do termo de LGPD.
       allow update: if ativo() && uid == request.auth.uid && soMudar(['termo_lgpd', 'termo_lgpd_em'])
         && txtObr(request.resource.data.termo_lgpd, 40) && request.resource.data.termo_lgpd_em == request.time;
+      // ...e atualiza o próprio e-mail depois de confirmar a troca do login (precisa ser o e-mail do login).
+      allow update: if ativo() && uid == request.auth.uid && soMudar(['email'])
+        && request.auth.token.email_verified == true
+        && request.resource.data.email == request.auth.token.email.lower();
       // Superadministrador altera qualquer conta, mas não rebaixa a si mesmo.
       // Secretaria com gerenciamento delegado não toca em administradores, em si mesma
       // nem na própria delegação de gerenciamento.

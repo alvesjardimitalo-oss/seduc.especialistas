@@ -3,6 +3,7 @@
 import {
   initializeApp, deleteApp, getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
   signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword,
+  EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup, verifyBeforeUpdateEmail,
   getFirestore, collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp
 } from './firebase.js';
 import { MEIA_HORA, ms, gerarCodigo } from './dominio.js';
@@ -48,6 +49,58 @@ export async function aceitarTermo(uid, versao) {
   await writeBatch(db).update(doc(db, 'usuarios', uid), { termo_lgpd: versao, termo_lgpd_em: serverTimestamp() }).commit();
 }
 export const sair = () => signOut(auth);
+
+const emailValido = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+const usaSenha = u => (u.providerData || []).some(p => p.providerId === 'password');
+/**
+ * A própria pessoa troca o e-mail de login. O Firebase exige login recente (pede a senha atual,
+ * ou o Google para quem entra pelo Google) e envia um link de confirmação ao NOVO endereço:
+ * a troca só vale depois que a pessoa clicar nele.
+ */
+export async function alterarMeuEmail(novoEmail, senhaAtual) {
+  const u = auth.currentUser, novo = novoEmail.trim().toLowerCase();
+  if (!emailValido(novo)) throw Error('E-mail inválido.');
+  if (novo === String(u.email).toLowerCase()) throw Error('Este já é o seu e-mail de login.');
+  try {
+    if (usaSenha(u)) {
+      if (!senhaAtual) throw Error('Informe sua senha atual.');
+      await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, senhaAtual));
+    } else await reauthenticateWithPopup(u, new GoogleAuthProvider());
+    await verifyBeforeUpdateEmail(u, novo);
+  } catch (e) {
+    if (['auth/invalid-credential', 'auth/wrong-password'].includes(e.code)) throw Error('Senha atual incorreta.');
+    if (e.code === 'auth/email-already-in-use') throw Error('Este e-mail já é usado por outra conta.');
+    if (e.code === 'auth/too-many-requests') throw Error('Muitas tentativas. Aguarde alguns minutos.');
+    throw e;
+  }
+}
+export const pedirNovaSenha = () => sendPasswordResetEmail(auth, auth.currentUser.email);
+/** Depois de confirmada a troca no link, o cadastro passa a mostrar o e-mail novo. */
+export async function sincronizarEmail(perfil, u) {
+  const atual = String(u.email || '').toLowerCase();
+  if (!atual || atual === String(perfil.email || '').toLowerCase()) return perfil;
+  await writeBatch(db).update(doc(db, 'usuarios', u.uid), { email: atual }).commit();
+  return { ...perfil, email: atual };
+}
+/**
+ * A administração troca o e-mail de login de uma conta que ainda não tem registros:
+ * cria o login no e-mail novo (mesmo perfil, escolas e jornada) e retira a conta antiga.
+ * Contas com atendimentos/agenda guardam a autoria pelo identificador do login, por isso
+ * nesse caso a troca é feita pela própria profissional em "Minha conta".
+ */
+export async function trocarEmailDaConta(usuario, novoEmail) {
+  const novo = novoEmail.trim().toLowerCase();
+  if (!emailValido(novo)) throw Error('E-mail inválido.');
+  if (novo === String(usuario.email).toLowerCase()) throw Error('O e-mail novo é igual ao atual.');
+  if (await registrosDaConta(usuario.id)) throw Error('Esta conta já tem registros: a troca precisa ser feita pela própria profissional, em "Minha conta".');
+  const perfil = {};
+  for (const k of ['nome', 'perfil', 'especialidade', 'escolas', 'registro_profissional', 'telefone', 'endereco', 'jornada', 'slots'])
+    if (usuario[k] !== undefined) perfil[k] = usuario[k];
+  const uid = await criarContaComSenha(novo, perfil);
+  await salvarUsuario(usuario.id, { ativo: false, excluido: true, motivo_exclusao: 'E-mail de login trocado para ' + novo, excluido_em: serverTimestamp() }, usuario);
+  try { await apagarSolicitacao(usuario.id); } catch { /* secretaria não apaga: fica como excluída */ }
+  return uid;
+}
 export const observarSessao = cb => onAuthStateChanged(auth, cb);
 export const uidAtual = () => auth.currentUser?.uid;
 

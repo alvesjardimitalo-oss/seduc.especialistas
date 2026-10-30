@@ -452,3 +452,13 @@ test('lista do dia: chegada registrada pela profissional, gestão ou direção d
   b.update(doc(f, 'agendamentos', 'ag1'), { status: 'realizado', atendimento_id: 'ch1', alterado_por: 'fono', alterado_em: serverTimestamp() });
   await assertSucceeds(b.commit());
 });
+
+test('troca de e-mail: a pessoa só grava o e-mail do próprio login confirmado', async () => {
+  const ctx = (uid, email, ok = true) => env.authenticatedContext(uid, { email, email_verified: ok }).firestore();
+  await assertSucceeds(updateDoc(doc(ctx('fono', 'Fono.Nova@Teste.br'), 'usuarios', 'fono'), { email: 'fono.nova@teste.br' }));
+  await assertFails(updateDoc(doc(ctx('psico', 'psico.nova@teste.br'), 'usuarios', 'psico'), { email: 'outro@teste.br' }));
+  await assertFails(updateDoc(doc(ctx('psico', 'psico.nova@teste.br', false), 'usuarios', 'psico'), { email: 'psico.nova@teste.br' }));
+  await assertFails(updateDoc(doc(ctx('psico', 'psico.nova@teste.br'), 'usuarios', 'psico'), { email: 'psico.nova@teste.br', perfil: 'superadmin' }));
+  await assertFails(updateDoc(doc(ctx('psico', 'psico@teste.br'), 'usuarios', 'fono'), { email: 'psico@teste.br' }));
+  await assertFails(updateDoc(doc(ctx('inativa', 'inativa2@teste.br'), 'usuarios', 'inativa'), { email: 'inativa2@teste.br' }));
+});

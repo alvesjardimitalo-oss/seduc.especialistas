@@ -25,6 +25,10 @@ export async function sendPasswordResetEmail(_, email) { window.__emails.push(em
 export async function createUserWithEmailAndPassword(_, email) { return { user: { uid: 'novo_' + email.split('@')[0].replace(/\W/g, '') } }; }
 export const getAuth = app => ({ secundaria: Boolean(app?.nome), get currentUser() { return usuarioAtual; } });
 export class GoogleAuthProvider {}
+export const EmailAuthProvider = { credential: (email, senha) => ({ email, senha }) };
+export async function reauthenticateWithCredential(u, cred) { if (!cred.senha) throw Object.assign(Error('cred'), { code: 'auth/invalid-credential' }); return { user: u }; }
+export async function reauthenticateWithPopup(u) { return { user: u }; }
+export async function verifyBeforeUpdateEmail(u, novo) { window.__trocasEmail = [...(window.__trocasEmail || []), novo]; }
 export async function signInWithPopup() {
   usuarioAtual = window.__usuarioTeste; ouvintes.forEach(f => f(usuarioAtual)); return { user: usuarioAtual };
 }

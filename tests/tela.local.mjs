@@ -259,6 +259,21 @@ try {
   await adm.waitForSelector('text=Carla Psicopedagoga');
   assert.deepEqual(await adm.evaluate(() => window.__emails), ['carla@x.br']);
   assert.deepEqual(await adm.evaluate(() => window.__banco.get('usuarios/novo_carla').escolas), ['monteiro-lobato']);
+  // administração troca o e-mail de login de conta sem registros
+  await adm.click('[data-trocar-email=novo_carla]'); await adm.waitForSelector('#modal [name=email]');
+  await adm.fill('#modal [name=email]', 'Carla.Certo@x.br');
+  await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached', timeout: 8000 }).catch(async () => { throw Error('trocar e-mail: ' + await adm.textContent('#modal .form-erro')); });
+  assert.deepEqual(await adm.evaluate(() => window.__emails), ['carla@x.br', 'carla.certo@x.br']);
+  assert.equal(await adm.evaluate(() => window.__banco.has('usuarios/novo_carla')), false);
+  assert.deepEqual(await adm.evaluate(() => { const u = window.__banco.get('usuarios/novo_carlacerto'); return [u.email, u.especialidade, u.escolas]; }), ['carla.certo@x.br', 'psicopedagogia', ['monteiro-lobato']]);
+  // conta com registros: orienta a troca pela própria profissional
+  await adm.waitForSelector('[data-trocar-email=fono]'); await adm.click('[data-trocar-email=fono]'); await adm.waitForSelector('#modal');
+  assert.match(await adm.textContent('#modal'), /Minha conta/); await adm.click('#modal [data-fechar]');
+  // "Minha conta": troca do próprio e-mail
+  await adm.click('#minha-conta'); await adm.waitForSelector('#modal [name=email]');
+  await adm.fill('#modal [name=email]', 'admin.novo@x.br'); if (await adm.$('#modal [name=senha]')) await adm.fill('#modal [name=senha]', 'x');
+  await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
+  assert.deepEqual(await adm.evaluate(() => window.__trocasEmail), ['admin.novo@x.br']);
   await adm.goto(url + '#/painel'); await adm.waitForSelector('#busca');
   await adm.goto(url + '#/equipe'); await adm.waitForSelector('.pessoa');
   await foto(adm, '11-equipe');
@@ -289,7 +304,7 @@ try {
   const amanhaTxt = new Date(amanha.getTime()).toISOString().slice(0, 10);
   await adm.fill('#modal [name=de]', amanhaTxt); await adm.fill('#modal [name=ate]', amanhaTxt); await adm.fill('#modal [name=motivo]', 'Conselho de classe');
   await foto(adm, '13c-calendario');
-  await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
+  await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached', timeout: 8000 }).catch(async () => { throw Error('calendário: ' + await adm.textContent('#modal .form-erro')); });
   assert.equal(await adm.evaluate(() => [...window.__banco.keys()].filter(k => k.startsWith('bloqueios/')).length), 1);
   await adm.goto(url + '#/agenda'); await adm.waitForSelector('.semana');
   await adm.selectOption('#prof', 'fono'); await adm.waitForTimeout(300);

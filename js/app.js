@@ -124,13 +124,34 @@ function moldura() {
     + '<div class="lateral-rodape">Rede Municipal de Ensino<br>Frei Inocêncio/MG<br><button class="link claro" id="ver-lgpd">Privacidade (LGPD)</button></div></aside>'
     + '<div class="area"><header class="topo"><button class="icone-btn menu-movel" id="abrir-menu" aria-label="Abrir menu">☰</button>'
     + '<button class="inst-atual" id="trocar-inst" title="Trocar instituição"><small>Instituição</small><strong>' + esc(S.instituicao ? escolaCurta(S.instituicao) : 'Todas as instituições') + '</strong><span aria-hidden="true">⇄</span></button>'
-    + '<div class="topo-usuario"><span class="avatar">' + esc(iniciais(S.perfil.nome)) + '</span><div><strong>' + esc(S.perfil.nome) + '</strong><small>' + esc(papel) + '</small></div>'
+    + '<div class="topo-usuario"><button class="minha-conta" id="minha-conta" title="Minha conta: e-mail e senha"><span class="avatar">' + esc(iniciais(S.perfil.nome)) + '</span><div><strong>' + esc(S.perfil.nome) + '</strong><small>' + esc(papel) + '</small></div></button>'
     + '<button class="btn sec pequeno" id="sair">Sair</button></div></header>'
     + '<main id="conteudo" class="conteudo" tabindex="-1"></main></div></div>';
   document.getElementById('sair').onclick = () => dados.sair();
+  document.getElementById('minha-conta').onclick = minhaConta;
   document.getElementById('trocar-inst').onclick = async () => { await escolherInstituicao(true); renderizar(); };
   document.getElementById('ver-lgpd').onclick = () => import('./ui.js').then(u => u.modal({ titulo: 'Privacidade e LGPD', somenteLeitura: true, corpo: '<p>Os dados são usados só para o atendimento especializado da rede municipal. Texto clínico: somente a equipe de especialistas. Direção e Secretaria: dados cadastrais, agenda e indicadores. Registros não são apagados (guarda do prontuário); correções geram versões. Termo aceito em ' + esc(S.perfil.termo_lgpd_em?.toDate ? S.perfil.termo_lgpd_em.toDate().toLocaleString('pt-BR') : '—') + '.</p>' }));
   document.getElementById('abrir-menu').onclick = () => raiz.querySelector('.casca').classList.toggle('menu-aberto');
+}
+
+async function minhaConta() {
+  const { modal, campo } = await import('./ui.js');
+  const comSenha = (S.user.providerData || []).some(p => p.providerId === 'password');
+  const form = modal({
+    titulo: 'Minha conta', botao: 'Trocar e-mail',
+    corpo: '<p>E-mail de login atual: <strong>' + esc(S.user.email) + '</strong></p>'
+      + '<div class="grade">' + campo('email', 'Novo e-mail de login', { tipo: 'email', obrig: true, extra: 'maxlength="200" autocomplete="email"' })
+      + (comSenha ? campo('senha', 'Senha atual', { tipo: 'password', obrig: true, extra: 'autocomplete="current-password"' }) : '') + '</div>'
+      + '<p class="nota">O Firebase envia um link de confirmação para o novo e-mail. A troca só vale depois de clicar nele; até lá, continue entrando com o e-mail atual.' + (comSenha ? '' : ' Como você entra pelo Google, ele pedirá para confirmar sua conta.') + '</p>'
+      + (comSenha ? '<p><button type="button" class="link" id="nova-senha">Quero trocar minha senha (receber link por e-mail)</button></p>' : ''),
+    aoSalvar: async d => {
+      await dados.alterarMeuEmail(d.email, d.senha);
+      aviso('Enviamos um link para ' + d.email.trim().toLowerCase() + '. Abra o e-mail e confirme; depois entre no sistema com o novo endereço.');
+    }
+  });
+  form.querySelector('#nova-senha')?.addEventListener('click', async () => {
+    try { await dados.pedirNovaSenha(); aviso('Link para trocar a senha enviado para ' + S.user.email + '.'); } catch (e) { erro(e); }
+  });
 }
 
 function lerRota() {
@@ -171,9 +192,10 @@ async function iniciar() {
     if (!u) return telaLogin();
     raiz.innerHTML = '<div class="carregando tela-cheia">Verificando acesso…</div>';
     try {
-      const perfil = await dados.carregarOuCriarPerfil(u);
+      let perfil = await dados.carregarOuCriarPerfil(u);
       if (!['especialista', 'secretaria', 'direcao', 'superadmin'].includes(perfil.perfil) || !perfil.ativo || perfil.excluido)
         return telaLogin(perfil.perfil === 'pendente' ? 'Seu acesso foi solicitado e aguarda liberação da administração.<br><small>Conta: ' + esc(u.email) + '</small>' : 'Seu acesso está desativado. Procure a Secretaria de Educação.', 'aviso');
+      if (perfil.ativo) perfil = await dados.sincronizarEmail(perfil, u).catch(() => perfil);
       S.perfil = perfil;
       if (perfil.termo_lgpd !== TERMO_VERSAO && !(await telaTermo())) return;
       await carregarBase();
