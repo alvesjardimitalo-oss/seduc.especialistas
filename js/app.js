@@ -78,7 +78,11 @@ function telaTermo() {
       + '<li>sei que os acessos e alterações ficam registrados com minha identificação.</li></ol>'
       + '<button class="btn grande" id="aceitar">Li e concordo</button><button class="link" id="recusar">Não concordo — sair</button></section></main>';
     document.getElementById('aceitar').onclick = async () => {
-      try { await dados.aceitarTermo(S.user.uid, TERMO_VERSAO); S.perfil.termo_lgpd = TERMO_VERSAO; resolve(true); } catch (e) { erro(e); }
+      try { await dados.aceitarTermo(S.user.uid, TERMO_VERSAO); S.perfil.termo_lgpd = TERMO_VERSAO; resolve(true); }
+      catch (e) {
+        if (String(e?.code).includes('permission-denied')) aviso('Não foi possível registrar o aceite: as regras de segurança do Firebase estão desatualizadas. A administração precisa publicar o arquivo firestore.rules mais recente.', 'erro');
+        else erro(e);
+      }
     };
     document.getElementById('recusar').onclick = () => { dados.sair(); resolve(false); };
   });
