@@ -1,5 +1,14 @@
 # SEDUC Especialistas — Especificação funcional v0.1
 
+> **Revisão v2 (out/2026)** — ajustes definidos com a equipe, que prevalecem sobre o texto abaixo:
+> - A equipe de especialistas é **única e atende as 6 instituições** (inclui a Creche Sebastiana Duarte Cabral). O acesso clínico é da equipe inteira, não por vínculo com cada escola.
+> - A jornada é **por profissional** (dias, horários e local informativo). Não há mais vínculos por escola, frequência funcional nem importação de servidores.
+> - O prontuário segue o modelo do SUS: linha do tempo de cards com *trabalhado*, *desenvolvido* e *orientações*, tipo de atendimento e evolução. O texto clínico fica separado dos metadados.
+> - Registros nunca são apagados: retificar gera versão imutável e anular exige motivo (CFFa 649/2022 e CFP 001/2009).
+> - A direção escolar cadastra alunos da própria escola com o motivo do encaminhamento e agenda nos horários livres, mas não lê o conteúdo clínico.
+> - Detalhes técnicos estão no [README](../README.md) e em [IMPLANTACAO.md](IMPLANTACAO.md).
+
+
 > Documento de planejamento. O sistema não está implantado e não deve receber informações pessoais reais antes da homologação.
 
 ## 1. Objetivo e interface

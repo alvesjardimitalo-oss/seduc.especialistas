@@ -1,1064 +1,358 @@
 rules_version = '2';
+// SEDUC Especialistas v2 — prontuário compartilhado da equipe de especialistas.
+// Princípios:
+//  * Equipe única (fonoaudiologia, neuropsicologia, psicopedagogia) atende as 6 escolas.
+//  * Texto clínico só para a equipe e a administração; gestão e direção veem metadados.
+//  * Registro clínico nunca é apagado: retificação gera versão imutável; anulação exige motivo.
+//  * Agendamento respeita a jornada da profissional e reserva horários atomicamente.
 service cloud.firestore {
- match /databases/{database}/documents {
-  // Private municipal app. Domain collections have an immutable id, creator,
-  // version counter, ISO timestamps and an atomic auditId/serverAt timestamp.
-  // Personal contacts are separate documents, never in dashboard collections.
-  function logged(){return request.auth != null && request.auth.token.email_verified == true;}
-  function me(){return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;}
-  function active(){return logged() && me().status == 'Ativo';}
-  function admin(){return active() && me().role == 'superadmin';}
-  function manage(){return admin() || (active() && me().role == 'secretaria' && me().manageUsers);}
-  function network(){return admin() || (active() && me().role == 'secretaria');}
-  function school(s){let u=me();return logged() && u.status=='Ativo' && (u.role in ['superadmin','secretaria'] || s in u.schoolIds);}
-  function clinical(s){let u=me();return logged() && u.status=='Ativo' && (u.role=='superadmin' || (u.role=='especialista' && s in u.schoolIds));}
-  function str(s,n){return s is string && s.size() <= n;}
-  function reqstr(s,n){return str(s,n) && s.size()>0;}
-  function base(d,id){return d.id == id && reqstr(id,150) && d.version is int && d.version>0 && reqstr(d.createdBy,150) && str(d.createdAt,40) && str(d.updatedAt,40) && reqstr(d.auditId,150) && d.serverAt == request.time;}
-  function creating(d){return d.version==1 && d.createdBy==request.auth.uid;}
-  function updating(d){return d.version==resource.data.version+1 && d.createdBy==resource.data.createdBy && d.createdAt==resource.data.createdAt;}
-  function audited(d,t,id){let a=getAfter(/databases/$(database)/documents/audit/$(d.auditId)).data;return a.actorId==request.auth.uid && a.table==t && a.targetId==id && a.serverAt==request.time;}
-  function versioned(d,t,id){let v=getAfter(/databases/$(database)/documents/versions/$(d.auditId)).data;return v.table==t && v.targetId==id && v.actorId==request.auth.uid && v.before.version==resource.data.version && v.before.id==id && v.before.diff(resource.data).affectedKeys().hasOnly(['serverAt']) && v.serverAt==request.time;}
-  function validUser(d){return d.keys().hasOnly(['id','name','email','role','status','schoolIds','manageUsers','canExport','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.name,200) && str(d.email,200) && d.role in ['superadmin','secretaria','direcao','especialista','visualizador'] && d.status in ['Ativo','Inativo','Pendente'] && d.schoolIds is list && d.schoolIds.size()<=30 && d.manageUsers is bool && d.canExport is bool;}
-  match /users/{id}{
-   allow get: if logged() && (id==request.auth.uid || manage());
-   allow list: if manage() && request.query.limit<=40;
-   allow create: if logged() && id==request.auth.uid && validUser(request.resource.data) && request.resource.data.keys().hasOnly(['id','name','email','role','status','schoolIds','manageUsers','canExport','version','createdBy','createdAt']) && request.resource.data.id==id && request.resource.data.email==request.auth.token.email && request.resource.data.role=='visualizador' && request.resource.data.status=='Pendente' && request.resource.data.schoolIds==[] && !request.resource.data.manageUsers && !request.resource.data.canExport && request.resource.data.version==1;
-   allow update: if manage() && id!=request.auth.uid && validUser(request.resource.data) && request.resource.data.email==resource.data.email && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'users',id) && versioned(request.resource.data,'users',id) && (admin() || (resource.data.role!='superadmin' && !resource.data.manageUsers && request.resource.data.role!='superadmin' && !request.resource.data.manageUsers));
-  }
-  function validSchool(d){return d.keys().hasOnly(['id','name','inep','address','phone','email','director','status','remarks','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.name,200) && str(d.inep,20) && str(d.address,400) && str(d.phone,30) && str(d.email,200) && str(d.director,200) && str(d.remarks,1000) && d.status in ['Ativo','Inativo'];}
-  match /schools/{id}{
-   allow get: if active();allow list: if active() && request.query.limit<=40;
-   allow create: if manage() && validSchool(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'schools',id);
-   allow update: if manage() && validSchool(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'schools',id) && versioned(request.resource.data,'schools',id);
-  }
-  function validProfessional(d){return d.keys().hasOnly(['id','name','specialty','status','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.name,200) && reqstr(d.specialty,100) && d.status in ['Pendente','Ativo','Afastado','Inativo'];}
-  match /professionals/{id}{
-   allow get: if manage(); allow list: if manage() && request.query.limit<=40;
-   allow create: if manage() && validProfessional(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'professionals',id);
-   allow update: if manage() && validProfessional(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'professionals',id) && versioned(request.resource.data,'professionals',id);
-  }
-  match /professionals_public/{id}{
-   allow get: if active(); allow list: if active() && request.query.limit<=10000;
-   allow create,update: if manage() && request.resource.data.keys().hasOnly(['id','name','specialty','status','auditId','serverAt']) && request.resource.data.id==id && request.resource.data.name==getAfter(/databases/$(database)/documents/professionals/$(id)).data.name && request.resource.data.specialty==getAfter(/databases/$(database)/documents/professionals/$(id)).data.specialty && request.resource.data.status==getAfter(/databases/$(database)/documents/professionals/$(id)).data.status && request.resource.data.auditId==getAfter(/databases/$(database)/documents/professionals/$(id)).data.auditId && request.resource.data.serverAt==request.time;
-  }
-  function validProfessionalPrivate(d,id){return d.keys().hasOnly(['id','email','phone','birth','cpf','address','remarks','schoolId','auditId','serverAt']) && d.id==id && str(d.email,200) && str(d.phone,30) && str(d.birth,10) && str(d.cpf,14) && str(d.address,400) && str(d.remarks,1000) && d.schoolId=='' && d.auditId==getAfter(/databases/$(database)/documents/professionals/$(id)).data.auditId && d.serverAt==request.time;}
-  match /professionals_private/{id}{allow get: if manage(); allow create,update: if manage() && validProfessionalPrivate(request.resource.data,id);}
-  function validLink(d){return d.keys().hasOnly(['id','professionalId','userId','schoolId','job','specialty','start','end','status','weeklyHours','schedule','workSlots','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.professionalId,150) && str(d.userId,150) && reqstr(d.schoolId,150) && reqstr(d.job,150) && reqstr(d.specialty,100) && str(d.start,10) && str(d.end,10) && (d.end=='' || d.end>=d.start) && d.status in ['Pendente','Ativo','Afastado','Encerrado'] && d.weeklyHours is number && d.weeklyHours>=0 && d.weeklyHours<=80 && d.schedule is list && d.schedule.size()<=21 && d.workSlots is list && d.workSlots.size()<=672 && exists(/databases/$(database)/documents/schools/$(d.schoolId));}
-  match /links/{id}{
-   allow get: if school(resource.data.schoolId);
-   allow list: if school(resource.data.schoolId) && request.query.limit<=40;
-   allow create: if manage() && validLink(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'links',id);
-   allow update: if manage() && validLink(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'links',id) && versioned(request.resource.data,'links',id) && request.resource.data.professionalId==resource.data.professionalId && request.resource.data.schoolId==resource.data.schoolId && request.resource.data.userId==resource.data.userId;
-  }
-  function validStudent(d){return d.keys().hasOnly(['id','name','registration','registrationKey','schoolId','status','reason','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.name,200) && reqstr(d.registration,60) && reqstr(d.registrationKey,180) && d.registrationKey==d.registration.upper() && !d.registration.matches('.*[/].*') && reqstr(d.schoolId,150) && d.status in ['Ativo','Arquivado'] && str(d.reason,500) && (d.status!='Arquivado' || d.reason.size()>0) && exists(/databases/$(database)/documents/schools/$(d.schoolId)) && getAfter(/databases/$(database)/documents/registrations/$(d.registrationKey)).data.studentId==d.id;}
-  match /students/{id}{
-   allow get: if school(resource.data.schoolId);
-   allow list: if school(resource.data.schoolId) && request.query.limit<=10000;
-   allow create: if clinical(request.resource.data.schoolId) && validStudent(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'students',id);
-   allow update: if clinical(resource.data.schoolId) && clinical(request.resource.data.schoolId) && (admin() || request.resource.data.schoolId==resource.data.schoolId) && validStudent(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'students',id) && versioned(request.resource.data,'students',id) && request.resource.data.registration==resource.data.registration && request.resource.data.registrationKey==resource.data.registrationKey;
-  }
-  match /registrations/{key}{
-   allow get: if active();
-   allow create: if active() && request.resource.data.keys().hasOnly(['studentId']) && getAfter(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.registrationKey==key;
-   allow update: if request.resource.data==resource.data && active();
-  }
-  function validStudentPrivate(d,id){let s=getAfter(/databases/$(database)/documents/students/$(id)).data;return d.keys().hasOnly(['id','birth','guardian','phone','address','schoolId','auditId','serverAt']) && d.id==id && d.schoolId==s.schoolId && str(d.birth,10) && str(d.guardian,200) && str(d.phone,30) && str(d.address,400) && d.auditId==s.auditId && d.serverAt==request.time;}
-  match /students_private/{id}{
-   allow get: if clinical(get(/databases/$(database)/documents/students/$(id)).data.schoolId) || (school(get(/databases/$(database)/documents/students/$(id)).data.schoolId) && me().role=='direcao');
-   allow create,update: if clinical(request.resource.data.schoolId) && validStudentPrivate(request.resource.data,id);
-  }
-  match /enrollments/{id}{
-   allow get: if school(resource.data.schoolId);allow list: if school(resource.data.schoolId) && request.query.limit<=40;
-   allow create: if clinical(request.resource.data.schoolId) && request.resource.data.keys().hasOnly(['id','studentId','schoolId','start','end','createdBy','auditId','serverAt']) && request.resource.data.id==id && str(request.resource.data.start,10) && request.resource.data.end=='' && request.resource.data.createdBy==request.auth.uid && getAfter(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.schoolId==request.resource.data.schoolId && request.resource.data.serverAt==request.time;
-   allow update: if admin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['end','auditId','serverAt']) && reqstr(request.resource.data.end,10) && request.resource.data.serverAt==request.time;
-  }
-  function validSlotSequence(d,l){return d.slots is list && d.slots.size()>=1 && d.slots.size()<=4 && d.startSlot is int && d.startSlot>=0 && d.startSlot+d.slots.size()<=96 && (d.slots.size() <= 0 || (d.slots[0] == string(d.startSlot + 0) && (d.weekday * 96 + d.startSlot + 0) in l.workSlots)) &&
-        (d.slots.size() <= 1 || (d.slots[1] == string(d.startSlot + 1) && (d.weekday * 96 + d.startSlot + 1) in l.workSlots)) &&
-        (d.slots.size() <= 2 || (d.slots[2] == string(d.startSlot + 2) && (d.weekday * 96 + d.startSlot + 2) in l.workSlots)) &&
-        (d.slots.size() <= 3 || (d.slots[3] == string(d.startSlot + 3) && (d.weekday * 96 + d.startSlot + 3) in l.workSlots));}
-  function guardPath(kind,owner,day){return /databases/$(database)/documents/calendar_guards/$(kind+'_'+owner+'_'+day);}
-  function covers(g,d,id){let released=d.status in ['Cancelado','Remarcado'];return (released || !g.get('blockedSlots',[]).hasAny(d.slots)) && (released ? !g.bookings.values().hasAny([id]) : (g.bookings.keys().hasAll(d.slots) && g.bookings.values().removeAll([id]).size()==g.bookings.size()-d.slots.size()));}
-  function hasGuards(d,id){let p=getAfter(guardPath('p',d.professionalId,d.dayKey)).data;let s=getAfter(guardPath('s',d.studentId,d.dayKey)).data;return covers(p,d,id) && covers(s,d,id);}
-  function validAppointment(d,id){
-   let l=get(/databases/$(database)/documents/links/$(d.linkId)).data;
-   let p=get(/databases/$(database)/documents/professionals_public/$(d.professionalId)).data;
-   let s=get(/databases/$(database)/documents/students/$(d.studentId)).data;
-   let local=timestamp.value(d.startMs)-duration.value(3,'h');
-   return d.keys().hasOnly(['id','schoolId','studentId','linkId','professionalId','authorId','start','end','startMs','endMs','dayKey','startSlot','weekday','slots','status','reason','modality','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && str(d.start,40) && str(d.end,40) && d.startMs is int && d.endMs is int && d.endMs-d.startMs==d.slots.size()*900000 && d.startMs%900000==0 && d.startSlot==local.hours()*4+local.minutes() / 15 && d.weekday==local.dayOfWeek()%7 && d.dayKey==string(local.year())+'-'+(local.month()<10?'0':'')+string(local.month())+'-'+(local.day()<10?'0':'')+string(local.day()) && str(d.reason,500) && reqstr(d.modality,100) && d.status in ['Agendado','Realizado','Cancelado','Remarcado','Falta do aluno','Falta do profissional'] && (!(d.status in ['Cancelado','Remarcado']) || d.reason.size()>0) && d.professionalId==l.professionalId && d.schoolId==l.schoolId && d.authorId==l.userId && (admin() || d.authorId==request.auth.uid) && validSlotSequence(d,l) && hasGuards(d,id) && (d.status in ['Cancelado','Remarcado'] || (l.status=='Ativo' && p.status=='Ativo' && l.start<=d.dayKey && (l.end=='' || l.end>=d.dayKey) && s.status=='Ativo' && s.schoolId==d.schoolId));
-  }
-  match /appointments/{id}{
-   allow get: if school(resource.data.schoolId);allow list: if school(resource.data.schoolId) && request.query.limit<=10000;
-   allow create: if clinical(request.resource.data.schoolId) && validAppointment(request.resource.data,id) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'appointments',id);
-   allow update: if clinical(resource.data.schoolId) && (admin() || resource.data.authorId==request.auth.uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reason','version','updatedAt','auditId','serverAt']) && !(resource.data.status in ['Cancelado','Remarcado']) && request.resource.data.status in ['Agendado','Realizado','Cancelado','Remarcado','Falta do aluno','Falta do profissional'] && str(request.resource.data.reason,500) && (!(request.resource.data.status in ['Cancelado','Remarcado']) || (request.resource.data.reason.size()>0 && hasGuards(request.resource.data,id))) && base(request.resource.data,id) && updating(request.resource.data) && ((audited(request.resource.data,'appointments',id) && versioned(request.resource.data,'appointments',id)) || (request.resource.data.status=='Realizado' && getAfter(/databases/$(database)/documents/notes/$(id)).data.appointmentId==id && getAfter(/databases/$(database)/documents/notes/$(id)).data.auditId==request.resource.data.auditId && getAfter(/databases/$(database)/documents/notes/$(id)).data.serverAt==request.time));
-  }
-  function safePreviousSlots(b,a,id){return (a.slots.size()<=0 || b.get(a.slots[0],id)==id) && (a.slots.size()<=1 || b.get(a.slots[1],id)==id) && (a.slots.size()<=2 || b.get(a.slots[2],id)==id) && (a.slots.size()<=3 || b.get(a.slots[3],id)==id);}
-  function validGuard(d,id){let a=getAfter(/databases/$(database)/documents/appointments/$(d.appointmentId)).data;return d.keys().hasOnly(['kind','owner','dayKey','bookings','blockedSlots','appointmentId']) && d.kind in ['p','s'] && d.owner==(d.kind=='p'?a.professionalId:a.studentId) && d.dayKey==a.dayKey && id==d.kind+'_'+d.owner+'_'+d.dayKey && d.bookings is map && d.bookings.size()<=96 && d.get('blockedSlots',[]) is list && d.get('blockedSlots',[]).size()<=96 && covers(d,a,d.appointmentId) && (admin() || a.authorId==request.auth.uid);}
-  match /calendar_guards/{id}{
-   allow get: if active();
-   allow create: if (active() && validGuard(request.resource.data,id) && request.resource.data.bookings.keys().hasOnly(getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.slots)) || (manage() && request.resource.data.keys().hasOnly(['kind','owner','dayKey','bookings','blockedSlots']) && request.resource.data.kind=='p' && request.resource.data.bookings=={} && request.resource.data.blockedSlots is list && request.resource.data.blockedSlots.size()<=96);
-   allow update: if (manage() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['blockedSlots']) && request.resource.data.blockedSlots is list && request.resource.data.blockedSlots.size()<=96) || active() && validGuard(request.resource.data,id) && safePreviousSlots(resource.data.bookings,getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data,request.resource.data.appointmentId) && request.resource.data.kind==resource.data.kind && request.resource.data.owner==resource.data.owner && request.resource.data.dayKey==resource.data.dayKey && request.resource.data.get('blockedSlots',[])==resource.data.get('blockedSlots',[]) && request.resource.data.bookings.diff(resource.data.bookings).affectedKeys().hasOnly(getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.slots) && (resource.data.bookings.values().removeAll([request.resource.data.appointmentId]).size() == request.resource.data.bookings.values().removeAll([request.resource.data.appointmentId]).size());
-  }
-  function validNote(d){let a=get(/databases/$(database)/documents/appointments/$(d.appointmentId)).data;return d.keys().hasOnly(['id','appointmentId','schoolId','studentId','authorId','text','referral','returnDate','reason','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.text,1000) && str(d.referral,1000) && str(d.returnDate,10) && str(d.reason,500) && d.schoolId==a.schoolId && d.studentId==a.studentId && d.authorId==a.authorId && (admin() || d.authorId==request.auth.uid) && !(a.status in ['Cancelado','Remarcado']);}
-  match /notes/{id}{
-   allow get: if clinical(resource.data.schoolId);allow list: if clinical(resource.data.schoolId) && request.query.limit<=40;
-   allow create: if id==request.resource.data.appointmentId && clinical(request.resource.data.schoolId) && validNote(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'notes',id);
-   allow update: if clinical(resource.data.schoolId) && validNote(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'notes',id) && versioned(request.resource.data,'notes',id) && request.resource.data.appointmentId==resource.data.appointmentId && request.resource.data.reason.size()>0;
-  }
-  function validAttendance(d){let l=get(/databases/$(database)/documents/links/$(d.linkId)).data;return d.keys().hasOnly(['id','linkId','schoolId','professionalId','authorId','day','entry','exit','status','reason','uniqueKey','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && d.schoolId==l.schoolId && d.professionalId==l.professionalId && d.authorId==l.userId && (admin() || d.authorId==request.auth.uid) && str(d.day,10) && l.start<=d.day && (l.end=='' || l.end>=d.day) && l.status=='Ativo' && str(d.entry,5) && str(d.exit,5) && str(d.reason,500) && d.status in ['Presente','Ausente','Justificado'] && (d.status=='Presente' ? (d.entry.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && d.exit.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && d.exit>d.entry) : d.reason.size()>0) && d.uniqueKey==d.linkId+'_'+d.day && getAfter(/databases/$(database)/documents/attendance_keys/$(d.uniqueKey)).data.attendanceId==d.id;}
-  match /attendance/{id}{
-   allow get: if school(resource.data.schoolId);allow list: if school(resource.data.schoolId) && request.query.limit<=40;
-   allow create: if clinical(request.resource.data.schoolId) && validAttendance(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'attendance',id);
-   allow update: if clinical(resource.data.schoolId) && validAttendance(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'attendance',id) && versioned(request.resource.data,'attendance',id) && request.resource.data.uniqueKey==resource.data.uniqueKey;
-  }
-  match /attendance_keys/{key}{allow get: if active();allow create: if active() && request.resource.data.keys().hasOnly(['attendanceId']) && getAfter(/databases/$(database)/documents/attendance/$(request.resource.data.attendanceId)).data.uniqueKey==key;allow update: if active() && request.resource.data==resource.data;}
-  function validReferral(d){let s=get(/databases/$(database)/documents/students/$(d.studentId)).data;return d.keys().hasOnly(['id','studentId','schoolId','description','due','status','authorId','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && d.schoolId==s.schoolId && reqstr(d.description,1000) && str(d.due,10) && d.status in ['Pendente','Em andamento','Concluído'] && (admin() || d.authorId==request.auth.uid);}
-  match /referrals/{id}{
-   allow get: if clinical(resource.data.schoolId);allow list: if clinical(resource.data.schoolId) && request.query.limit<=40;
-   allow create: if clinical(request.resource.data.schoolId) && validReferral(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'referrals',id);
-   allow update: if clinical(resource.data.schoolId) && validReferral(request.resource.data) && base(request.resource.data,id) && updating(request.resource.data) && audited(request.resource.data,'referrals',id) && versioned(request.resource.data,'referrals',id) && request.resource.data.authorId==resource.data.authorId;
-  }
-  match /audit/{id}{
-   allow get: if admin();allow list: if admin() && request.query.limit<=40;
-   allow create: if active() && request.resource.data.keys().hasOnly(['id','actorId','action','table','targetId','at','serverAt']) && request.resource.data.id==id && request.resource.data.actorId==request.auth.uid && request.resource.data.action in ['cadastrar','atualizar'] && request.resource.data.table in ['schools','professionals','links','students','appointments','notes','attendance','referrals','users','blocks'] && reqstr(request.resource.data.targetId,150) && str(request.resource.data.at,40) && request.resource.data.serverAt==request.time && getAfter(/databases/$(database)/documents/$(request.resource.data.table)/$(request.resource.data.targetId)).data.auditId==id;
-  }
-  match /versions/{id}{
-   allow get: if admin();allow list: if admin() && request.query.limit<=40;
-   allow create: if active() && request.resource.data.keys().hasOnly(['id','table','targetId','before','actorId','at','serverAt']) && request.resource.data.id==id && request.resource.data.actorId==request.auth.uid && request.resource.data.serverAt==request.time && request.resource.data.before is map && request.resource.data.before.id==request.resource.data.targetId && request.resource.data.before.version==get(/databases/$(database)/documents/$(request.resource.data.table)/$(request.resource.data.targetId)).data.version && getAfter(/databases/$(database)/documents/$(request.resource.data.table)/$(request.resource.data.targetId)).data.auditId==id;
-  }
-  function validBlock(d){return d.keys().hasOnly(['id','professionalId','start','end','reason','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.professionalId,150) && str(d.start,40) && str(d.end,40) && reqstr(d.reason,500);}
-  match /blocks/{id}{allow get: if manage();allow list: if manage() && request.query.limit<=40;allow create: if manage() && validBlock(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'blocks',id);allow update: if false;}
-  match /staff/{id}{allow get: if manage();allow list: if manage() && request.query.limit<=40;}
-  match /staff_private/{id}{allow get: if manage();}
-  // Legacy data retained. Only the administrator can read for migration.
-  match /{legacy}/{id}{allow read: if legacy in ['usuarios','escolas','profissionais','profissionais_privado','vinculos','alunos','alunos_privado','alunos_necessidades','matriculas','agendamentos','atendimentos','notas_atendimento','notas_versoes','frequencias','servidores','servidores_privado','logs_auditoria'] && admin();}
-  // Compatibility with the existing GitHub Pages application.
-  // Portuguese collections retain their original authorization and validation.
+  match /databases/{database}/documents {
 
-  function pages_logged() { return request.auth != null; }
-  function pages_userPath() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
-  function pages_userExists() { return pages_logged() && exists(pages_userPath()); }
-  function pages_me() { return get(pages_userPath()).data; }
-  function pages_active() { return pages_logged() && pages_me().ativo == true && !pages_me().get('excluido',false); }
-  function pages_admin() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='superadmin'; }
-  function pages_seduc() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='secretaria'; }
-  function pages_manage() { let p=pages_me(); return pages_logged() && p.ativo==true && !p.get('excluido',false) && (p.perfil=='superadmin' || (p.perfil=='secretaria' && p.get('gerenciar',false)==true)); }
-  function pages_specialist() { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='especialista'; }
-  function pages_schoolAllowed(escolaId) { let p=pages_me(); return pages_logged() && p.ativo==true && (p.perfil in ['superadmin','secretaria'] || escolaId in p.get('escolas',[])); }
-  function pages_specialistIn(escolaId) { let p=pages_me(); return pages_logged() && p.ativo==true && p.perfil=='especialista' && escolaId in p.get('escolas',[]); }
-  function pages_validAluno(alunoId, escolaId) {
-    return exists(/databases/$(database)/documents/alunos/$(alunoId)) &&
-      get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id == escolaId &&
-      get(/databases/$(database)/documents/alunos/$(alunoId)).data.ativo == true;
-  }
-  function pages_linked(vinculoId, escolaId) {
-    return pages_specialistIn(escolaId) &&
-      exists(/databases/$(database)/documents/vinculos/$(vinculoId)) &&
-      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.uid == request.auth.uid &&
-      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.escola_id == escolaId &&
-      get(/databases/$(database)/documents/vinculos/$(vinculoId)).data.ativo == true;
-  }
-  // Gestores podem apenas criar reservas para profissionais especialistas ativos,
-  // vinculados à escola. O responsável clínico continua sendo o especialista.
-  function pages_vinculoAgendamento(vinculoId,escolaId,uid) {
-    let v = get(/databases/$(database)/documents/vinculos/$(vinculoId)).data;
-    let conta = get(/databases/$(database)/documents/usuarios/$(uid)).data;
-    return v.uid == uid && v.escola_id == escolaId && v.ativo == true &&
-      conta.ativo == true && conta.perfil == 'especialista' &&
-      escolaId in conta.get('escolas',[]) &&
-      (pages_specialistIn(escolaId) || pages_manage());
-  }
-  // Rede municipal no fuso America/Sao_Paulo (UTC-3, sem horario de verao vigente).
-  // A grade semanal contém indices dia*48 + meia-hora. Validar eventual mudança legal de fuso.
-  function pages_indiceJornada(instante) {
-    let municipal = instante - duration.value(3, 'h');
-    return (municipal.dayOfWeek() % 7) * 48 + municipal.hours() * 2 + municipal.minutes() / 30;
-  }
-  function pages_jornadaAutorizada(vinculoId, inicio, duracaoMin) {
-    let vinculo = get(/databases/$(database)/documents/vinculos/$(vinculoId)).data;
-    return vinculo.get('slots_semana', []) is list &&
-      pages_indiceJornada(inicio) in vinculo.get('slots_semana', []) &&
-      (duracaoMin == 30 ||
-        pages_indiceJornada(inicio + duration.value(30, 'm')) in vinculo.get('slots_semana', []));
-  }
-  function pages_slotPath(uid, instante) {
-    return /databases/$(database)/documents/agenda_slots/$(uid + '_' + string(instante.toMillis()));
-  }
-  function pages_appointmentPath(id) {
-    return /databases/$(database)/documents/agendamentos/$(id);
-  }
-  function pages_attendancePath(id) {
-    return /databases/$(database)/documents/atendimentos/$(id);
-  }
-  function pages_slotStatus(uid, instante, agendamentoId, escolaId, estado) {
-    return existsAfter(pages_slotPath(uid, instante)) &&
-      getAfter(pages_slotPath(uid, instante)).data.agendamento_id == agendamentoId &&
-      getAfter(pages_slotPath(uid, instante)).data.escola_id == escolaId &&
-      getAfter(pages_slotPath(uid, instante)).data.status == estado;
-  }
-  function pages_appointmentHasSlots(id, d, estado) {
-    return pages_slotStatus(d.autor_uid, d.inicio, id, d.escola_id, estado) &&
-      (d.duracao_min == 30 ||
-        pages_slotStatus(d.autor_uid, d.inicio + duration.value(30, 'm'), id, d.escola_id, estado));
-  }
-  function pages_validSlotBooking(d) {
-    let a = getAfter(pages_appointmentPath(d.agendamento_id)).data;
-    return a.autor_uid == d.autor_uid &&
-      a.escola_id == d.escola_id &&
-      a.status == 'agendado' &&
-      (a.inicio == d.inicio ||
-       (a.duracao_min == 60 && a.inicio + duration.value(30,'m') == d.inicio));
-  }
-  function pages_sameAuthorAndScope() {
-    return request.resource.data.autor_uid == resource.data.autor_uid &&
-      request.resource.data.escola_id == resource.data.escola_id &&
-      request.resource.data.aluno_id == resource.data.aluno_id;
-  }
-
-  // Pré-autorização pela gestão. O convite somente é consumido por uma
-  // conta Google com e-mail verificado igual ao e-mail autorizado.
-  function pages_convitePath() {
-    return /databases/$(database)/documents/convites_usuarios/$(request.auth.token.email);
-  }
-  function pages_conviteAprovado(d) {
-    let c = get(pages_convitePath()).data;
-    return request.auth.token.email_verified == true &&
-      request.auth.token.firebase.sign_in_provider == 'google.com' &&
-      exists(pages_convitePath()) &&
-      c.ativo == true &&
-      c.email == request.auth.token.email &&
-      c.perfil == 'especialista' &&
-      c.escolas is list &&
-      c.escolas.size() > 0 &&
-      d.perfil == c.perfil &&
-      d.escolas == c.escolas &&
-      d.ativo == true &&
-      d.gerenciar == false;
-  }
-  match /convites_usuarios/{email} {
-    allow get: if pages_manage() ||
-      (pages_logged() && request.auth.token.email_verified == true &&
-       request.auth.token.firebase.sign_in_provider == 'google.com' &&
-       request.auth.token.email == email);
-    allow list: if pages_manage();
-    allow create,update: if pages_manage() &&
-      request.resource.data.keys().hasOnly([
-        'nome','email','perfil','escolas','ativo','criado_por','criado_em'
-      ]) &&
-      request.resource.data.email == email &&
-      request.resource.data.nome is string &&
-      request.resource.data.nome.size() >= 3 &&
-      request.resource.data.nome.size() <= 180 &&
-      request.resource.data.email is string &&
-      request.resource.data.email.size() <= 180 &&
-      request.resource.data.perfil == 'especialista' &&
-      request.resource.data.escolas is list &&
-      request.resource.data.escolas.size() > 0 &&
-      request.resource.data.escolas.size() <= 100 &&
-      request.resource.data.ativo is bool &&
-      request.resource.data.criado_por is string &&
-      request.resource.data.criado_por == (resource == null ? request.auth.uid : resource.data.criado_por) &&
-      (resource != null || request.resource.data.criado_em == request.time) &&
-      (resource == null || request.resource.data.criado_em == resource.data.criado_em);
-    allow delete: if false;
-  }
-  // Access updates never alter authentication identity or erase clinical history.
-  function pages_validUserUpdate(uid) {
-    let d=request.resource.data;
-    return d.diff(resource.data).affectedKeys().hasOnly([
-      'nome','perfil','ativo','gerenciar','escolas','excluido','alterado_por','alterado_em',
-      'motivo_exclusao','excluido_por','excluido_em'
-    ]) && d.nome is string && d.nome.size() >= 3 && d.nome.size() <= 180 &&
-      d.perfil in ['pendente','especialista','direcao','secretaria','visualizador','superadmin'] &&
-      d.ativo is bool && d.gerenciar is bool && d.escolas is list && d.escolas.size() <= 50 &&
-      d.get('excluido',false) is bool &&
-      (!d.gerenciar || d.perfil in ['secretaria','superadmin']) &&
-      (!d.ativo || !(d.perfil in ['especialista','direcao','visualizador']) || d.escolas.size() > 0) &&
-      d.alterado_por == request.auth.uid && d.alterado_em == request.time &&
-      (uid != request.auth.uid || (d.perfil == 'superadmin' && d.ativo && !d.get('excluido',false))) &&
-      (!d.get('excluido',false) || (!d.ativo && !d.gerenciar && d.escolas == [] &&
-        d.motivo_exclusao is string && d.motivo_exclusao.size() > 0 && d.motivo_exclusao.size() <= 500 &&
-        d.excluido_por == request.auth.uid && d.excluido_em == request.time));
-  }
-  match /usuarios/{uid}/historico/{eventoId} {
-    allow read: if pages_manage();
-    allow create: if pages_manage() &&
-      request.resource.data.keys().hasOnly(['acao','alvo_uid','autor_uid','criado_em',
-        'perfil_anterior','perfil_novo','ativo_anterior','ativo_novo','gerenciar_anterior',
-        'gerenciar_novo','escolas_anteriores','escolas_novas','motivo']) &&
-      request.resource.data.acao in ['criar','editar','excluir','restaurar'] &&
-      request.resource.data.alvo_uid == uid && request.resource.data.autor_uid == request.auth.uid &&
-      request.resource.data.criado_em == request.time &&
-      request.resource.data.motivo is string && request.resource.data.motivo.size() <= 500 &&
-      request.resource.data.perfil_novo == getAfter(/databases/$(database)/documents/usuarios/$(uid)).data.perfil &&
-      request.resource.data.ativo_novo == getAfter(/databases/$(database)/documents/usuarios/$(uid)).data.ativo &&
-      request.resource.data.gerenciar_novo == getAfter(/databases/$(database)/documents/usuarios/$(uid)).data.gerenciar &&
-      request.resource.data.escolas_novas == getAfter(/databases/$(database)/documents/usuarios/$(uid)).data.escolas &&
-      (pages_admin() || (uid != request.auth.uid && request.resource.data.perfil_novo != 'superadmin' &&
-       request.resource.data.gerenciar_novo == false));
-    allow update,delete: if false;
-  }
-  // Prototype: clinician-entered diagnosis versions, no automated clinical inference.
-  function pages_validDiagnosis(d) {
-    return d.keys().hasAll(['aluno_id','escola_id','diagnostico','origem','plano','data_documento','autor_uid','autor_nome','criado_em']) &&
-      d.keys().hasOnly(['aluno_id','escola_id','diagnostico','origem','plano','data_documento','autor_uid','autor_nome','criado_em']) &&
-      pages_validId(d.aluno_id) && pages_validId(d.escola_id) &&
-      d.diagnostico is string && d.diagnostico.size()>0 && d.diagnostico.size()<=1000 &&
-      d.origem is string && d.origem.size()>0 && d.origem.size()<=300 &&
-      d.plano is string && d.plano.size()>0 && d.plano.size()<=3000 &&
-      d.data_documento is string && (d.data_documento=='' || d.data_documento.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')) &&
-      d.autor_uid==request.auth.uid && d.autor_nome==pages_me().nome &&
-      d.autor_nome is string && d.autor_nome.size()>0 && d.autor_nome.size()<=180 && d.criado_em==request.time &&
-      pages_validAluno(d.aluno_id,d.escola_id);
-  }
-  match /alunos_diagnosticos/{id} {
-    allow get,list: if pages_admin() || pages_specialistIn(resource.data.escola_id);
-    allow create: if (pages_admin() || pages_specialistIn(request.resource.data.escola_id)) && pages_validDiagnosis(request.resource.data);
-    // Updating a diagnosis creates an immutable new version instead.
-    allow update,delete: if false;
-  }
-  function pages_exclusionTarget(d) {
-    return /databases/$(database)/documents/$(d.tipo)/$(d.registro_id);
-  }
-  function pages_canExclude(d) {
-    return pages_admin() || (pages_specialistIn(d.escola_id) && d.autor_uid==request.auth.uid);
-  }
-  function pages_validExclusion(d,id) {
-    let alvo=get(pages_exclusionTarget(d)).data;
-    let evento=getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)/historico/$(d.ultimo_evento_id)).data;
-    return d.keys().hasAll(['tipo','registro_id','escola_id','aluno_id','autor_uid','ativo','motivo','alterado_por','alterado_em','ultimo_evento_id']) &&
-      d.keys().hasOnly(['tipo','registro_id','escola_id','aluno_id','autor_uid','ativo','motivo','alterado_por','alterado_em','ultimo_evento_id']) &&
-      d.tipo in ['agendamentos','atendimentos'] && pages_validId(d.registro_id) &&
-      id==d.tipo+'_'+d.registro_id && pages_validId(d.ultimo_evento_id) && d.ativo is bool &&
-      d.escola_id==alvo.escola_id && d.aluno_id==alvo.aluno_id && d.autor_uid==alvo.autor_uid &&
-      alvo.status in ['cancelado','realizado','remarcado','falta_aluno','falta_profissional'] &&
-      d.motivo is string && d.motivo.size()>0 && d.motivo.size()<=500 &&
-      d.alterado_por==request.auth.uid && d.alterado_em==request.time &&
-      evento.autor_uid==request.auth.uid && evento.em==request.time &&
-      evento.acao==(d.ativo?'excluir':'restaurar');
-  }
-  match /consultas_excluidas/{id} {
-    allow get,list: if pages_active() && (pages_admin() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
-    allow create: if pages_canExclude(request.resource.data) && request.resource.data.ativo==true && pages_validExclusion(request.resource.data,id);
-    allow update: if pages_canExclude(resource.data) && pages_validExclusion(request.resource.data,id) &&
-      request.resource.data.ativo!=resource.data.ativo &&
-      request.resource.data.ultimo_evento_id!=resource.data.ultimo_evento_id &&
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo','motivo','alterado_por','alterado_em','ultimo_evento_id']);
-    allow delete: if false;
-    match /historico/{eventoId} {
-      allow read: if pages_canExclude(get(/databases/$(database)/documents/consultas_excluidas/$(id)).data);
-      allow create: if request.resource.data.keys().hasAll(['acao','autor_uid','em','motivo']) &&
-        request.resource.data.keys().hasOnly(['acao','autor_uid','em','motivo']) &&
-        request.resource.data.acao in ['excluir','restaurar'] && request.resource.data.autor_uid==request.auth.uid && request.resource.data.em==request.time &&
-        request.resource.data.motivo is string && request.resource.data.motivo.size()>0 && request.resource.data.motivo.size()<=500 &&
-        pages_canExclude(getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data) &&
-        getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data.ultimo_evento_id==eventoId &&
-        getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data.alterado_por==request.auth.uid &&
-        getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data.alterado_em==request.time &&
-        request.resource.data.acao==(getAfter(/databases/$(database)/documents/consultas_excluidas/$(id)).data.ativo?'excluir':'restaurar');
-      allow update,delete: if false;
+    // ---------- identidade e perfis ----------
+    function logado() { return request.auth != null && request.auth.token.email_verified == true; }
+    function caminhoEu() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
+    function eu() { return get(caminhoEu()).data; }
+    function ativo() {
+      return logado() && exists(caminhoEu()) && eu().ativo == true && eu().get('excluido', false) != true
+        && eu().perfil in ['especialista', 'secretaria', 'direcao', 'superadmin'];
     }
-  }
+    function admin() { return ativo() && eu().perfil == 'superadmin'; }
+    function gestao() { return ativo() && eu().perfil in ['superadmin', 'secretaria']; }
+    function gerencia() { return admin() || (ativo() && eu().perfil == 'secretaria' && eu().get('gerenciar', false) == true); }
+    function equipe() { return ativo() && eu().perfil == 'especialista'; }
+    function clinico() { return equipe() || admin(); }
+    function direcaoDe(escola) { return ativo() && eu().perfil == 'direcao' && escola in eu().get('escolas', []); }
+    function veEscola(escola) { return gestao() || equipe() || direcaoDe(escola); }
 
-  // Prototype: versioned current school enrollment, separate from clinical records.
-  function pages_validEnrollment(d,alunoId) {
-    return d.keys().hasAll(['aluno_id','escola_id','numero','ano_letivo','turma','turno','professor','revisao','atualizado_por','atualizado_em']) &&
-      d.keys().hasOnly(['aluno_id','escola_id','numero','ano_letivo','turma','turno','professor','revisao','atualizado_por','atualizado_em']) &&
-      d.aluno_id==alunoId && pages_validId(d.escola_id) && pages_validAluno(alunoId,d.escola_id) &&
-      d.numero is string && d.numero.size()<=100 && d.ano_letivo is int && d.ano_letivo>=2020 && d.ano_letivo<=2100 &&
-      d.turma is string && d.turma.size()>0 && d.turma.size()<=120 &&
-      d.turno in ['manha','tarde','noite','integral','outro'] &&
-      d.professor is string && d.professor.size()>0 && d.professor.size()<=180 &&
-      d.revisao is int && d.revisao>0 && d.atualizado_por==request.auth.uid && d.atualizado_em==request.time &&
-      getAfter(/databases/$(database)/documents/matriculas_atuais/$(alunoId)/historico/$(string(d.revisao))).data==d;
-  }
-  match /matriculas_atuais/{alunoId} {
-    allow get: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(
-      get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id));
-    allow list: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
-    allow create: if (pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
-      request.resource.data.revisao==1 && pages_validEnrollment(request.resource.data,alunoId);
-    allow update: if (pages_manage() || pages_specialistIn(resource.data.escola_id)) &&
-      request.resource.data.escola_id==resource.data.escola_id && request.resource.data.aluno_id==resource.data.aluno_id &&
-      request.resource.data.revisao==resource.data.revisao+1 && pages_validEnrollment(request.resource.data,alunoId);
-    allow delete: if false;
-    match /historico/{revisao} {
-      allow read: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(
-        get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id));
-      allow create: if (pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
-        revisao==string(request.resource.data.revisao) && pages_validEnrollment(request.resource.data,alunoId) &&
-        getAfter(/databases/$(database)/documents/matriculas_atuais/$(alunoId)).data==request.resource.data;
-      allow update,delete: if false;
+    // ---------- utilidades ----------
+    function txt(v, n) { return v is string && v.size() <= n; }
+    function txtObr(v, n) { return txt(v, n) && v.trim().size() > 0; }
+    function semMudar(campos) { return !request.resource.data.diff(resource.data).affectedKeys().hasAny(campos); }
+    function soMudar(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos); }
+    function doc(col, id) { return /databases/$(database)/documents/$(col)/$(id); }
+    function especialidadeValida(e) { return e in ['fonoaudiologia', 'neuropsicologia', 'psicopedagogia']; }
+
+    // Índice de meia hora da semana no horário municipal (UTC-3).
+    function indice(t) {
+      let m = t - duration.value(3, 'h');
+      return (m.dayOfWeek() % 7) * 48 + m.hours() * 2 + (m.minutes() >= 30 ? 1 : 0);
     }
-  }
+    function idReserva(uid, t) { return uid + '_' + string(t.toMillis()); }
 
-  match /usuarios/{uid} {
-    // Especialistas podem consultar pontualmente colegas ativos da mesma escola.
-    allow get: if pages_logged() && (uid == request.auth.uid || pages_manage() ||
-      (pages_specialist() && resource.data.ativo == true &&
-       resource.data.perfil == 'especialista' &&
-       resource.data.escolas.hasAny(pages_me().get('escolas',[]))));
-    allow list: if pages_manage();
-    allow create: if
-      (pages_logged() && uid == request.auth.uid &&
-       request.resource.data.keys().hasOnly(['nome','email','ativo','perfil','escolas','gerenciar','criado_em']) &&
-       request.resource.data.email == request.auth.token.email &&
-       (
-        (request.resource.data.perfil == 'pendente' &&
-         request.resource.data.ativo == false &&
-         request.resource.data.gerenciar == false &&
-         request.resource.data.escolas == []) ||
-        pages_conviteAprovado(request.resource.data)
-       ))
-      ||
-      // Homologação: apenas a gestão pode criar usuário temporário com e-mail
-      // reservado, perfil especialista e sem privilégios administrativos.
-      (pages_manage() && uid != request.auth.uid &&
-       request.resource.data.keys().hasOnly([
-        'nome','email','ativo','perfil','escolas','gerenciar',
-        'criado_em','conta_teste','teste_criado_por'
-       ]) &&
-       request.resource.data.nome is string &&
-       request.resource.data.nome.size() >= 3 &&
-       request.resource.data.nome.size() <= 180 &&
-       request.resource.data.email is string &&
-       request.resource.data.email.matches('^[a-z0-9._-]+@seduc-teste[.]example') &&
-       request.resource.data.ativo == true &&
-       request.resource.data.perfil == 'especialista' &&
-       request.resource.data.gerenciar == false &&
-       request.resource.data.conta_teste == true &&
-       request.resource.data.teste_criado_por == request.auth.uid &&
-       request.resource.data.escolas is list &&
-       request.resource.data.escolas.size() > 0 &&
-       request.resource.data.escolas.size() <= 50 &&
-       request.resource.data.criado_em == request.time);
-    allow update: if pages_manage() && pages_validUserUpdate(uid) &&
-      (pages_admin() || (uid != request.auth.uid &&
-       resource.data.perfil != 'superadmin' && resource.data.get('gerenciar',false) == false &&
-       request.resource.data.perfil != 'superadmin' && request.resource.data.gerenciar == false));
-    allow delete: if false;
-  }
-  match /escolas/{id} {
-    allow get: if pages_schoolAllowed(id);
-    allow list: if pages_active() && (pages_seduc() || pages_admin());
-    allow create,update: if pages_manage() &&
-      request.resource.data.keys().hasOnly(['nome','inep','telefone','endereco','email','tipo']) &&
-      request.resource.data.get('tipo','escola') in ['escola','creche'] &&
-      request.resource.data.nome is string && request.resource.data.nome.size() > 3;
-    allow delete: if false;
-  }
-  // Quadro de servidores escolares separado dos profissionais autorizados
-  // a registrar consultas. Não atribuir permissões de login via importação.
-  match /servidores/{id} {
-    allow read: if pages_manage();
-    allow create: if pages_manage() &&
-      id.matches('srv_[a-z0-9]{12,80}') &&
-      request.resource.data.keys().hasOnly(['nome','cargo','escola_id','ano','escola_origem','linha_origem','ativo']) &&
-      request.resource.data.nome is string &&
-      request.resource.data.nome.size() >= 3 &&
-      request.resource.data.nome.size() <= 180 &&
-      request.resource.data.cargo is string &&
-      request.resource.data.cargo.size() <= 180 &&
-      request.resource.data.escola_id is string &&
-      request.resource.data.ano == 2026 &&
-      request.resource.data.ativo == true &&
-      request.resource.data.escola_origem is string &&
-      request.resource.data.linha_origem is int &&
-      exists(/databases/$(database)/documents/escolas/$(request.resource.data.escola_id));
-    allow update: if pages_manage() &&
-      resource.data.escola_id == request.resource.data.escola_id &&
-      request.resource.data.keys().hasOnly(['nome','cargo','escola_id','ano','escola_origem','linha_origem','ativo']);
-    allow delete: if false;
-  }
-  match /servidores_privado/{id} {
-    allow read: if pages_manage();
-    allow create: if pages_manage() &&
-      existsAfter(/databases/$(database)/documents/servidores/$(id)) &&
-      request.resource.data.keys().hasOnly(['celular','telefone','escola_id']) &&
-      request.resource.data.escola_id ==
-        getAfter(/databases/$(database)/documents/servidores/$(id)).data.escola_id &&
-      request.resource.data.celular is string &&
-      request.resource.data.telefone is string;
-    allow update: if pages_manage() &&
-      request.resource.data.escola_id == resource.data.escola_id &&
-      request.resource.data.keys().hasOnly(['celular','telefone','escola_id']);
-    allow delete: if false;
-  }
-  match /profissionais/{id} {
-    allow read: if pages_seduc() || pages_manage() || (pages_active() && resource.data.uid == request.auth.uid);
-    allow create,update: if pages_manage() &&
-      request.resource.data.keys().hasOnly(['nome','especialidade','uid','escolas']) &&
-      request.resource.data.nome is string &&
-      request.resource.data.nome.size() > 2;
-    allow delete: if false;
-  }
-  match /profissionais_privado/{id} {
-    allow read: if pages_manage();
-    allow create,update: if pages_manage() &&
-      existsAfter(/databases/$(database)/documents/profissionais/$(id)) &&
-      request.resource.data.keys().hasOnly(['cpf','telefone','endereco','nascimento','email']);
-    allow delete: if false;
-  }
-  match /vinculos/{id} {
-    allow read: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
-    allow create,update: if pages_manage() &&
-      request.resource.data.keys().hasOnly(['profissional_id','escola_id','cargo','jornada','uid','horarios','slots_semana','ativo']) &&
-      request.resource.data.horarios is list &&
-      request.resource.data.slots_semana is list &&
-      request.resource.data.slots_semana.size() <= 336 &&
-      exists(/databases/$(database)/documents/escolas/$(request.resource.data.escola_id));
-    allow delete: if false;
-  }
-  match /alunos/{id} {
-    allow read: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
-    allow create: if (pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
-      request.resource.data.keys().hasOnly(['nome','nascimento','matricula','escola_id','criado_por','ativo']) &&
-      request.resource.data.nome is string &&
-      request.resource.data.nome.size() > 2 &&
-      request.resource.data.criado_por == request.auth.uid &&
-      request.resource.data.ativo == true;
-    allow update: if (pages_manage() || pages_specialistIn(resource.data.escola_id)) &&
-      request.resource.data.keys().hasOnly(['nome','nascimento','matricula','escola_id','criado_por','ativo']) &&
-      request.resource.data.escola_id == resource.data.escola_id &&
-      request.resource.data.criado_por == resource.data.criado_por;
-    allow delete: if false;
-  }
-  // CPF, contatos, filiação e endereço permanecem fora da coleção pública de alunos.
-  function pages_dadosPrivadosValidos(d) {
-    return d.keys().hasOnly([
-      'cpf','filiacao','telefone','endereco','escola_id','criado_por',
-      'mae_nome','pai_nome','pai_nao_declarado','responsavel_nome',
-      'responsavel_parentesco','responsavel_telefone','responsavel_telefone_alternativo',
-      'responsavel_email','cep','logradouro','numero','complemento',
-      'bairro','cidade','uf','referencia'
-    ]) &&
-    d.get('cpf','') is string && d.get('cpf','').size() <= 14 &&
-    d.get('filiacao','') is string && d.get('filiacao','').size() <= 400 &&
-    d.get('telefone','') is string && d.get('telefone','').size() <= 30 &&
-    d.get('endereco','') is string && d.get('endereco','').size() <= 1000 &&
-    d.get('mae_nome','') is string && d.get('mae_nome','').size() <= 180 &&
-    d.get('pai_nome','') is string && d.get('pai_nome','').size() <= 180 &&
-    d.get('pai_nao_declarado',false) is bool &&
-    d.get('responsavel_nome','') is string && d.get('responsavel_nome','').size() <= 180 &&
-    d.get('responsavel_parentesco','') is string && d.get('responsavel_parentesco','').size() <= 60 &&
-    d.get('responsavel_telefone','') is string && d.get('responsavel_telefone','').size() <= 30 &&
-    d.get('responsavel_telefone_alternativo','') is string && d.get('responsavel_telefone_alternativo','').size() <= 30 &&
-    d.get('responsavel_email','') is string && d.get('responsavel_email','').size() <= 180 &&
-    d.get('cep','') is string && d.get('cep','').size() <= 9 &&
-    d.get('logradouro','') is string && d.get('logradouro','').size() <= 180 &&
-    d.get('numero','') is string && d.get('numero','').size() <= 40 &&
-    d.get('complemento','') is string && d.get('complemento','').size() <= 150 &&
-    d.get('bairro','') is string && d.get('bairro','').size() <= 150 &&
-    d.get('cidade','') is string && d.get('cidade','').size() <= 120 &&
-    d.get('uf','') is string && d.get('uf','').size() <= 2 &&
-    d.get('referencia','') is string && d.get('referencia','').size() <= 200;
-  }
-  match /alunos_privado/{id} {
-    allow read: if pages_active() && (pages_manage() || pages_specialistIn(resource.data.escola_id));
-    allow create: if (pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
-      existsAfter(/databases/$(database)/documents/alunos/$(id)) &&
-      getAfter(/databases/$(database)/documents/alunos/$(id)).data.escola_id == request.resource.data.escola_id &&
-      pages_dadosPrivadosValidos(request.resource.data) &&
-      request.resource.data.criado_por == request.auth.uid;
-    allow update: if (pages_manage() || pages_specialistIn(resource.data.escola_id)) &&
-      pages_dadosPrivadosValidos(request.resource.data) &&
-      request.resource.data.escola_id == resource.data.escola_id &&
-      request.resource.data.criado_por == resource.data.criado_por;
-    allow delete: if false;
-  }
-  // Registro de ciência dos termos de uso e responsabilidade; NÃO é consentimento
-  // parental nem base legal de tratamento de dados de crianças e adolescentes.
-  // Evento de acesso individual, sem IP ou dados pessoais dos alunos.
-  // Leitura restrita à gestão e somente quando solicitar o relatório de acessos.
-  match /acessos_sistema/{id} {
-    allow get,list: if pages_manage();
-    allow create: if pages_active() &&
-      request.resource.data.keys().hasOnly(['uid','perfil','evento','em']) &&
-      request.resource.data.uid == request.auth.uid &&
-      request.resource.data.perfil == pages_me().perfil &&
-      request.resource.data.evento == 'login_confirmado' &&
-      request.resource.data.em == request.time;
-    allow update,delete: if false;
-  }
-  match /termos_aceites/{id} {
-    allow get: if pages_logged() && (pages_manage() || id == request.auth.uid + '_2026-10-28-v1');
-    allow list: if pages_manage();
-    allow create: if pages_logged() && id == request.auth.uid + '_2026-10-28-v1' &&
-      request.resource.data.keys().hasOnly(['uid','versao','aceito_em','tipo']) &&
-      request.resource.data.uid == request.auth.uid &&
-      request.resource.data.versao == '2026-10-28-v1' &&
-      request.resource.data.tipo == 'ciencia_termos_uso' &&
-      request.resource.data.aceito_em == request.time;
-    allow update,delete: if false;
-  }
+    // ---------- usuários ----------
+    function usuarioValido(d) {
+      return d.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'excluido', 'gerenciar', 'escolas', 'especialidade',
+          'registro_profissional', 'telefone', 'jornada', 'slots', 'criado_em', 'atualizado_em', 'atualizado_por'])
+        && txtObr(d.nome, 180) && txt(d.get('email', ''), 200)
+        && d.perfil in ['pendente', 'especialista', 'secretaria', 'direcao', 'superadmin']
+        && d.ativo is bool && d.get('gerenciar', false) is bool && d.get('excluido', false) is bool
+        && d.get('escolas', []) is list && d.get('escolas', []).size() <= 10
+        && d.get('jornada', []) is list && d.get('jornada', []).size() <= 30
+        && d.get('slots', []) is list && d.get('slots', []).size() <= 336
+        && txt(d.get('registro_profissional', ''), 60) && txt(d.get('telefone', ''), 40)
+        && (d.perfil != 'especialista' || especialidadeValida(d.get('especialidade', '')));
+    }
 
-  // Informações escolares sensíveis ficam fora do cadastro geral de alunos.
-  // A direção escolar não pode acessar esta coleção.
-  match /alunos_necessidades/{id} {
-    allow get,list: if pages_admin() || pages_specialistIn(resource.data.escola_id);
-    allow create: if pages_admin() &&
-      request.resource.data.keys().hasOnly([
-        'aluno_id','escola_id','turma','registro_escolar','ano_letivo',
-        'origem','importado_por','criado_em'
-      ]) &&
-      request.resource.data.aluno_id == id &&
-      request.resource.data.ano_letivo == 2026 &&
-      request.resource.data.origem == 'relatorio_escolar_2026' &&
-      request.resource.data.importado_por == request.auth.uid &&
-      request.resource.data.criado_em == request.time &&
-      request.resource.data.turma is string &&
-      request.resource.data.turma.size() <= 150 &&
-      request.resource.data.registro_escolar is string &&
-      request.resource.data.registro_escolar.size() <= 140 &&
-      existsAfter(/databases/$(database)/documents/alunos/$(id)) &&
-      getAfter(/databases/$(database)/documents/alunos/$(id)).data.escola_id ==
-        request.resource.data.escola_id;
-    allow update,delete: if false;
-  }
+    match /usuarios/{uid} {
+      allow get: if logado() && (uid == request.auth.uid || ativo());
+      allow list: if ativo();
+      // Primeiro login: pendente, ou liberado por convite feito para o mesmo e-mail Google.
+      allow create: if logado() && uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.criado_em == request.time
+        && (
+          (request.resource.data.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'criado_em'])
+            && txtObr(request.resource.data.nome, 180)
+            && request.resource.data.perfil == 'pendente' && request.resource.data.ativo == false)
+          ||
+          (request.resource.data.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'especialidade', 'escolas', 'criado_em'])
+            && exists(doc('convites', request.auth.token.email.lower()))
+            && get(doc('convites', request.auth.token.email.lower())).data.ativo == true
+            && request.resource.data.perfil == get(doc('convites', request.auth.token.email.lower())).data.perfil
+            && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+            && request.resource.data.especialidade == get(doc('convites', request.auth.token.email.lower())).data.get('especialidade', '')
+            && request.resource.data.escolas == get(doc('convites', request.auth.token.email.lower())).data.get('escolas', [])
+            && request.resource.data.ativo == true
+            && usuarioValido(request.resource.data))
+        );
+      // Superadministrador altera qualquer conta, mas não rebaixa a si mesmo.
+      // Secretaria com gerenciamento delegado não toca em administradores, em si mesma
+      // nem na própria delegação de gerenciamento.
+      allow update: if usuarioValido(request.resource.data) && semMudar(['email', 'criado_em'])
+        && request.resource.data.atualizado_em == request.time && request.resource.data.atualizado_por == request.auth.uid
+        && (
+          (admin() && (uid != request.auth.uid || (request.resource.data.perfil == 'superadmin' && request.resource.data.ativo == true)))
+          ||
+          (gerencia() && !admin() && uid != request.auth.uid
+            && resource.data.perfil != 'superadmin' && request.resource.data.perfil != 'superadmin'
+            && (resource.data.perfil != 'secretaria' || request.resource.data.perfil == 'secretaria')
+            && semMudar(['gerenciar']))
+        );
+      allow delete: if false;
+    }
 
-  // Dois horários de 30 minutos formam uma consulta de 60 minutos.
-  // A reserva e os locks são obrigatórios na mesma transação Firestore.
+    match /convites/{email} {
+      allow get: if logado() && (email == request.auth.token.email.lower() || gerencia());
+      allow list: if gerencia();
+      allow create, update: if gerencia()
+        && request.resource.data.keys().hasOnly(['email', 'nome', 'perfil', 'especialidade', 'escolas', 'ativo', 'criado_por', 'criado_em'])
+        && request.resource.data.email == email && email == email.lower()
+        && txtObr(request.resource.data.nome, 180)
+        && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+        && (request.resource.data.perfil != 'secretaria' || admin())
+        && (request.resource.data.perfil != 'especialista' || especialidadeValida(request.resource.data.especialidade))
+        && request.resource.data.escolas is list && request.resource.data.escolas.size() <= 10
+        && request.resource.data.ativo is bool
+        && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time;
+      allow delete: if gerencia();
+    }
 
-  // Relatórios individuais: texto simples, autoria e aluno imutáveis.
-  // Campos obrigatórios e exclusivos: aluno_id/escola_id/vinculo_id (string <=128),
-  // autor_uid (string <=128), autor_nome (string <=180), especialidade/titulo
-  // (string 1..150), texto (string 1..5000), criado_em (timestamp do servidor).
-  function pages_validRelatorioAluno(d) {
-    return d.keys().hasAll(['aluno_id','escola_id','vinculo_id','autor_uid','autor_nome','especialidade','titulo','texto','criado_em']) &&
-      d.keys().hasOnly(['aluno_id','escola_id','vinculo_id','autor_uid','autor_nome','especialidade','titulo','texto','criado_em']) &&
-      d.aluno_id is string && d.aluno_id.size() > 0 && d.aluno_id.size() <= 128 &&
-      d.escola_id is string && d.escola_id.size() > 0 && d.escola_id.size() <= 128 &&
-      d.vinculo_id is string && d.vinculo_id.size() > 0 && d.vinculo_id.size() <= 128 &&
-      d.autor_uid is string && d.autor_uid.size() > 0 && d.autor_uid.size() <= 128 &&
-      d.autor_nome is string && d.autor_nome.size() > 0 && d.autor_nome.size() <= 180 &&
-      d.especialidade is string && d.especialidade.size() > 0 && d.especialidade.size() <= 150 &&
-      d.titulo is string && d.titulo.size() > 0 && d.titulo.size() <= 150 &&
-      d.texto is string && d.texto.size() > 0 && d.texto.size() <= 5000 &&
-      d.criado_em is timestamp;
-  }
+    // ---------- escolas ----------
+    match /escolas/{id} {
+      allow get, list: if ativo();
+      allow create, update: if gerencia()
+        && request.resource.data.keys().hasOnly(['nome', 'tipo', 'inep', 'telefone', 'endereco', 'email', 'direcao'])
+        && txtObr(request.resource.data.nome, 200) && request.resource.data.tipo in ['escola', 'creche']
+        && txt(request.resource.data.get('inep', ''), 20) && txt(request.resource.data.get('telefone', ''), 40)
+        && txt(request.resource.data.get('endereco', ''), 300) && txt(request.resource.data.get('email', ''), 200)
+        && txt(request.resource.data.get('direcao', ''), 180);
+      allow delete: if false;
+    }
 
-  // Metas e revisões são documentos imutáveis ligados ao cadastro do aluno.
-  // Metas: título <=150, linha_base/criterio <=1000, prazo timestamp;
-  // Revisões: status enumerado e evidencia <=2000. Identificadores <=128.
-  // Ambas: autoria validada pelo perfil e criado_em igual à hora do servidor.
-  function pages_metaPath(id) { return /databases/$(database)/documents/metas_alunos/$(id); }
-  function pages_validId(s) { return s is string && s.size() > 0 && s.size() <= 128; }
-  function pages_validAutoriaMeta(d) {
-    return pages_validId(d.aluno_id) && pages_validId(d.escola_id) &&
-      d.vinculo_id is string && d.vinculo_id.size() <= 128 &&
-      d.autor_uid == request.auth.uid && pages_validId(d.autor_uid) &&
-      d.autor_nome is string && d.autor_nome.size() > 0 && d.autor_nome.size() <= 180 &&
-      d.autor_nome == pages_me().nome && d.criado_em is timestamp && d.criado_em == request.time;
-  }
-  function pages_podeRegistrarMeta(d) {
-    return pages_manage() || (pages_validId(d.vinculo_id) && pages_linked(d.vinculo_id,d.escola_id));
-  }
-  function pages_validMeta(d) {
-    return d.keys().hasAll(['aluno_id','escola_id','vinculo_id','substitui_id','titulo','linha_base','criterio','prazo','autor_uid','autor_nome','criado_em']) &&
-      d.keys().hasOnly(['aluno_id','escola_id','vinculo_id','substitui_id','titulo','linha_base','criterio','prazo','autor_uid','autor_nome','criado_em']) &&
-      pages_validAutoriaMeta(d) &&
-      d.titulo is string && d.titulo.size() > 0 && d.titulo.size() <= 150 &&
-      d.linha_base is string && d.linha_base.size() > 0 && d.linha_base.size() <= 1000 &&
-      d.criterio is string && d.criterio.size() > 0 && d.criterio.size() <= 1000 &&
-      d.prazo is timestamp && d.substitui_id is string && d.substitui_id.size() <= 128;
-  }
-  function pages_substituicaoValida(d) {
-    return d.substitui_id == '' || (
-      exists(pages_metaPath(d.substitui_id)) &&
-      get(pages_metaPath(d.substitui_id)).data.aluno_id == d.aluno_id &&
-      get(pages_metaPath(d.substitui_id)).data.escola_id == d.escola_id);
-  }
-  function pages_validRevisaoMeta(d) {
-    return d.keys().hasAll(['meta_id','aluno_id','escola_id','vinculo_id','status','evidencia','autor_uid','autor_nome','criado_em']) &&
-      d.keys().hasOnly(['meta_id','aluno_id','escola_id','vinculo_id','status','evidencia','autor_uid','autor_nome','criado_em']) &&
-      pages_validAutoriaMeta(d) && pages_validId(d.meta_id) &&
-      d.status in ['definida','em_desenvolvimento','atingida','revisar'] &&
-      d.evidencia is string && d.evidencia.size() > 0 && d.evidencia.size() <= 2000 &&
-      exists(pages_metaPath(d.meta_id)) &&
-      get(pages_metaPath(d.meta_id)).data.aluno_id == d.aluno_id &&
-      get(pages_metaPath(d.meta_id)).data.escola_id == d.escola_id;
-  }
-  match /metas_alunos/{id} {
-    allow read: if pages_admin() || pages_seduc() || pages_specialistIn(resource.data.escola_id);
-    allow create: if pages_validMeta(request.resource.data) &&
-      pages_podeRegistrarMeta(request.resource.data) &&
-      pages_validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
-      pages_substituicaoValida(request.resource.data) && request.resource.data.substitui_id != id;
-    allow update,delete: if false;
-  }
-  match /revisoes_metas/{id} {
-    allow read: if pages_admin() || pages_seduc() || pages_specialistIn(resource.data.escola_id);
-    allow create: if pages_validRevisaoMeta(request.resource.data) &&
-      pages_podeRegistrarMeta(request.resource.data) &&
-      pages_validAluno(request.resource.data.aluno_id,request.resource.data.escola_id);
-    allow update,delete: if false;
-  }
+    // ---------- estudantes ----------
+    function estudanteValido(d) {
+      return d.keys().hasOnly(['nome', 'nascimento', 'escola_id', 'turma', 'turno', 'ano_letivo', 'situacao',
+          'motivo_arquivamento', 'escolas_anteriores', 'origem', 'criado_por', 'criado_em', 'atualizado_por', 'atualizado_em'])
+        && txtObr(d.nome, 180) && txt(d.get('nascimento', ''), 10) && exists(doc('escolas', d.escola_id))
+        && txt(d.get('turma', ''), 80) && d.get('turno', '') in ['', 'manha', 'tarde', 'integral']
+        && d.get('ano_letivo', 2026) is int && d.situacao in ['ativo', 'arquivado']
+        && txt(d.get('motivo_arquivamento', ''), 500)
+        && d.get('escolas_anteriores', []) is list && d.get('escolas_anteriores', []).size() <= 20;
+    }
+    function podeCadastrar(escola) { return equipe() || gerencia() || direcaoDe(escola); }
 
-  match /relatorios_alunos/{id} {
-    // Relação aluno/escola validada na criação, imutável e sem exclusão de aluno.
-    // List usa o escopo consultável; get também confere a existência do cadastro.
-    allow list: if pages_admin() || pages_seduc() || pages_specialistIn(resource.data.escola_id);
-    allow get: if (pages_admin() || pages_seduc() || pages_specialistIn(resource.data.escola_id)) &&
-      exists(/databases/$(database)/documents/alunos/$(resource.data.aluno_id)) &&
-      get(/databases/$(database)/documents/alunos/$(resource.data.aluno_id)).data.escola_id == resource.data.escola_id;
-    allow create: if pages_validRelatorioAluno(request.resource.data) &&
-      request.resource.data.autor_uid == request.auth.uid &&
-      request.resource.data.autor_nome == pages_me().nome &&
-      request.resource.data.criado_em == request.time &&
-      pages_linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
-      pages_validAluno(request.resource.data.aluno_id,request.resource.data.escola_id);
-    // Complementos geram um novo documento; versões emitidas nunca são sobrescritas.
-    allow update,delete: if false;
-  }
+    match /estudantes/{id} {
+      allow get, list: if veEscola(resource.data.escola_id);
+      allow create: if podeCadastrar(request.resource.data.escola_id) && estudanteValido(request.resource.data)
+        && request.resource.data.situacao == 'ativo'
+        && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time;
+      allow update: if estudanteValido(request.resource.data) && semMudar(['criado_por', 'criado_em', 'origem'])
+        && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time
+        && (equipe() || gerencia() || (direcaoDe(resource.data.escola_id) && direcaoDe(request.resource.data.escola_id)));
+      allow delete: if false;
+    }
 
-  // Histórico de ações por registro. Abertura da agenda consulta somente os
-  // eventos daquele agendamento, sem varrer todos os logs da prefeitura.
-  function pages_eventoValido(d,docId,tipo) {
-    return d.keys().hasOnly([
-      'acao','alvo_tipo','alvo_id','escola_id','aluno_id','autor_uid',
-      'autor_nome','criado_em','situacao_anterior','situacao_nova'
-    ]) &&
-    d.alvo_tipo == tipo && d.alvo_id == docId &&
-    d.autor_uid == request.auth.uid &&
-    d.autor_nome is string && d.autor_nome.size() <= 180 &&
-    d.aluno_id is string && d.aluno_id.size() <= 128 &&
-    d.escola_id is string && d.criado_em == request.time &&
-    d.situacao_anterior is string && d.situacao_anterior.size() <= 45 &&
-    d.situacao_nova is string && d.situacao_nova.size() <= 45;
-  }
-  // Eventos imutáveis. O status, estudante e escola são verificados no destino.
-  function pages_auditarAgendamento(agendaId,eventoId) {
-    let e = request.resource.data;
-    let a = getAfter(pages_appointmentPath(agendaId)).data;
-    return pages_eventoValido(e,agendaId,'agendamento') &&
-      eventoId == e.acao &&
-      e.acao in ['agendado','iniciado','concluido','cancelado','falta_aluno','falta_profissional','reagendado'] &&
-      a.escola_id == e.escola_id && a.aluno_id == e.aluno_id &&
-      a.status == e.situacao_nova &&
-      (a.autor_uid == request.auth.uid ||
-       (pages_manage() && e.acao in ['cancelado','reagendado'] && a.get('alterado_por_uid','') == request.auth.uid) ||
-       ((pages_manage() || pages_specialistIn(e.escola_id)) && e.acao == 'agendado' &&
-        a.get('agendado_por_uid','') == request.auth.uid));
-  }
-  match /agendamentos/{agendaId}/historico/{eventoId} {
-    allow read: if pages_active() && (pages_manage() ||
-      (pages_specialist() && get(pages_appointmentPath(agendaId)).data.autor_uid == request.auth.uid));
-    allow create: if (pages_specialist() || pages_manage()) && pages_auditarAgendamento(agendaId,eventoId);
-    allow update,delete: if false;
-  }
-  match /atendimentos/{atendimentoId}/historico/{eventoId} {
-    allow read: if pages_active() &&
-      (pages_manage() || (pages_specialist() &&
-       get(pages_attendancePath(atendimentoId)).data.autor_uid == request.auth.uid));
-    allow create: if pages_specialist() &&
-      pages_eventoValido(request.resource.data,atendimentoId,'atendimento') &&
-      eventoId == 'atendimento_avulso' &&
-      !exists(pages_attendancePath(atendimentoId)) &&
-      request.resource.data.acao == 'atendimento_avulso' &&
-      request.resource.data.situacao_nova == 'realizado' &&
-      existsAfter(pages_attendancePath(atendimentoId)) &&
-      getAfter(pages_attendancePath(atendimentoId)).data.autor_uid == request.auth.uid &&
-      getAfter(pages_attendancePath(atendimentoId)).data.escola_id == request.resource.data.escola_id &&
-      getAfter(pages_attendancePath(atendimentoId)).data.aluno_id == request.resource.data.aluno_id;
-    allow update,delete: if false;
-  }
-  match /alunos/{alunoId}/historico/{eventoId} {
-    allow read: if pages_active() && (pages_manage() || pages_specialistIn(
-      get(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id));
-    allow create: if pages_active() &&
-      pages_eventoValido(request.resource.data,alunoId,'aluno') &&
-      request.resource.data.acao in ['aluno_cadastrado','aluno_atualizado'] &&
-      (request.resource.data.acao == 'aluno_atualizado' ||
-        (eventoId == 'aluno_cadastrado' && !exists(/databases/$(database)/documents/alunos/$(alunoId)))) &&
-      existsAfter(/databases/$(database)/documents/alunos/$(alunoId)) &&
-      (pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
-      getAfter(/databases/$(database)/documents/alunos/$(alunoId)).data.escola_id == request.resource.data.escola_id &&
-      request.resource.data.aluno_id == alunoId;
-    allow update,delete: if false;
-  }
+    // Contatos e motivo do encaminhamento: equipe, gestão delegada e direção da escola.
+    match /estudantes_privado/{id} {
+      allow get: if clinico() || gerencia() || direcaoDe(get(doc('estudantes', id)).data.escola_id);
+      allow create, update: if existsAfter(doc('estudantes', id))
+        && podeCadastrar(getAfter(doc('estudantes', id)).data.escola_id)
+        && request.resource.data.keys().hasOnly(['responsavel', 'parentesco', 'telefone', 'endereco', 'cartao_sus', 'cpf',
+            'motivo_encaminhamento', 'atualizado_por', 'atualizado_em'])
+        && txt(request.resource.data.get('responsavel', ''), 180) && txt(request.resource.data.get('parentesco', ''), 60)
+        && txt(request.resource.data.get('telefone', ''), 40) && txt(request.resource.data.get('endereco', ''), 300)
+        && txt(request.resource.data.get('cartao_sus', ''), 20) && txt(request.resource.data.get('cpf', ''), 14)
+        && txt(request.resource.data.get('motivo_encaminhamento', ''), 2000)
+        && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time;
+      allow delete: if false;
+    }
 
-  function pages_managementAudit(id,action) {
-    let e=getAfter(/databases/$(database)/documents/agendamentos/$(id)/historico/$(action)).data;
-    return e.autor_uid==request.auth.uid && e.acao==action && e.criado_em==request.time &&
-      e.escola_id==resource.data.escola_id && e.aluno_id==resource.data.aluno_id;
-  }
-  function pages_managementChange(id) {
-    let d=request.resource.data;
-    return pages_manage() && pages_sameAuthorAndScope() && d.get('alterado_por_uid','')==request.auth.uid &&
-      (
-        (resource.data.status=='agendado' && d.status=='cancelado' &&
-         d.diff(resource.data).affectedKeys().hasOnly(['status','motivo_cancelamento','cancelado_em','alterado_por_uid']) &&
-         d.motivo_cancelamento is string && d.motivo_cancelamento.size()>0 && d.motivo_cancelamento.size()<=500 &&
-         d.cancelado_em==request.time && pages_appointmentHasSlots(id,resource.data,'liberado') && pages_managementAudit(id,'cancelado'))
-        ||
-        (resource.data.status in ['agendado','falta_aluno','falta_profissional'] &&
-         !resource.data.keys().hasAny(['novo_agendamento_id']) &&
-         d.diff(resource.data).affectedKeys().hasOnly(['status','novo_agendamento_id','remarcado_em','motivo_remarcacao','alterado_por_uid']) &&
-         d.motivo_remarcacao is string && d.motivo_remarcacao.size()>0 && d.motivo_remarcacao.size()<=500 &&
-         d.remarcado_em==request.time && d.novo_agendamento_id is string && d.novo_agendamento_id.size()>0 && d.novo_agendamento_id.size()<=128 &&
-         (resource.data.status=='agendado' ? (d.status=='remarcado' && pages_appointmentHasSlots(id,resource.data,'liberado')) : d.status==resource.data.status) &&
-         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.remarcado_de==id &&
-         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.autor_uid==resource.data.autor_uid &&
-         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.escola_id==resource.data.escola_id &&
-         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.aluno_id==resource.data.aluno_id &&
-         getAfter(pages_appointmentPath(d.novo_agendamento_id)).data.status=='agendado' && pages_managementAudit(id,'reagendado'))
-      );
-  }
-  function pages_managementSlot(id) {
-    let d=request.resource.data;
-    let a=getAfter(pages_appointmentPath(resource.data.agendamento_id)).data;
-    return pages_manage() && id==resource.data.autor_uid+'_'+string(resource.data.inicio.toMillis()) &&
-      (
-        (resource.data.status=='reservado' && d.status=='liberado' &&
-         d.diff(resource.data).affectedKeys().hasOnly(['status']) &&
-         a.get('alterado_por_uid','')==request.auth.uid &&
-         ((a.status=='cancelado' && a.cancelado_em==request.time) ||
-          (a.status in ['remarcado','falta_aluno','falta_profissional'] && a.remarcado_em==request.time)))
-        ||
-        (resource.data.status=='liberado' && d.status=='reservado' &&
-         d.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
-         d.autor_uid==resource.data.autor_uid && d.inicio==resource.data.inicio &&
-         pages_validSlotBooking(d) &&
-         getAfter(pages_appointmentPath(d.agendamento_id)).data.get('agendado_por_uid','')==request.auth.uid &&
-         getAfter(pages_appointmentPath(d.agendamento_id)).data.criado_em==request.time)
-      );
-  }
+    // Informações clínicas de base (condição informada, laudos externos): somente equipe.
+    match /estudantes_clinico/{id} {
+      allow get: if clinico();
+      allow create, update: if clinico() && existsAfter(doc('estudantes', id))
+        && request.resource.data.keys().hasOnly(['necessidade_informada', 'fonte', 'observacoes', 'atualizado_por', 'atualizado_em'])
+        && txt(request.resource.data.get('necessidade_informada', ''), 1000) && txt(request.resource.data.get('fonte', ''), 300)
+        && txt(request.resource.data.get('observacoes', ''), 3000)
+        && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time;
+      allow delete: if false;
+    }
 
-  match /agendamentos/{id} {
-    allow read: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
-    allow create: if (pages_specialistIn(request.resource.data.escola_id) || pages_manage()) &&
-      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','status','remarcado_de','agendado_por_uid']) &&
-      (
-        (request.resource.data.autor_uid == request.auth.uid &&
-          !request.resource.data.keys().hasAny(['agendado_por_uid']) &&
-          pages_specialistIn(request.resource.data.escola_id)) ||
-        ((pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
-          request.resource.data.get('agendado_por_uid','') == request.auth.uid &&
-          request.resource.data.autor_uid != request.auth.uid)
-      ) &&
-      request.resource.data.status == 'agendado' &&
-      request.resource.data.inicio is timestamp &&
-      request.resource.data.inicio > request.time &&
-      request.resource.data.inicio.minutes() % 30 == 0 &&
-      request.resource.data.inicio.seconds() == 0 &&
-      request.resource.data.duracao_min in [30,60] &&
-      pages_validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
-      pages_vinculoAgendamento(request.resource.data.vinculo_id,request.resource.data.escola_id,request.resource.data.autor_uid) &&
-      pages_jornadaAutorizada(request.resource.data.vinculo_id,request.resource.data.inicio,request.resource.data.duracao_min) &&
-      pages_appointmentHasSlots(id,request.resource.data,'reservado') &&
-      (!request.resource.data.keys().hasAny(['remarcado_de']) ||
-        (request.resource.data.remarcado_de is string &&
-          request.resource.data.remarcado_de != id &&
-          exists(pages_appointmentPath(request.resource.data.remarcado_de)) &&
-          (pages_manage() || get(pages_appointmentPath(request.resource.data.remarcado_de)).data.autor_uid == request.auth.uid) &&
-          get(pages_appointmentPath(request.resource.data.remarcado_de)).data.autor_uid == request.resource.data.autor_uid &&
-          get(pages_appointmentPath(request.resource.data.remarcado_de)).data.aluno_id == request.resource.data.aluno_id &&
-          get(pages_appointmentPath(request.resource.data.remarcado_de)).data.escola_id == request.resource.data.escola_id &&
-          getAfter(pages_appointmentPath(request.resource.data.remarcado_de)).data.novo_agendamento_id == id));
-    allow update: if pages_managementChange(id);
-    // O próprio especialista inicia a consulta, mantendo escola, aluno e agenda intactos.
-    // A conclusão exige criar o atendimento e sua nota na mesma transação.
-    allow update: if pages_specialist() && resource.data.autor_uid == request.auth.uid &&
-      pages_sameAuthorAndScope() &&
-      (
-        (resource.data.status == 'agendado' &&
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) ||
-           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','motivo_cancelamento','cancelado_em','alterado_por_uid']) &&
-            request.resource.data.motivo_cancelamento is string && request.resource.data.motivo_cancelamento.size()>0 && request.resource.data.motivo_cancelamento.size()<=500 &&
-            request.resource.data.cancelado_em==request.time && request.resource.data.alterado_por_uid==request.auth.uid)) &&
-          request.resource.data.status == 'cancelado' &&
-          pages_appointmentHasSlots(id,resource.data,'liberado'))
-        ||
-        (resource.data.status == 'agendado' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','iniciado_em']) &&
-          request.resource.data.status == 'em_atendimento' &&
-          request.resource.data.iniciado_em == request.time &&
-          pages_linked(resource.data.vinculo_id,resource.data.escola_id) &&
-          pages_validAluno(resource.data.aluno_id,resource.data.escola_id))
-        ||
-        (resource.data.status == 'agendado' &&
-          request.time >= resource.data.inicio &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','motivo_falta','falta_registrada_em']) &&
-          request.resource.data.status in ['falta_aluno','falta_profissional'] &&
-          request.resource.data.motivo_falta is string &&
-          request.resource.data.motivo_falta.size() <= 500 &&
-          request.resource.data.falta_registrada_em == request.time &&
-          pages_appointmentHasSlots(id,resource.data,'liberado'))
-        ||
-        (resource.data.status in ['agendado','falta_aluno','falta_profissional'] &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','novo_agendamento_id','remarcado_em','motivo_remarcacao','alterado_por_uid']) &&
-          request.resource.data.get('alterado_por_uid',request.auth.uid)==request.auth.uid &&
-          !resource.data.keys().hasAny(['novo_agendamento_id']) &&
-          request.resource.data.motivo_remarcacao is string &&
-          request.resource.data.motivo_remarcacao.size() > 0 &&
-          request.resource.data.motivo_remarcacao.size() <= 500 &&
-          (resource.data.status == 'agendado' ?
-            (request.resource.data.status == 'remarcado' && pages_appointmentHasSlots(id,resource.data,'liberado')) :
-            request.resource.data.status == resource.data.status) &&
-          request.resource.data.remarcado_em == request.time &&
-          request.resource.data.novo_agendamento_id is string &&
-          existsAfter(pages_appointmentPath(request.resource.data.novo_agendamento_id)) &&
-          getAfter(pages_appointmentPath(request.resource.data.novo_agendamento_id)).data.remarcado_de == id &&
-          getAfter(pages_appointmentPath(request.resource.data.novo_agendamento_id)).data.aluno_id == resource.data.aluno_id &&
-          getAfter(pages_appointmentPath(request.resource.data.novo_agendamento_id)).data.autor_uid == resource.data.autor_uid &&
-          getAfter(pages_appointmentPath(request.resource.data.novo_agendamento_id)).data.escola_id == resource.data.escola_id &&
-          getAfter(pages_appointmentPath(request.resource.data.novo_agendamento_id)).data.status == 'agendado')
-        ||
-        (resource.data.status == 'em_atendimento' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizado_em','atendimento_id']) &&
-          request.resource.data.status == 'realizado' &&
-          request.resource.data.finalizado_em == request.time &&
-          request.resource.data.atendimento_id == 'agenda_' + id &&
-          existsAfter(pages_attendancePath('agenda_' + id)) &&
-          getAfter(pages_attendancePath('agenda_' + id)).data.agendamento_id == id &&
-          getAfter(pages_attendancePath('agenda_' + id)).data.escola_id == resource.data.escola_id &&
-          getAfter(pages_attendancePath('agenda_' + id)).data.aluno_id == resource.data.aluno_id &&
-          getAfter(pages_attendancePath('agenda_' + id)).data.autor_uid == resource.data.autor_uid &&
-          getAfter(pages_attendancePath('agenda_' + id)).data.status == 'realizado')
-      );
-    allow delete: if false;
+    // ---------- prontuário: atendimentos ----------
+    function tipoValido(t) { return t in ['avaliacao', 'sessao', 'reavaliacao', 'devolutiva', 'orientacao', 'alta']; }
+    function evolucaoValida(e) { return e in ['avancou', 'estavel', 'regrediu', 'nao_avaliado']; }
+    function camposClinicosValidos(d) {
+      return tipoValido(d.tipo) && evolucaoValida(d.evolucao) && d.data is timestamp
+        && d.data <= request.time + duration.value(10, 'm') && d.data > timestamp.date(2020, 1, 1)
+        && d.duracao_min is int && d.duracao_min >= 10 && d.duracao_min <= 240;
+    }
+    function versaoGravada(id, v) { return existsAfter(doc('atendimentos_versoes', id + '_' + string(v))); }
+
+    match /atendimentos/{id} {
+      allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
+      allow create: if equipe()
+        && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
+            'tipo', 'evolucao', 'data', 'duracao_min', 'agendamento_id', 'situacao', 'versao', 'criado_em', 'atualizado_em'])
+        && request.resource.data.profissional_uid == request.auth.uid
+        && request.resource.data.especialidade == eu().especialidade
+        && txtObr(request.resource.data.profissional_nome, 180)
+        && camposClinicosValidos(request.resource.data)
+        && request.resource.data.situacao == 'valido' && request.resource.data.versao == 1
+        && request.resource.data.criado_em == request.time && request.resource.data.atualizado_em == request.time
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.situacao == 'ativo'
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.escola_id == request.resource.data.escola_id
+        && existsAfter(doc('atendimentos_registro', id))
+        && (request.resource.data.agendamento_id == ''
+          || (get(doc('agendamentos', request.resource.data.agendamento_id)).data.status == 'agendado'
+            && get(doc('agendamentos', request.resource.data.agendamento_id)).data.profissional_uid == request.auth.uid
+            && get(doc('agendamentos', request.resource.data.agendamento_id)).data.estudante_id == request.resource.data.estudante_id
+            && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.status == 'realizado'
+            && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.atendimento_id == id));
+      // Toda alteração grava antes a versão anterior (imutável).
+      allow update: if request.resource.data.versao == resource.data.versao + 1
+        && versaoGravada(id, resource.data.versao)
+        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade', 'agendamento_id', 'criado_em'])
+        && request.resource.data.atualizado_em == request.time
+        && resource.data.situacao == 'valido'
+        && (
+          // retificação pela autora
+          (equipe() && resource.data.profissional_uid == request.auth.uid
+            && request.resource.data.situacao == 'valido'
+            && soMudar(['tipo', 'evolucao', 'data', 'duracao_min', 'versao', 'atualizado_em'])
+            && camposClinicosValidos(request.resource.data))
+          ||
+          // anulação (registro feito por engano): autora ou administração, com motivo
+          ((admin() || (equipe() && resource.data.profissional_uid == request.auth.uid))
+            && request.resource.data.situacao == 'anulado'
+            && soMudar(['situacao', 'motivo_anulacao', 'anulado_por', 'versao', 'atualizado_em'])
+            && txtObr(request.resource.data.motivo_anulacao, 500)
+            && request.resource.data.anulado_por == request.auth.uid)
+        );
+      allow delete: if false;
+    }
+
+    function registroValido(d) {
+      return txtObr(d.trabalhado, 3000) && txt(d.get('desenvolvido', ''), 3000) && txt(d.get('orientacoes', ''), 3000);
+    }
+    match /atendimentos_registro/{id} {
+      allow get, list: if clinico();
+      allow create: if equipe()
+        && request.resource.data.keys().hasOnly(['estudante_id', 'profissional_uid', 'trabalhado', 'desenvolvido', 'orientacoes', 'versao'])
+        && request.resource.data.profissional_uid == request.auth.uid && request.resource.data.versao == 1
+        && registroValido(request.resource.data)
+        && getAfter(doc('atendimentos', id)).data.profissional_uid == request.auth.uid
+        && getAfter(doc('atendimentos', id)).data.estudante_id == request.resource.data.estudante_id
+        && getAfter(doc('atendimentos', id)).data.versao == 1;
+      allow update: if equipe() && resource.data.profissional_uid == request.auth.uid
+        && semMudar(['estudante_id', 'profissional_uid'])
+        && soMudar(['trabalhado', 'desenvolvido', 'orientacoes', 'versao'])
+        && registroValido(request.resource.data)
+        && request.resource.data.versao == resource.data.versao + 1
+        && getAfter(doc('atendimentos', id)).data.versao == request.resource.data.versao
+        && getAfter(doc('atendimentos', id)).data.situacao == 'valido'
+        && versaoGravada(id, resource.data.versao);
+      allow delete: if false;
+    }
+
+    // Cópia fiel da versão anterior (metadados + texto), com motivo. Nunca alterada.
+    match /atendimentos_versoes/{vid} {
+      allow get, list: if clinico();
+      allow create: if clinico()
+        && request.resource.data.keys().hasOnly(['atendimento_id', 'versao', 'autor_uid', 'em', 'motivo', 'atendimento', 'registro'])
+        && vid == request.resource.data.atendimento_id + '_' + string(request.resource.data.versao)
+        && request.resource.data.autor_uid == request.auth.uid && request.resource.data.em == request.time
+        && txtObr(request.resource.data.motivo, 500)
+        && request.resource.data.atendimento == get(doc('atendimentos', request.resource.data.atendimento_id)).data
+        && request.resource.data.registro == get(doc('atendimentos_registro', request.resource.data.atendimento_id)).data
+        && request.resource.data.versao == request.resource.data.atendimento.versao
+        && (admin() || request.resource.data.atendimento.profissional_uid == request.auth.uid);
+      allow update, delete: if false;
+    }
+
+    // ---------- agenda ----------
+    function naJornada(uid, inicio, duracao) {
+      let slots = get(doc('usuarios', uid)).data.get('slots', []);
+      return indice(inicio) in slots && (duracao == 30 || indice(inicio + duration.value(30, 'm')) in slots);
+    }
+    function reservado(uid, inicio, agId) {
+      return existsAfter(doc('reservas', idReserva(uid, inicio)))
+        && getAfter(doc('reservas', idReserva(uid, inicio))).data.agendamento_id == agId;
+    }
+    function liberado(uid, inicio) { return !existsAfter(doc('reservas', idReserva(uid, inicio))); }
+
+    match /agendamentos/{id} {
+      allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
+      allow create: if request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome',
+            'especialidade', 'inicio', 'duracao_min', 'status', 'observacao', 'criado_por', 'criado_em'])
+        && ((equipe() && request.resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(request.resource.data.escola_id))
+        && request.resource.data.status == 'agendado'
+        && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time
+        && txt(request.resource.data.get('observacao', ''), 300) && txtObr(request.resource.data.profissional_nome, 180)
+        && request.resource.data.duracao_min in [30, 60]
+        && request.resource.data.inicio is timestamp && request.resource.data.inicio > request.time
+        && request.resource.data.inicio.toMillis() % 1800000 == 0
+        && get(doc('usuarios', request.resource.data.profissional_uid)).data.ativo == true
+        && get(doc('usuarios', request.resource.data.profissional_uid)).data.perfil == 'especialista'
+        && get(doc('usuarios', request.resource.data.profissional_uid)).data.especialidade == request.resource.data.especialidade
+        && naJornada(request.resource.data.profissional_uid, request.resource.data.inicio, request.resource.data.duracao_min)
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.situacao == 'ativo'
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.escola_id == request.resource.data.escola_id
+        && reservado(request.resource.data.profissional_uid, request.resource.data.inicio, id)
+        && (request.resource.data.duracao_min == 30
+          || reservado(request.resource.data.profissional_uid, request.resource.data.inicio + duration.value(30, 'm'), id));
+      allow update: if resource.data.status == 'agendado'
+        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'especialidade', 'inicio', 'duracao_min', 'criado_por', 'criado_em'])
+        && request.resource.data.alterado_por == request.auth.uid && request.resource.data.alterado_em == request.time
+        && (
+          // cancelamento libera os horários
+          (request.resource.data.status == 'cancelado'
+            && soMudar(['status', 'motivo', 'alterado_por', 'alterado_em'])
+            && txtObr(request.resource.data.motivo, 500)
+            && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(resource.data.escola_id))
+            && liberado(resource.data.profissional_uid, resource.data.inicio)
+            && (resource.data.duracao_min == 30 || liberado(resource.data.profissional_uid, resource.data.inicio + duration.value(30, 'm'))))
+          ||
+          // falta do aluno: só depois do horário marcado
+          (request.resource.data.status == 'falta'
+            && soMudar(['status', 'motivo', 'alterado_por', 'alterado_em'])
+            && txt(request.resource.data.get('motivo', ''), 500)
+            && resource.data.inicio <= request.time
+            && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao()))
+          ||
+          // realizado: somente junto com o registro do atendimento pela profissional
+          (request.resource.data.status == 'realizado'
+            && soMudar(['status', 'atendimento_id', 'alterado_por', 'alterado_em'])
+            && equipe() && resource.data.profissional_uid == request.auth.uid
+            && getAfter(doc('atendimentos', request.resource.data.atendimento_id)).data.agendamento_id == id)
+        );
+      allow delete: if false;
+    }
+
+    // Trava de meia hora por profissional: o ID é uid_milissegundos, então dois
+    // agendamentos no mesmo horário nunca coexistem.
+    match /reservas/{rid} {
+      allow get: if ativo();
+      allow create: if ativo()
+        && request.resource.data.keys().hasOnly(['agendamento_id', 'profissional_uid', 'inicio'])
+        && rid == idReserva(request.resource.data.profissional_uid, request.resource.data.inicio)
+        && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.status == 'agendado'
+        && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.profissional_uid == request.resource.data.profissional_uid
+        && (request.resource.data.inicio == getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.inicio
+          || (getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.duracao_min == 60
+            && request.resource.data.inicio == getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.inicio + duration.value(30, 'm')));
+      allow delete: if ativo()
+        && get(doc('agendamentos', resource.data.agendamento_id)).data.status == 'agendado'
+        && getAfter(doc('agendamentos', resource.data.agendamento_id)).data.status == 'cancelado';
+      allow update: if false;
+    }
+
+    // ---------- relatórios descritivos ----------
+    match /relatorios/{id} {
+      allow get, list: if clinico();
+      allow create: if equipe()
+        && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
+            'registro_profissional', 'tipo', 'titulo', 'destinatario', 'periodo_de', 'periodo_ate', 'texto', 'criado_em'])
+        && request.resource.data.profissional_uid == request.auth.uid
+        && request.resource.data.especialidade == eu().especialidade
+        && request.resource.data.tipo in ['relatorio', 'parecer', 'devolutiva', 'encaminhamento']
+        && txtObr(request.resource.data.titulo, 150) && txtObr(request.resource.data.texto, 10000)
+        && txt(request.resource.data.get('destinatario', ''), 180) && txt(request.resource.data.get('registro_profissional', ''), 60)
+        && txt(request.resource.data.get('periodo_de', ''), 10) && txt(request.resource.data.get('periodo_ate', ''), 10)
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.escola_id == request.resource.data.escola_id
+        && request.resource.data.criado_em == request.time;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
   }
-  match /agenda_slots/{id} {
-    // Leitura pontual dos slots de colegas da mesma escola; nenhum dado clínico é exposto.
-    // Slots ainda inexistentes também precisam ser legíveis para checar conflito.
-    allow get: if pages_manage() || (pages_specialist() &&
-      (resource == null || pages_schoolAllowed(resource.data.escola_id)));
-    allow list: if false;
-    allow create: if (pages_specialistIn(request.resource.data.escola_id) || pages_manage()) &&
-      request.resource.data.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
-      request.resource.data.inicio is timestamp &&
-      id == request.resource.data.autor_uid + '_' + string(request.resource.data.inicio.toMillis()) &&
-      request.resource.data.status == 'reservado' &&
-      (
-        (request.resource.data.autor_uid == request.auth.uid &&
-          pages_specialistIn(request.resource.data.escola_id) &&
-          pages_validSlotBooking(request.resource.data))
-        ||
-        // Reservas feitas pela gestão ou por colega da mesma escola.
-        // A vinculação do slot ao agendamento é validada na regra do agendamento.
-        ((pages_manage() || pages_specialistIn(request.resource.data.escola_id)) &&
-          request.resource.data.autor_uid != request.auth.uid &&
-          get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.ativo == true &&
-          get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.perfil == 'especialista' &&
-          request.resource.data.escola_id in
-           get(/databases/$(database)/documents/usuarios/$(request.resource.data.autor_uid)).data.get('escolas', []))
-      );
-    allow update: if pages_managementSlot(id);
-    allow update: if pages_specialist() && resource.data.autor_uid == request.auth.uid &&
-      id == request.auth.uid + '_' + string(resource.data.inicio.toMillis()) &&
-      (
-        (resource.data.status == 'reservado' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
-          request.resource.data.status == 'liberado' &&
-          existsAfter(pages_appointmentPath(resource.data.agendamento_id)) &&
-          getAfter(pages_appointmentPath(resource.data.agendamento_id)).data.status in ['cancelado','falta_aluno','falta_profissional','remarcado'])
-        ||
-        (resource.data.status == 'liberado' &&
-          request.resource.data.autor_uid == resource.data.autor_uid &&
-          request.resource.data.inicio == resource.data.inicio &&
-          request.resource.data.escola_id is string &&
-          request.resource.data.keys().hasOnly(['autor_uid','escola_id','agendamento_id','inicio','status']) &&
-          request.resource.data.status == 'reservado' &&
-          pages_validSlotBooking(request.resource.data))
-      );
-    allow delete: if false;
-  }
-  match /atendimentos/{id} {
-    allow read: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
-    allow create: if pages_specialistIn(request.resource.data.escola_id) &&
-      request.resource.data.keys().hasOnly(['escola_id','aluno_id','vinculo_id','inicio','duracao_min','especialidade','autor_uid','autor_nome','criado_em','data','status','agendamento_id','evolucao_observada']) &&
-      request.resource.data.autor_uid == request.auth.uid &&
-      request.resource.data.status == 'realizado' &&
-      request.resource.data.data is timestamp &&
-      request.resource.data.duracao_min in [30,60] &&
-      (!request.resource.data.keys().hasAny(['evolucao_observada']) ||
-        request.resource.data.evolucao_observada in ['nao_avaliada','avanco_observado','sem_mudanca_observada','reavaliacao_necessaria']) &&
-      pages_linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
-      pages_validAluno(request.resource.data.aluno_id,request.resource.data.escola_id) &&
-      existsAfter(/databases/$(database)/documents/notas_atendimento/$(id)) &&
-      (
-        !request.resource.data.keys().hasAny(['agendamento_id']) ||
-        (request.resource.data.agendamento_id is string &&
-          id == 'agenda_' + request.resource.data.agendamento_id &&
-          exists(pages_appointmentPath(request.resource.data.agendamento_id)) &&
-          get(pages_appointmentPath(request.resource.data.agendamento_id)).data.status == 'em_atendimento' &&
-          getAfter(pages_appointmentPath(request.resource.data.agendamento_id)).data.status == 'realizado' &&
-          getAfter(pages_appointmentPath(request.resource.data.agendamento_id)).data.atendimento_id == id &&
-          get(pages_appointmentPath(request.resource.data.agendamento_id)).data.aluno_id == request.resource.data.aluno_id &&
-          get(pages_appointmentPath(request.resource.data.agendamento_id)).data.escola_id == request.resource.data.escola_id &&
-          get(pages_appointmentPath(request.resource.data.agendamento_id)).data.autor_uid == request.resource.data.autor_uid &&
-          get(pages_appointmentPath(request.resource.data.agendamento_id)).data.vinculo_id == request.resource.data.vinculo_id &&
-          get(pages_appointmentPath(request.resource.data.agendamento_id)).data.inicio == request.resource.data.inicio &&
-          get(pages_appointmentPath(request.resource.data.agendamento_id)).data.duracao_min == request.resource.data.duracao_min &&
-          get(pages_appointmentPath(request.resource.data.agendamento_id)).data.especialidade == request.resource.data.especialidade)
-      );
-    allow update: if (pages_admin() || (pages_specialist() && resource.data.autor_uid == request.auth.uid)) &&
-      pages_sameAuthorAndScope() &&
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','motivo_ultima_alteracao','alterado_por','alterado_em']) &&
-      request.resource.data.status in ['realizado','cancelado'];
-    allow delete: if false;
-  }
-  match /notas_atendimento/{id} {
-    allow get,list: if pages_admin() || pages_specialistIn(resource.data.escola_id);
-    allow create: if pages_specialistIn(request.resource.data.escola_id) &&
-      request.resource.data.keys().hasOnly(['escola_id','atendimento_id','autor_uid','texto','revisao']) &&
-      request.resource.data.atendimento_id == id &&
-      request.resource.data.autor_uid == request.auth.uid &&
-      request.resource.data.texto is string &&
-      request.resource.data.texto.size() <= 5000 &&
-      request.resource.data.revisao == 1 &&
-      existsAfter(/databases/$(database)/documents/atendimentos/$(id)) &&
-      getAfter(/databases/$(database)/documents/atendimentos/$(id)).data.autor_uid == request.auth.uid &&
-      getAfter(/databases/$(database)/documents/atendimentos/$(id)).data.escola_id == request.resource.data.escola_id;
-    allow update: if (pages_admin() || (pages_specialistIn(resource.data.escola_id) && resource.data.autor_uid == request.auth.uid)) &&
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['texto','revisao','atualizado_em']) &&
-      request.resource.data.texto is string &&
-      request.resource.data.texto.size() <= 5000 &&
-      request.resource.data.revisao == resource.data.revisao + 1 &&
-      existsAfter(/databases/$(database)/documents/notas_versoes/$(id + '-' + string(request.resource.data.revisao)));
-    allow delete: if false;
-  }
-  match /notas_versoes/{id} {
-    allow read: if pages_admin() || (pages_specialist() && request.auth.uid == resource.data.autor_uid);
-    allow create: if pages_active() &&
-      request.resource.data.keys().hasOnly(['atendimento_id','escola_id','autor_uid','editado_por','texto_anterior','texto_novo','justificativa','versao','em']) &&
-      request.resource.data.editado_por == request.auth.uid &&
-      (pages_admin() || (pages_specialistIn(request.resource.data.escola_id) && request.resource.data.autor_uid == request.auth.uid)) &&
-      id == request.resource.data.atendimento_id + '-' + string(request.resource.data.versao) &&
-      exists(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)) &&
-      get(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)).data.texto == request.resource.data.texto_anterior &&
-      getAfter(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)).data.texto == request.resource.data.texto_novo &&
-      getAfter(/databases/$(database)/documents/notas_atendimento/$(request.resource.data.atendimento_id)).data.revisao == request.resource.data.versao;
-    allow update,delete: if false;
-  }
-  function pages_doisDigitos(n) {
-    return n < 10 ? '0' + string(n) : string(n);
-  }
-  function pages_dataMunicipal() {
-    let local = request.time - duration.value(3, 'h');
-    return string(local.year()) + '-' + pages_doisDigitos(local.month()) + '-' + pages_doisDigitos(local.day());
-  }
-  // Frequência declaratória: carimbos de entrada/saída são definidos pelo servidor.
-  // Não substitui homologação administrativa da jornada funcional.
-  match /frequencias/{id} {
-    allow read: if pages_active() && (pages_manage() || pages_seduc() || pages_schoolAllowed(resource.data.escola_id));
-    allow create: if pages_specialistIn(request.resource.data.escola_id) &&
-      request.resource.data.keys().hasOnly(['uid','escola_id','vinculo_id','entrada','saida','status','dia']) &&
-      request.resource.data.uid == request.auth.uid &&
-      pages_linked(request.resource.data.vinculo_id,request.resource.data.escola_id) &&
-      id == request.auth.uid + '_' + request.resource.data.escola_id + '_' + request.resource.data.dia &&
-      request.resource.data.dia == pages_dataMunicipal() &&
-      request.resource.data.entrada == request.time &&
-      request.resource.data.saida == null &&
-      request.resource.data.status == 'aberta';
-    allow update: if pages_specialist() && resource.data.uid == request.auth.uid &&
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['saida','status']) &&
-      resource.data.status == 'aberta' &&
-      resource.data.saida == null &&
-      request.resource.data.saida == request.time &&
-      request.resource.data.status == 'fechada';
-    allow delete: if false;
-  }
-  match /{document=**}{allow read,write: if false;}
- }
 }

@@ -1,5 +1,5 @@
 node_modules/
-.test-results/
-*-debug.log
-.env
-.env.*
+*.log
+.firebase/
+dados-privados/
+*.privado.json
