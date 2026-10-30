@@ -134,21 +134,52 @@ export async function salvarEstudante({ id, estudante, privado, clinico, novo })
   return ref.id;
 }
 
+/**
+ * Importa alunos do arquivo privado. Novos: cria cadastro, contato e condição informada.
+ * Já existentes: só completa campos vazios (nascimento, turno, contato, condição),
+ * sem sobrescrever o que a equipe editou.
+ */
 export async function importarEstudantes(registros, aoProgredir = () => {}) {
-  let criados = 0, existentes = 0;
-  for (const grupo of pedacos(registros, 100)) {
-    const b = writeBatch(db); let n = 0;
+  let criados = 0, completados = 0, iguais = 0, n = 0;
+  const quem = uidAtual(), fonte = 'Informado pela escola (cadastro escolar 2026), sem confirmação clínica';
+  const vazioEm = (atual = {}, novo = {}) => { const r = {}; for (const [k, v] of Object.entries(novo)) if (v && !atual[k]) r[k] = v; return r; };
+  for (const grupo of pedacos(registros, 60)) {
+    const b = writeBatch(db); let ops = 0;
     for (const r of grupo) {
-      const ref = doc(db, 'estudantes', r.id);
-      if ((await getDoc(ref)).exists()) { existentes++; continue; }
-      b.set(ref, { ...r.estudante, situacao: 'ativo', origem: 'importacao_2026', criado_por: uidAtual(), criado_em: serverTimestamp() });
-      if (r.necessidade) b.set(doc(db, 'estudantes_clinico', r.id), { necessidade_informada: r.necessidade, fonte: 'Informado pela escola (planilha 2026), sem confirmação clínica', atualizado_por: uidAtual(), atualizado_em: serverTimestamp() });
-      n++;
+      const ref = doc(db, 'estudantes', r.id), atual = await getDoc(ref);
+      if (!atual.exists()) {
+        b.set(ref, { ...r.estudante, situacao: 'ativo', origem: 'importacao_2026', criado_por: quem, criado_em: serverTimestamp() });
+        if (r.privado) b.set(doc(db, 'estudantes_privado', r.id), { ...r.privado, atualizado_por: quem, atualizado_em: serverTimestamp() });
+        if (r.necessidade || r.observacoes) b.set(doc(db, 'estudantes_clinico', r.id), { necessidade_informada: r.necessidade, fonte, observacoes: r.observacoes || '', atualizado_por: quem, atualizado_em: serverTimestamp() });
+        criados++; ops++; continue;
+      }
+      let mudou = false;
+      const e = vazioEm(atual.data(), { nascimento: r.estudante.nascimento, turno: r.estudante.turno, turma: r.estudante.turma });
+      if (Object.keys(e).length) { b.update(ref, { ...e, atualizado_por: quem, atualizado_em: serverTimestamp() }); mudou = true; }
+      if (r.privado) {
+        const p = await getDoc(doc(db, 'estudantes_privado', r.id)), base = p.exists() ? p.data() : {};
+        const faltam = vazioEm(base, r.privado);
+        if (Object.keys(faltam).length) {
+          const { atualizado_por, atualizado_em, ...resto } = base;
+          b.set(doc(db, 'estudantes_privado', r.id), { ...resto, ...faltam, atualizado_por: quem, atualizado_em: serverTimestamp() }); mudou = true;
+        }
+      }
+      if (r.necessidade || r.observacoes) {
+        const c = await getDoc(doc(db, 'estudantes_clinico', r.id)), base = c.exists() ? c.data() : {};
+        const faltam = vazioEm(base, { necessidade_informada: r.necessidade, observacoes: r.observacoes, fonte: r.necessidade && !base.fonte ? fonte : '' });
+        // Condição que só acrescenta informação à registrada (ex.: "Autismo" → "Autismo; TDAH") é complementada.
+        if (base.necessidade_informada && r.necessidade !== base.necessidade_informada && r.necessidade.startsWith(base.necessidade_informada + '; ')) faltam.necessidade_informada = r.necessidade;
+        if (Object.keys(faltam).length) {
+          const { atualizado_por, atualizado_em, ...resto } = base;
+          b.set(doc(db, 'estudantes_clinico', r.id), { ...resto, ...faltam, atualizado_por: quem, atualizado_em: serverTimestamp() }); mudou = true;
+        }
+      }
+      if (mudou) { completados++; ops++; } else iguais++;
     }
-    if (n) await b.commit();
-    criados += n; aoProgredir(criados + existentes);
+    if (ops) await b.commit();
+    n += grupo.length; aoProgredir(n);
   }
-  return { criados, existentes };
+  return { criados, completados, iguais };
 }
 
 // ---------- prontuário ----------
