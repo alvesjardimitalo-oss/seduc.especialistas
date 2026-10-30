@@ -1,0 +1,442 @@
+rules_version = '2';
+// SEDUC Especialistas v2 — prontuário compartilhado da equipe de especialistas.
+// Princípios:
+//  * Equipe única (fonoaudiologia, neuropsicologia, psicopedagogia) atende as 6 escolas.
+//  * Texto clínico só para a equipe e a administração; gestão e direção veem metadados.
+//  * Registro clínico nunca é apagado: retificação gera versão imutável; anulação exige motivo.
+//  * Agendamento respeita a jornada da profissional e reserva horários atomicamente.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- identidade e perfis ----------
+    // Google (e-mail verificado) ou e-mail e senha criados pela administração.
+    function logado() {
+      return request.auth != null && (request.auth.token.email_verified == true
+        || request.auth.token.firebase.sign_in_provider == 'password');
+    }
+    function caminhoEu() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
+    function eu() { return get(caminhoEu()).data; }
+    function ativo() {
+      return logado() && exists(caminhoEu()) && eu().ativo == true && eu().get('excluido', false) != true
+        && eu().perfil in ['especialista', 'secretaria', 'direcao', 'superadmin'];
+    }
+    function admin() { return ativo() && eu().perfil == 'superadmin'; }
+    function gestao() { return ativo() && eu().perfil in ['superadmin', 'secretaria']; }
+    function gerencia() { return admin() || (ativo() && eu().perfil == 'secretaria' && eu().get('gerenciar', false) == true); }
+    function equipe() { return ativo() && eu().perfil == 'especialista'; }
+    function clinico() { return equipe() || admin(); }
+    function direcaoDe(escola) { return ativo() && eu().perfil == 'direcao' && escola in eu().get('escolas', []); }
+    function veEscola(escola) { return gestao() || equipe() || direcaoDe(escola); }
+
+    // ---------- utilidades ----------
+    function txt(v, n) { return v is string && v.size() <= n; }
+    function txtObr(v, n) { return txt(v, n) && v.trim().size() > 0; }
+    function semMudar(campos) { return !request.resource.data.diff(resource.data).affectedKeys().hasAny(campos); }
+    function soMudar(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos); }
+    function doc(col, id) { return /databases/$(database)/documents/$(col)/$(id); }
+    function especialidadeValida(e) { return e in ['fonoaudiologia', 'neuropsicologia', 'psicopedagogia']; }
+    function codigoValido(c) { return c is string && c.matches('^C[0-9]{6}-[A-Z0-9]{4}$'); }
+
+    // Índice de meia hora da semana no horário municipal (UTC-3).
+    function indice(t) {
+      let m = t - duration.value(3, 'h');
+      return (m.dayOfWeek() % 7) * 48 + m.hours() * 2 + (m.minutes() >= 30 ? 1 : 0);
+    }
+    function idReserva(uid, t) { return uid + '_' + string(t.toMillis()); }
+
+    // ---------- usuários ----------
+    function usuarioValido(d) {
+      return d.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'excluido', 'gerenciar', 'escolas', 'especialidade',
+          'registro_profissional', 'telefone', 'jornada', 'slots', 'criado_em', 'atualizado_em', 'atualizado_por',
+          'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em'])
+        && txt(d.get('motivo_exclusao', ''), 500) && txt(d.get('endereco', ''), 300) && txt(d.get('termo_lgpd', ''), 40)
+        && txtObr(d.nome, 180) && txt(d.get('email', ''), 200)
+        && d.perfil in ['pendente', 'especialista', 'secretaria', 'direcao', 'superadmin']
+        && d.ativo is bool && d.get('gerenciar', false) is bool && d.get('excluido', false) is bool
+        && d.get('escolas', []) is list && d.get('escolas', []).size() <= 10
+        && d.get('jornada', []) is list && d.get('jornada', []).size() <= 30
+        && d.get('slots', []) is list && d.get('slots', []).size() <= 336
+        && txt(d.get('registro_profissional', ''), 60) && txt(d.get('telefone', ''), 40)
+        && (d.perfil != 'especialista' || especialidadeValida(d.get('especialidade', '')));
+    }
+
+    match /usuarios/{uid} {
+      allow get: if logado() && (uid == request.auth.uid || ativo());
+      allow list: if ativo();
+      // Primeiro login: pendente, ou liberado por convite feito para o mesmo e-mail Google.
+      allow create: if logado() && uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.criado_em == request.time
+        && (
+          (request.resource.data.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'criado_em'])
+            && txtObr(request.resource.data.nome, 180)
+            && request.resource.data.perfil == 'pendente' && request.resource.data.ativo == false)
+          ||
+          (request.resource.data.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'especialidade', 'escolas', 'criado_em'])
+            && request.auth.token.email_verified == true
+            && exists(doc('convites', request.auth.token.email.lower()))
+            && get(doc('convites', request.auth.token.email.lower())).data.ativo == true
+            && request.resource.data.perfil == get(doc('convites', request.auth.token.email.lower())).data.perfil
+            && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+            && request.resource.data.especialidade == get(doc('convites', request.auth.token.email.lower())).data.get('especialidade', '')
+            && request.resource.data.escolas == get(doc('convites', request.auth.token.email.lower())).data.get('escolas', [])
+            && request.resource.data.ativo == true
+            && usuarioValido(request.resource.data))
+        )
+        // Gestão cria a conta de quem recebeu login e senha (a conta de acesso é criada no mesmo momento).
+        || (gerencia() && uid != request.auth.uid && usuarioValido(request.resource.data)
+          && request.resource.data.criado_em == request.time
+          && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+          && (request.resource.data.perfil != 'secretaria' || admin())
+          && request.resource.data.get('gerenciar', false) == false);
+      // A própria pessoa só registra o aceite do termo de LGPD.
+      allow update: if ativo() && uid == request.auth.uid && soMudar(['termo_lgpd', 'termo_lgpd_em'])
+        && txtObr(request.resource.data.termo_lgpd, 40) && request.resource.data.termo_lgpd_em == request.time;
+      // ...e atualiza o próprio e-mail depois de confirmar a troca do login (precisa ser o e-mail do login).
+      allow update: if ativo() && uid == request.auth.uid && soMudar(['email'])
+        && request.auth.token.email_verified == true
+        && request.resource.data.email == request.auth.token.email.lower();
+      // Superadministrador altera qualquer conta, mas não rebaixa a si mesmo.
+      // Secretaria com gerenciamento delegado não toca em administradores, em si mesma
+      // nem na própria delegação de gerenciamento.
+      allow update: if usuarioValido(request.resource.data) && semMudar(['email', 'criado_em'])
+        && request.resource.data.atualizado_em == request.time && request.resource.data.atualizado_por == request.auth.uid
+        && (
+          (admin() && (uid != request.auth.uid || (request.resource.data.perfil == 'superadmin' && request.resource.data.ativo == true
+            && request.resource.data.get('excluido', false) == false)))
+          ||
+          (gerencia() && !admin() && uid != request.auth.uid
+            && resource.data.perfil != 'superadmin' && request.resource.data.perfil != 'superadmin'
+            && (resource.data.perfil != 'secretaria' || request.resource.data.perfil == 'secretaria')
+            && semMudar(['gerenciar']))
+        );
+      // Apagar de vez só solicitações pendentes (conta que nunca teve acesso nem registros).
+      // Contas que já usaram o sistema são excluídas por "excluido: true" e podem ser restauradas.
+      allow delete: if gerencia() && uid != request.auth.uid && resource.data.perfil == 'pendente';
+      // Conta de teste já excluída (acesso bloqueado) pode ser apagada pela administração.
+      // A interface só oferece a opção quando a conta não tem atendimentos nem agendamentos.
+      allow delete: if admin() && uid != request.auth.uid && resource.data.get('excluido', false) == true;
+    }
+
+    match /convites/{email} {
+      allow get: if logado() && (email == request.auth.token.email.lower() || gerencia());
+      allow list: if gerencia();
+      allow create, update: if gerencia()
+        && request.resource.data.keys().hasOnly(['email', 'nome', 'perfil', 'especialidade', 'escolas', 'ativo', 'criado_por', 'criado_em'])
+        && request.resource.data.email == email && email == email.lower()
+        && txtObr(request.resource.data.nome, 180)
+        && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+        && (request.resource.data.perfil != 'secretaria' || admin())
+        && (request.resource.data.perfil != 'especialista' || especialidadeValida(request.resource.data.especialidade))
+        && request.resource.data.escolas is list && request.resource.data.escolas.size() <= 10
+        && request.resource.data.ativo is bool
+        && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time;
+      allow delete: if gerencia();
+    }
+
+    // ---------- escolas ----------
+    match /escolas/{id} {
+      allow get, list: if ativo();
+      allow create, update: if gerencia()
+        && request.resource.data.keys().hasOnly(['nome', 'tipo', 'inep', 'telefone', 'endereco', 'email', 'direcao'])
+        && txtObr(request.resource.data.nome, 200) && request.resource.data.tipo in ['escola', 'creche']
+        && txt(request.resource.data.get('inep', ''), 20) && txt(request.resource.data.get('telefone', ''), 40)
+        && txt(request.resource.data.get('endereco', ''), 300) && txt(request.resource.data.get('email', ''), 200)
+        && txt(request.resource.data.get('direcao', ''), 180);
+      allow delete: if false;
+    }
+
+    // ---------- estudantes ----------
+    function estudanteValido(d) {
+      return d.keys().hasOnly(['nome', 'nascimento', 'escola_id', 'turma', 'turno', 'ano_letivo', 'situacao',
+          'motivo_arquivamento', 'escolas_anteriores', 'origem', 'criado_por', 'criado_em', 'atualizado_por', 'atualizado_em'])
+        && txtObr(d.nome, 180) && txt(d.get('nascimento', ''), 10) && exists(doc('escolas', d.escola_id))
+        && txt(d.get('turma', ''), 80) && d.get('turno', '') in ['', 'manha', 'tarde', 'integral']
+        && d.get('ano_letivo', 2026) is int && d.situacao in ['ativo', 'arquivado']
+        && txt(d.get('motivo_arquivamento', ''), 500)
+        && d.get('escolas_anteriores', []) is list && d.get('escolas_anteriores', []).size() <= 20;
+    }
+    function podeCadastrar(escola) { return equipe() || gerencia() || direcaoDe(escola); }
+
+    match /estudantes/{id} {
+      allow get, list: if veEscola(resource.data.escola_id);
+      allow create: if podeCadastrar(request.resource.data.escola_id) && estudanteValido(request.resource.data)
+        && request.resource.data.situacao == 'ativo'
+        && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time;
+      allow update: if estudanteValido(request.resource.data) && semMudar(['criado_por', 'criado_em', 'origem'])
+        && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time
+        && (equipe() || gerencia() || (direcaoDe(resource.data.escola_id) && direcaoDe(request.resource.data.escola_id)));
+      allow delete: if false;
+    }
+
+    // Contatos e motivo do encaminhamento: equipe, gestão delegada e direção da escola.
+    match /estudantes_privado/{id} {
+      allow get: if clinico() || gerencia() || direcaoDe(get(doc('estudantes', id)).data.escola_id);
+      allow create, update: if existsAfter(doc('estudantes', id))
+        && podeCadastrar(getAfter(doc('estudantes', id)).data.escola_id)
+        && request.resource.data.keys().hasOnly(['responsavel', 'parentesco', 'mae', 'pai', 'telefone', 'endereco', 'cartao_sus', 'cpf',
+            'motivo_encaminhamento', 'atualizado_por', 'atualizado_em'])
+        && txt(request.resource.data.get('mae', ''), 180) && txt(request.resource.data.get('pai', ''), 180)
+        && txt(request.resource.data.get('responsavel', ''), 180) && txt(request.resource.data.get('parentesco', ''), 60)
+        && txt(request.resource.data.get('telefone', ''), 40) && txt(request.resource.data.get('endereco', ''), 300)
+        && txt(request.resource.data.get('cartao_sus', ''), 20) && txt(request.resource.data.get('cpf', ''), 14)
+        && txt(request.resource.data.get('motivo_encaminhamento', ''), 2000)
+        && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time;
+      allow delete: if false;
+    }
+
+    // Informações clínicas de base (condição informada, laudos externos): somente equipe.
+    match /estudantes_clinico/{id} {
+      allow get: if clinico();
+      allow create, update: if clinico() && existsAfter(doc('estudantes', id))
+        && request.resource.data.keys().hasOnly(['necessidade_informada', 'fonte', 'observacoes', 'atualizado_por', 'atualizado_em'])
+        && txt(request.resource.data.get('necessidade_informada', ''), 1000) && txt(request.resource.data.get('fonte', ''), 300)
+        && txt(request.resource.data.get('observacoes', ''), 3000)
+        && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time;
+      allow delete: if false;
+    }
+
+    // ---------- prontuário: atendimentos ----------
+    function tipoValido(t) { return t in ['avaliacao', 'sessao', 'grupo', 'observacao_sala', 'reavaliacao', 'reuniao', 'devolutiva', 'orientacao', 'alta']; }
+    function evolucaoValida(e) { return e in ['avancou', 'estavel', 'regrediu', 'nao_avaliado']; }
+    function camposClinicosValidos(d) {
+      return tipoValido(d.tipo) && evolucaoValida(d.evolucao) && d.data is timestamp
+        && d.data <= request.time + duration.value(10, 'm') && d.data > timestamp.date(2020, 1, 1)
+        && d.duracao_min is int && d.duracao_min >= 10 && d.duracao_min <= 240;
+    }
+    function versaoGravada(id, v) { return existsAfter(doc('atendimentos_versoes', id + '_' + string(v))); }
+
+    match /atendimentos/{id} {
+      allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
+      allow create: if equipe()
+        && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
+            'tipo', 'evolucao', 'data', 'duracao_min', 'agendamento_id', 'codigo', 'orientacao_escola', 'situacao', 'versao', 'criado_em', 'atualizado_em'])
+        && txt(request.resource.data.get('orientacao_escola', ''), 500)
+        && request.resource.data.profissional_uid == request.auth.uid
+        && codigoValido(request.resource.data.codigo)
+        && request.resource.data.especialidade == eu().especialidade
+        && txtObr(request.resource.data.profissional_nome, 180)
+        && camposClinicosValidos(request.resource.data)
+        && request.resource.data.situacao == 'valido' && request.resource.data.versao == 1
+        && request.resource.data.criado_em == request.time && request.resource.data.atualizado_em == request.time
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.situacao == 'ativo'
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.escola_id == request.resource.data.escola_id
+        && existsAfter(doc('atendimentos_registro', id))
+        && (request.resource.data.agendamento_id == ''
+          || (get(doc('agendamentos', request.resource.data.agendamento_id)).data.status == 'agendado'
+            && get(doc('agendamentos', request.resource.data.agendamento_id)).data.profissional_uid == request.auth.uid
+            && get(doc('agendamentos', request.resource.data.agendamento_id)).data.estudante_id == request.resource.data.estudante_id
+            && get(doc('agendamentos', request.resource.data.agendamento_id)).data.get('codigo', '') == request.resource.data.codigo
+            && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.status == 'realizado'
+            && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.atendimento_id == id));
+      // Toda alteração grava antes a versão anterior (imutável).
+      allow update: if request.resource.data.versao == resource.data.versao + 1
+        && versaoGravada(id, resource.data.versao)
+        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade', 'agendamento_id', 'codigo', 'criado_em'])
+        && request.resource.data.atualizado_em == request.time
+        && resource.data.situacao == 'valido'
+        && (
+          // retificação pela autora
+          (equipe() && resource.data.profissional_uid == request.auth.uid
+            && request.resource.data.situacao == 'valido'
+            && soMudar(['tipo', 'evolucao', 'data', 'duracao_min', 'orientacao_escola', 'versao', 'atualizado_em'])
+            && txt(request.resource.data.get('orientacao_escola', ''), 500)
+            && camposClinicosValidos(request.resource.data))
+          ||
+          // anulação (registro feito por engano): autora ou administração, com motivo
+          ((admin() || (equipe() && resource.data.profissional_uid == request.auth.uid))
+            && request.resource.data.situacao == 'anulado'
+            && soMudar(['situacao', 'motivo_anulacao', 'anulado_por', 'versao', 'atualizado_em'])
+            && txtObr(request.resource.data.motivo_anulacao, 500)
+            && request.resource.data.anulado_por == request.auth.uid)
+        );
+      allow delete: if false;
+    }
+
+    // Registro SOAP (subjetivo, objetivo, avaliação, plano) ou formato anterior (trabalhado,
+    // desenvolvido, orientações). Até 500 caracteres no total por consulta.
+    function registroValido(d) {
+      return txt(d.get('subjetivo', ''), 500) && txt(d.get('objetivo', ''), 500) && txt(d.get('avaliacao', ''), 500) && txt(d.get('plano', ''), 500)
+        && txt(d.get('trabalhado', ''), 500) && txt(d.get('desenvolvido', ''), 500) && txt(d.get('orientacoes', ''), 500)
+        && (d.get('objetivo', '').trim().size() > 0 || d.get('trabalhado', '').trim().size() > 0)
+        && d.get('subjetivo', '').size() + d.get('objetivo', '').size() + d.get('avaliacao', '').size() + d.get('plano', '').size()
+          + d.get('trabalhado', '').size() + d.get('desenvolvido', '').size() + d.get('orientacoes', '').size() <= 500;
+    }
+    match /atendimentos_registro/{id} {
+      allow get, list: if clinico();
+      allow create: if equipe()
+        && request.resource.data.keys().hasOnly(['estudante_id', 'profissional_uid', 'subjetivo', 'objetivo', 'avaliacao', 'plano', 'trabalhado', 'desenvolvido', 'orientacoes', 'versao'])
+        && request.resource.data.profissional_uid == request.auth.uid && request.resource.data.versao == 1
+        && registroValido(request.resource.data)
+        && getAfter(doc('atendimentos', id)).data.profissional_uid == request.auth.uid
+        && getAfter(doc('atendimentos', id)).data.estudante_id == request.resource.data.estudante_id
+        && getAfter(doc('atendimentos', id)).data.versao == 1;
+      allow update: if equipe() && resource.data.profissional_uid == request.auth.uid
+        && semMudar(['estudante_id', 'profissional_uid'])
+        && soMudar(['subjetivo', 'objetivo', 'avaliacao', 'plano', 'trabalhado', 'desenvolvido', 'orientacoes', 'versao'])
+        && registroValido(request.resource.data)
+        && request.resource.data.versao == resource.data.versao + 1
+        && getAfter(doc('atendimentos', id)).data.versao == request.resource.data.versao
+        && getAfter(doc('atendimentos', id)).data.situacao == 'valido'
+        && versaoGravada(id, resource.data.versao);
+      allow delete: if false;
+    }
+
+    // Cópia fiel da versão anterior (metadados + texto), com motivo. Nunca alterada.
+    match /atendimentos_versoes/{vid} {
+      allow get, list: if clinico();
+      allow create: if clinico()
+        && request.resource.data.keys().hasOnly(['atendimento_id', 'versao', 'autor_uid', 'em', 'motivo', 'atendimento', 'registro'])
+        && vid == request.resource.data.atendimento_id + '_' + string(request.resource.data.versao)
+        && request.resource.data.autor_uid == request.auth.uid && request.resource.data.em == request.time
+        && txtObr(request.resource.data.motivo, 500)
+        && request.resource.data.atendimento == get(doc('atendimentos', request.resource.data.atendimento_id)).data
+        && request.resource.data.registro == get(doc('atendimentos_registro', request.resource.data.atendimento_id)).data
+        && request.resource.data.versao == request.resource.data.atendimento.versao
+        && (admin() || request.resource.data.atendimento.profissional_uid == request.auth.uid);
+      allow update, delete: if false;
+    }
+
+    // ---------- agenda ----------
+    function naJornada(uid, inicio, duracao) {
+      let slots = get(doc('usuarios', uid)).data.get('slots', []);
+      return indice(inicio) in slots && (duracao == 30 || indice(inicio + duration.value(30, 'm')) in slots);
+    }
+    function reservado(uid, inicio, agId) {
+      return existsAfter(doc('reservas', idReserva(uid, inicio)))
+        && getAfter(doc('reservas', idReserva(uid, inicio))).data.agendamento_id == agId;
+    }
+    function liberado(uid, inicio) { return !existsAfter(doc('reservas', idReserva(uid, inicio))); }
+    // Calendário escolar: dia bloqueado para a rede ("d<dia>") ou para uma escola ("d<dia>_<escola>").
+    function numeroDoDia(t) { return (t - duration.value(3, 'h')).toMillis() / 86400000; }
+    function diaLivre(t, escola) {
+      return !exists(doc('bloqueios', 'd' + string(numeroDoDia(t))))
+        && !exists(doc('bloqueios', 'd' + string(numeroDoDia(t)) + '_' + escola));
+    }
+
+    match /agendamentos/{id} {
+      allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
+      allow create: if request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome',
+            'especialidade', 'inicio', 'duracao_min', 'status', 'observacao', 'codigo', 'criado_por', 'criado_em'])
+        && codigoValido(request.resource.data.codigo)
+        && ((equipe() && request.resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(request.resource.data.escola_id))
+        && request.resource.data.status == 'agendado'
+        && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time
+        && txt(request.resource.data.get('observacao', ''), 300) && txtObr(request.resource.data.profissional_nome, 180)
+        && request.resource.data.duracao_min in [30, 60]
+        && request.resource.data.inicio is timestamp && request.resource.data.inicio > request.time
+        && request.resource.data.inicio.toMillis() % 1800000 == 0
+        && diaLivre(request.resource.data.inicio, request.resource.data.escola_id)
+        && get(doc('usuarios', request.resource.data.profissional_uid)).data.ativo == true
+        && get(doc('usuarios', request.resource.data.profissional_uid)).data.perfil == 'especialista'
+        && get(doc('usuarios', request.resource.data.profissional_uid)).data.especialidade == request.resource.data.especialidade
+        && naJornada(request.resource.data.profissional_uid, request.resource.data.inicio, request.resource.data.duracao_min)
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.situacao == 'ativo'
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.escola_id == request.resource.data.escola_id
+        && reservado(request.resource.data.profissional_uid, request.resource.data.inicio, id)
+        && (request.resource.data.duracao_min == 30
+          || reservado(request.resource.data.profissional_uid, request.resource.data.inicio + duration.value(30, 'm'), id));
+      allow update: if resource.data.status == 'agendado'
+        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'especialidade', 'inicio', 'duracao_min', 'codigo', 'criado_por', 'criado_em'])
+        && request.resource.data.alterado_por == request.auth.uid && request.resource.data.alterado_em == request.time
+        && (
+          // cancelamento libera os horários
+          (request.resource.data.status == 'cancelado'
+            && soMudar(['status', 'motivo', 'alterado_por', 'alterado_em'])
+            && txtObr(request.resource.data.motivo, 500)
+            && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(resource.data.escola_id))
+            && liberado(resource.data.profissional_uid, resource.data.inicio)
+            && (resource.data.duracao_min == 30 || liberado(resource.data.profissional_uid, resource.data.inicio + duration.value(30, 'm'))))
+          ||
+          // falta do aluno: só depois do horário marcado
+          (request.resource.data.status == 'falta'
+            && soMudar(['status', 'motivo', 'alterado_por', 'alterado_em'])
+            && txt(request.resource.data.get('motivo', ''), 500)
+            && resource.data.inicio <= request.time
+            && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao()))
+          ||
+          // chegada do aluno (lista de atendimento do dia): registra ou desfaz a hora de chegada
+          (request.resource.data.status == 'agendado'
+            && soMudar(['chegada_em', 'alterado_por', 'alterado_em'])
+            && (request.resource.data.chegada_em == request.time || request.resource.data.chegada_em == null)
+            && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(resource.data.escola_id)))
+          ||
+          // realizado: somente junto com o registro do atendimento pela profissional
+          (request.resource.data.status == 'realizado'
+            && soMudar(['status', 'atendimento_id', 'alterado_por', 'alterado_em'])
+            && equipe() && resource.data.profissional_uid == request.auth.uid
+            && getAfter(doc('atendimentos', request.resource.data.atendimento_id)).data.agendamento_id == id)
+        );
+      allow delete: if false;
+    }
+
+    // Trava de meia hora por profissional: o ID é uid_milissegundos, então dois
+    // agendamentos no mesmo horário nunca coexistem.
+    match /reservas/{rid} {
+      allow get: if ativo();
+      allow create: if ativo()
+        && request.resource.data.keys().hasOnly(['agendamento_id', 'profissional_uid', 'inicio'])
+        && rid == idReserva(request.resource.data.profissional_uid, request.resource.data.inicio)
+        && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.status == 'agendado'
+        && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.profissional_uid == request.resource.data.profissional_uid
+        && (request.resource.data.inicio == getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.inicio
+          || (getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.duracao_min == 60
+            && request.resource.data.inicio == getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.inicio + duration.value(30, 'm')));
+      allow delete: if ativo()
+        && get(doc('agendamentos', resource.data.agendamento_id)).data.status == 'agendado'
+        && getAfter(doc('agendamentos', resource.data.agendamento_id)).data.status == 'cancelado';
+      allow update: if false;
+    }
+
+    // ---------- problemas e condições do aluno (como no PEC) ----------
+    match /condicoes/{id} {
+      allow get, list: if clinico();
+      allow create: if equipe()
+        && request.resource.data.keys().hasOnly(['estudante_id', 'descricao', 'observacao', 'situacao', 'especialidade', 'registrado_por', 'registrado_nome', 'criado_em'])
+        && exists(doc('estudantes', request.resource.data.estudante_id))
+        && txtObr(request.resource.data.descricao, 150) && txt(request.resource.data.get('observacao', ''), 300)
+        && request.resource.data.situacao == 'ativo' && request.resource.data.especialidade == eu().especialidade
+        && request.resource.data.registrado_por == request.auth.uid && txtObr(request.resource.data.registrado_nome, 180)
+        && request.resource.data.criado_em == request.time;
+      allow update: if equipe()
+        && soMudar(['situacao', 'observacao', 'resolvido_em', 'resolvido_por', 'atualizado_em', 'atualizado_por'])
+        && request.resource.data.situacao in ['ativo', 'resolvido'] && txt(request.resource.data.get('observacao', ''), 300)
+        && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time;
+      allow delete: if false;
+    }
+
+    // ---------- calendário escolar ----------
+    match /bloqueios/{id} {
+      allow get, list: if ativo();
+      allow create: if gerencia()
+        && request.resource.data.keys().hasOnly(['dia', 'data', 'escola_id', 'motivo', 'criado_por', 'criado_em'])
+        && request.resource.data.dia is int && txt(request.resource.data.data, 10)
+        && request.resource.data.escola_id is string
+        && (request.resource.data.escola_id == '' || exists(doc('escolas', request.resource.data.escola_id)))
+        && id == 'd' + string(request.resource.data.dia) + (request.resource.data.escola_id == '' ? '' : '_' + request.resource.data.escola_id)
+        && txtObr(request.resource.data.motivo, 120)
+        && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time;
+      allow delete: if gerencia();
+      allow update: if false;
+    }
+
+    // ---------- relatórios descritivos ----------
+    match /relatorios/{id} {
+      allow get, list: if clinico();
+      allow create: if equipe()
+        && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
+            'registro_profissional', 'tipo', 'titulo', 'destinatario', 'periodo_de', 'periodo_ate', 'texto', 'criado_em'])
+        && request.resource.data.profissional_uid == request.auth.uid
+        && request.resource.data.especialidade == eu().especialidade
+        && request.resource.data.tipo in ['relatorio', 'parecer', 'devolutiva', 'encaminhamento']
+        && txtObr(request.resource.data.titulo, 150) && txtObr(request.resource.data.texto, 10000)
+        && txt(request.resource.data.get('destinatario', ''), 180) && txt(request.resource.data.get('registro_profissional', ''), 60)
+        && txt(request.resource.data.get('periodo_de', ''), 10) && txt(request.resource.data.get('periodo_ate', ''), 10)
+        && get(doc('estudantes', request.resource.data.estudante_id)).data.escola_id == request.resource.data.escola_id
+        && request.resource.data.criado_em == request.time;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}
