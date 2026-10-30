@@ -1,10 +1,10 @@
 // Prontuário do aluno: linha do tempo compartilhada em cards expansíveis.
 import * as dados from '../dados.js';
 import { S, pode, nomeEscola, escolaCurta, estudante } from '../estado.js';
-import { formAtendimento, formAgendar, formAluno, arquivarAluno, anularAtendimento, abrirAgendamento, irPara } from '../formularios.js';
+import { formAtendimento, formAgendar, formAluno, arquivarAluno, anularAtendimento, abrirAgendamento, irPara, eventos } from '../formularios.js';
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, linhaDoTempo, situacaoAcompanhamento, idade,
-  formatarData, formatarDataHora, diaMunicipal, ms, noPeriodo, formatarCPF
+  formatarData, formatarDataHora, diaMunicipal, ms, noPeriodo, formatarCPF, secoesRegistro, planoDoRegistro, validarCondicao, ordenarCondicoes
 } from '../dominio.js';
 import { esc, iniciais, vazio, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from '../ui.js';
 import { chipsAcompanhamento } from './alunos.js';
@@ -19,13 +19,14 @@ export async function render(main, vigente) {
   const aba = ABAS.some(([k]) => k === S.rota.aba) ? S.rota.aba : 'prontuario';
   const clinico = pode.clinico();
   const veContato = clinico || pode.gerenciar() || S.perfil.perfil === 'direcao';
-  const [atendimentos, registros, agenda, privado, saude, relatorios] = await Promise.all([
+  const [atendimentos, registros, agenda, privado, saude, relatorios, condicoes] = await Promise.all([
     dados.listarAtendimentos({ estudanteId: id }),
     clinico ? dados.listarRegistros(id) : [],
     dados.listarAgendamentos({ estudanteId: id }),
     veContato ? dados.lerDoc('estudantes_privado', id).then(x => x || {}).catch(() => null) : null,
     clinico ? dados.lerDoc('estudantes_clinico', id).catch(() => null) : null,
-    clinico ? dados.listarRelatorios(id) : []
+    clinico ? dados.listarRelatorios(id) : [],
+    clinico ? dados.listarCondicoes(id).catch(() => []) : []
   ]);
   if (!vigente()) return;
   const reg = new Map(registros.map(r => [r.id, r]));
@@ -49,7 +50,7 @@ export async function render(main, vigente) {
       + (k === 'prontuario' ? ' <span class="contagem">' + atendimentos.filter(a => a.situacao !== 'anulado').length + '</span>' : '')
       + (k === 'relatorios' ? ' <span class="contagem">' + relatorios.length + '</span>' : '') + '</a>').join('') + '</nav>';
 
-  if (aba === 'prontuario') h += abaProntuario(e, atendimentos, reg, privado, saude, clinico);
+  if (aba === 'prontuario') h += abaProntuario(e, atendimentos, reg, privado, saude, clinico, condicoes);
   if (aba === 'agenda') h += abaAgenda(agenda);
   if (aba === 'relatorios') h += abaRelatorios(relatorios);
   if (aba === 'ficha') h += abaFicha(e, privado, saude, clinico);
@@ -62,9 +63,16 @@ export async function render(main, vigente) {
     if (a === 'agendar') formAgendar({ estudanteId: id });
     if (a === 'imprimir') opcoesImpressao(e, atendimentos, reg, privado, saude);
     if (a === 'ficha-escola') fichaEscola(e, atendimentos, agenda, saude, clinico);
+    if (a === 'nova-condicao') novaCondicao(e);
     if (a === 'editar') formAluno(id);
     if (a === 'arquivar') arquivarAluno(id);
     if (a === 'relatorio') formRelatorio(e, atendimentos, reg);
+  });
+  $$('[data-condicao]', main).forEach(b => b.onclick = () => {
+    const c = condicoes.find(x => x.id === b.dataset.condicao), para = b.dataset.para;
+    modal({ titulo: para === 'resolvido' ? 'Marcar como resolvido' : 'Reativar', botao: 'Confirmar',
+      corpo: '<p><strong>' + esc(c.descricao) + '</strong></p>' + area('observacao', 'Observação (opcional)', { valor: c.observacao, max: 300, linhas: 2, dica: para === 'resolvido' ? 'Ex.: alta fonoaudiológica; objetivo atingido' : '' }),
+      aoSalvar: async d => { await dados.mudarSituacaoCondicao(c.id, para, d.observacao.trim()); aviso(para === 'resolvido' ? 'Marcado como resolvido.' : 'Reativado.'); render(main, vigente); } });
   });
   $$('[data-filtro-esp]', main).forEach(b => b.onclick = () => { filtroEsp = b.dataset.filtroEsp; render(main, vigente); });
   $('#mostrar-anulados', main)?.addEventListener('change', ev => { mostrarAnulados = ev.target.checked; render(main, vigente); });
@@ -77,24 +85,42 @@ export async function render(main, vigente) {
 }
 
 // ---------- aba prontuário ----------
-function abaProntuario(e, atendimentos, reg, privado, saude, clinico) {
+function abaProntuario(e, atendimentos, reg, privado, saude, clinico, condicoes = []) {
   const sit = situacaoAcompanhamento(atendimentos);
-  let h = '<div class="resumo-grade">';
-  h += '<section class="cartao"><h2>Encaminhamento</h2>'
-    + (privado?.motivo_encaminhamento ? '<p class="texto">' + esc(privado.motivo_encaminhamento) + '</p>' : '<p class="nota">Motivo do encaminhamento não informado.</p>')
-    + (saude?.necessidade_informada ? '<h3 class="subtitulo">Condição informada</h3><p class="texto">' + esc(saude.necessidade_informada) + '</p>' + (saude.fonte ? '<p class="nota">Fonte: ' + esc(saude.fonte) + '</p>' : '') : '')
-    + (saude?.observacoes ? '<h3 class="subtitulo">Observações</h3><p class="texto">' + esc(saude.observacoes) + '</p>' : '')
-    + '</section>';
-  h += '<section class="cartao"><h2>Acompanhamento por especialidade</h2><div class="esp-resumo">'
+  // ---------- Folha de rosto (como no PEC) ----------
+  const ultimosPorProf = new Map();
+  for (const a of atendimentos.filter(x => x.situacao !== 'anulado').sort((x, y) => ms(y.data) - ms(x.data))) if (!ultimosPorProf.has(a.profissional_uid)) ultimosPorProf.set(a.profissional_uid, a);
+  const ativos = ordenarCondicoes(condicoes).filter(c => c.situacao === 'ativo'), resolvidos = ordenarCondicoes(condicoes).filter(c => c.situacao !== 'ativo');
+  const linhaCond = c => '<li class="cond cond-' + esc(c.situacao) + '"><div><strong>' + esc(c.descricao) + '</strong><small>' + esc(ESPECIALIDADES[c.especialidade] || '') + ' · desde ' + esc(formatarData(c.criado_em)) + (c.situacao === 'resolvido' && c.resolvido_em ? ' · resolvido em ' + esc(formatarData(c.resolvido_em)) : '') + '</small>' + (c.observacao ? '<span>' + esc(c.observacao) + '</span>' : '') + '</div>'
+    + (pode.registrar() ? '<button type="button" class="link" data-condicao="' + esc(c.id) + '" data-para="' + (c.situacao === 'ativo' ? 'resolvido' : 'ativo') + '">' + (c.situacao === 'ativo' ? 'Marcar resolvido' : 'Reativar') + '</button>' : '') + '</li>';
+  let h = '<section class="cartao folha-rosto"><header class="cartao-topo"><h2>Folha de rosto</h2>' + (e.situacao !== 'arquivado' && pode.registrar() ? '<button class="btn sec pequeno" data-acao="nova-condicao">+ Problema / condição</button>' : '') + '</header><div class="folha-grade">';
+  // coluna 1: problemas e condições + encaminhamento
+  h += '<div class="folha-col"><h3>Problemas e condições</h3>'
+    + (clinico ? (ativos.length ? '<ul class="lista-cond">' + ativos.map(linhaCond).join('') + '</ul>' : '<p class="nota">Nenhum problema ou condição ativa registrada pela equipe.</p>')
+      + (resolvidos.length ? '<details class="resolvidos"><summary>Resolvidos (' + resolvidos.length + ')</summary><ul class="lista-cond">' + resolvidos.map(linhaCond).join('') + '</ul></details>' : '')
+      + (saude?.necessidade_informada ? '<p class="cond-escola"><b>Informado pela escola:</b> ' + esc(saude.necessidade_informada) + (saude.fonte ? ' <small class="nota">(' + esc(saude.fonte) + ')</small>' : '') + '</p>' : '')
+      + (saude?.observacoes ? '<p class="nota texto">' + esc(saude.observacoes) + '</p>' : '')
+      : '<p class="nota">Restrito à equipe de especialistas.</p>')
+    + '<h3>Encaminhamento da escola</h3>' + (privado?.motivo_encaminhamento ? '<p class="texto">' + esc(privado.motivo_encaminhamento) + '</p>' : '<p class="nota">Não informado.</p>') + '</div>';
+  // coluna 2: acompanhamentos ativos
+  h += '<div class="folha-col"><h3>Acompanhamentos</h3><div class="esp-resumo">'
     + Object.entries(ESPECIALIDADES).map(([k, nome]) => {
       const p = sit.porEspecialidade[k];
       if (!p) return '<div class="esp-item esp-' + k + ' inativo"><strong>' + nome + '</strong><span>Sem atendimentos</span></div>';
       const primeiro = atendimentos.filter(a => a.especialidade === k && a.situacao !== 'anulado').sort((a, b) => ms(a.data) - ms(b.data))[0];
       return '<div class="esp-item esp-' + k + '"><strong>' + nome + '</strong>'
-        + '<span>' + (p.ultimo.tipo === 'alta' ? 'Alta em ' + formatarData(p.ultimo.data) : 'Desde ' + formatarData(primeiro.data)) + ' · ' + p.total + ' registro(s)</span>'
-        + '<span>Último: ' + formatarData(p.ultimo.data) + ' · ' + esc(p.ultimo.profissional_nome) + '</span>'
+        + '<span>' + (p.ultimo.tipo === 'alta' ? 'Alta em ' + formatarData(p.ultimo.data) : 'Em acompanhamento desde ' + formatarData(primeiro.data)) + ' · ' + p.total + ' registro(s)</span>'
+        + '<span>' + esc(p.ultimo.profissional_nome) + ' · último em ' + formatarData(p.ultimo.data) + '</span>'
         + '<span class="evo evo-' + esc(p.ultimo.evolucao) + '">Evolução: ' + esc(EVOLUCAO[p.ultimo.evolucao]) + '</span></div>';
-    }).join('') + '</div></section></div>';
+    }).join('') + '</div></div>';
+  // coluna 3: últimas orientações de cada profissional
+  h += '<div class="folha-col"><h3>Últimas orientações</h3>' + (ultimosPorProf.size ? [...ultimosPorProf.values()].map(a => {
+    const plano = clinico ? planoDoRegistro(reg.get(a.id)) : '';
+    return '<div class="orient-prof esp-' + esc(a.especialidade) + '"><strong>' + esc(a.profissional_nome) + '</strong><small>' + esc(ESPECIALIDADES[a.especialidade]) + ' · ' + esc(formatarData(a.data)) + '</small>'
+      + (plano ? '<p><b>Plano:</b> ' + esc(plano) + '</p>' : '') + (a.orientacao_escola ? '<p><b>Para a escola:</b> ' + esc(a.orientacao_escola) + '</p>' : '')
+      + (!plano && !a.orientacao_escola ? '<p class="nota">Sem orientação registrada.</p>' : '') + '</div>';
+  }).join('') : '<p class="nota">Ainda sem atendimentos.</p>') + '</div>';
+  h += '</div></section>';
 
   const lista = linhaDoTempo(atendimentos, { especialidade: filtroEsp, incluirAnulados: mostrarAnulados });
   h += '<section class="linha-tempo"><header class="cartao-topo"><h2>Linha do tempo</h2><div class="filtro-chips">'
@@ -109,7 +135,8 @@ function abaProntuario(e, atendimentos, reg, privado, saude, clinico) {
 
 function cardAtendimento(a, r, clinico, aberto) {
   const anulado = a.situacao === 'anulado', autor = a.profissional_uid === S.user.uid;
-  const previa = r?.trabalhado ? r.trabalhado.replace(/\s+/g, ' ').slice(0, 150) + (r.trabalhado.length > 150 ? '…' : '') : '';
+  const txtPrev = r ? (r.objetivo || r.trabalhado || r.subjetivo || '') : '';
+  const previa = txtPrev ? txtPrev.replace(/\s+/g, ' ').slice(0, 150) + (txtPrev.length > 150 ? '…' : '') : '';
   const secao = (t, v) => v ? '<div class="secao"><h4>' + t + '</h4><p>' + esc(v) + '</p></div>' : '';
   return '<details class="card-atendimento esp-' + esc(a.especialidade) + (anulado ? ' anulado' : '') + '"' + (aberto && clinico && !anulado ? ' open' : '') + '>'
     + '<summary><span class="card-data"><b>' + esc(formatarData(a.data).slice(0, 5)) + '</b><small>' + esc(formatarData(a.data).slice(6)) + '</small></span>'
@@ -119,7 +146,7 @@ function cardAtendimento(a, r, clinico, aberto) {
     + (previa ? '<span class="previa">' + esc(previa) + '</span>' : '') + '</span><span class="seta" aria-hidden="true">⌄</span></summary>'
     + '<div class="card-corpo">'
     + (anulado ? '<p class="alerta-caixa aviso">Registro anulado: ' + esc(a.motivo_anulacao) + '</p>' : '')
-    + (clinico ? (r ? secao('O que foi trabalhado', r.trabalhado) + secao('O que foi desenvolvido / resposta do aluno', r.desenvolvido) + secao('Orientações e próximos passos', r.orientacoes) : '<p class="nota">Texto indisponível.</p>')
+    + (clinico ? (r ? secoesRegistro(r).map(([t, v]) => secao(t, v)).join('') : '<p class="nota">Texto indisponível.</p>')
       : '<p class="nota">O registro clínico é restrito à equipe de especialistas.</p>')
     + (a.orientacao_escola && !anulado ? '<div class="orientacao-escola"><h4>Orientação para a professora / escola</h4><p>' + esc(a.orientacao_escola) + '</p></div>' : '')
     + (clinico ? '<div class="acoes-linha pequeno">'
@@ -136,7 +163,7 @@ async function verVersoes(id) {
       titulo: 'Versões anteriores', somenteLeitura: true, largo: true,
       corpo: vs.length ? vs.map(v => '<article class="versao"><header><strong>Versão ' + v.versao + '</strong> · alterada em ' + esc(formatarDataHora(v.em)) + '</header><p><em>Motivo da alteração:</em> ' + esc(v.motivo) + '</p>'
         + '<p class="nota">' + esc(TIPOS_ATENDIMENTO[v.atendimento.tipo]) + ' · ' + esc(formatarDataHora(v.atendimento.data)) + ' · ' + esc(EVOLUCAO[v.atendimento.evolucao]) + '</p>'
-        + ['trabalhado', 'desenvolvido', 'orientacoes'].map(k => v.registro?.[k] ? '<p class="texto">' + esc(v.registro[k]) + '</p>' : '').join('') + '</article>').join('') : vazio('Sem versões anteriores.')
+        + secoesRegistro(v.registro || {}).map(([t, x]) => '<p class="texto"><b>' + esc(t) + ':</b> ' + esc(x) + '</p>').join('') + '</article>').join('') : vazio('Sem versões anteriores.')
     });
   } catch (e) { erro(e); }
 }
@@ -191,8 +218,8 @@ function formRelatorio(e, atendimentos, reg) {
     for (const a of meus) {
       const r = reg.get(a.id);
       linhas.push('', '• ' + formatarData(a.data) + ' — ' + TIPOS_ATENDIMENTO[a.tipo] + ' (evolução: ' + EVOLUCAO[a.evolucao].toLowerCase() + ')');
-      if (r?.trabalhado) linhas.push('  Trabalhado: ' + r.trabalhado);
-      if (r?.desenvolvido) linhas.push('  Desenvolvido: ' + r.desenvolvido);
+      for (const [t, v] of secoesRegistro(r || {})) linhas.push('  ' + t.replace(/^[SOAP] — /, '') + ': ' + v);
+
     }
     linhas.push('', 'Considerações e orientações:', '');
     form.texto.value = linhas.join('\n').slice(0, 10000); form.texto.dispatchEvent(new Event('input'));
@@ -232,5 +259,15 @@ function fichaEscola(e, atendimentos, agenda, saude, clinico) {
     corpo: '<p>Resumo de uma página para a professora e a escola: quem acompanha o aluno, as orientações para a sala de aula e os próximos atendimentos. <strong>Não inclui o registro clínico.</strong></p>'
       + (clinico && saude?.necessidade_informada ? '<label class="check"><input type="checkbox" name="condicao"> Incluir a condição informada (' + esc(saude.necessidade_informada) + ') — somente com autorização da família</label>' : ''),
     aoSalvar: async d => imprimirFichaEscola({ estudante: e, atendimentos, agenda, condicao: d.condicao ? saude.necessidade_informada : '' })
+  });
+}
+
+function novaCondicao(e) {
+  modal({
+    titulo: 'Problema / condição — ' + e.nome, botao: 'Adicionar',
+    corpo: '<p class="nota">Lista de problemas e condições acompanhados pela equipe, como no PEC. Ex.: "Troca de fonemas /p/ e /b/", "Dificuldade de atenção em sala", "TEA — comunicação funcional".</p>'
+      + campo('descricao', 'Problema ou condição', { obrig: true, largo: true, extra: 'maxlength="150"' })
+      + area('observacao', 'Observação (opcional)', { max: 300, linhas: 2 }),
+    aoSalvar: async d => { await dados.criarCondicao(e.id, validarCondicao(d), S.perfil); aviso('Adicionado à folha de rosto.'); eventos.aoMudar(); }
   });
 }

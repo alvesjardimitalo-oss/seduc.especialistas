@@ -35,6 +35,7 @@ const seed = {
   'usuarios/antiga': { nome: 'Conta Antiga', email: 'antiga@x.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', vinculos_legados: ['v1'], termos_aceitos: true, criado_em: 1 },
   'agendamentos/agF': { codigo: 'C000000-FUT1', estudante_id: 'a2', escola_id: 'prefeito-jose-pedro', profissional_uid: 'fono', profissional_nome: 'Fernanda Fono', especialidade: 'fonoaudiologia', inicio: amanha.getTime() + 8 * 3600e3 + FUSO, duracao_min: 30, status: 'agendado' },
   ['reservas/fono_' + (amanha.getTime() + 8 * 3600e3 + FUSO)]: { agendamento_id: 'agF', profissional_uid: 'fono' },
+  'agendamentos/agH': { codigo: 'C000000-HOJE', estudante_id: 'a2', escola_id: 'prefeito-jose-pedro', profissional_uid: 'fono', profissional_nome: 'Fernanda Fono', especialidade: 'fonoaudiologia', inicio: Date.now() + 5 * 60000, duracao_min: 30, status: 'agendado' },
   'agendamentos/agP': { codigo: 'C000000-TEST', estudante_id: 'a2', escola_id: 'prefeito-jose-pedro', profissional_uid: 'fono', profissional_nome: 'Fernanda Fono', especialidade: 'fonoaudiologia', inicio: Math.floor((Date.now() - 2 * dia) / 18e5) * 18e5, duracao_min: 30, status: 'agendado' },
   'escolas/monteiro-lobato': { nome: 'Escola Municipal Monteiro Lobato', tipo: 'escola' },
   'escolas/prefeito-jose-pedro': { nome: 'Escola Municipal Prefeito José Pedro da Silva', tipo: 'escola' },
@@ -77,6 +78,13 @@ try {
   const pg = await sessao('fono', { senha: true });
   await pg.waitForSelector('#busca'); await foto(pg, '01-painel-fono');
   assert.match(await pg.textContent('.painel-topo'), /Fernanda/);
+  // lista de atendimento do dia: "Chegou" e "Atender"
+  await pg.click('[data-chegou=agH]'); await pg.waitForSelector('.item-fila.chegou');
+  assert.match(await pg.textContent('.item-fila.chegou'), /1º[\s\S]*Chegou às \d\d:\d\d/);
+  await foto(pg, '01a-lista-do-dia');
+  await pg.click('[data-atender=agH]'); await pg.waitForSelector('#modal [name=objetivo]');
+  assert.match(await pg.textContent('#modal'), /S — Subjetivo[\s\S]*O — Objetivo[\s\S]*A — Avaliação[\s\S]*P — Plano/);
+  await pg.locator('#modal [data-fechar]').first().click(); await pg.waitForSelector('#modal', { state: 'detached' });
   // consulta vencida sem registro: "O aluno compareceu?" → Não → falta e reagendar
   assert.match(await pg.textContent('#conteudo'), /1 consulta\(s\) sem registro/);
   await pg.click('.alerta-caixa [data-consulta=agP]'); await pg.waitForSelector('.pergunta-presenca');
@@ -100,11 +108,11 @@ try {
   // abre a consulta reagendada e responde "Sim" (registro antes do horário)
   await pg.click('#conteudo .linha-agenda'); await pg.click('[data-c=sim]');
   assert.match(await pg.textContent('#modal-titulo'), new RegExp(codigo));
-  await pg.fill('[name=trabalhado]', 'x'.repeat(480)); await pg.fill('[name=desenvolvido]', 'y'.repeat(30));
+  await pg.fill('[name=objetivo]', 'x'.repeat(480)); await pg.fill('[name=avaliacao]', 'y'.repeat(30));
   assert.match(await pg.textContent('.contador-total'), /510\/500/);
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.form-erro:not([hidden])');
   assert.match(await pg.textContent('.form-erro'), /500/);
-  await pg.fill('[name=trabalhado]', 'Leitura de sílabas complexas com apoio visual.'); await pg.fill('[name=desenvolvido]', 'Leu 6 de 10.');
+  await pg.fill('[name=objetivo]', 'Leitura de sílabas complexas com apoio visual.'); await pg.fill('[name=avaliacao]', 'Leu 6 de 10.');
   await pg.fill('[name=orientacao_escola]', 'Ler junto com o aluno, apontando as sílabas.'); await pg.selectOption('[name=tipo]', 'observacao_sala');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(300);
   await pg.click('#conteudo .linha-agenda'); await pg.waitForSelector('.registro-consulta');
@@ -125,9 +133,9 @@ try {
 
   // registrar atendimento
   await pg.click('[data-acao=registrar]');
-  await pg.fill('[name=trabalhado]', 'Treino de discriminação auditiva /p/ x /b/ com figuras e jogo de memória.');
-  await pg.fill('[name=desenvolvido]', 'Acertou 7 de 10 pares; maior dificuldade em posição medial.');
-  await pg.fill('[name=orientacoes]', 'Família: leitura compartilhada 10 min/dia. Escola: posicionar a aluna próximo à professora.');
+  await pg.fill('[name=objetivo]', 'Treino de discriminação auditiva /p/ x /b/ com figuras e jogo de memória.');
+  await pg.fill('[name=avaliacao]', 'Acertou 7 de 10 pares; maior dificuldade em posição medial.');
+  await pg.fill('[name=plano]', 'Família: leitura compartilhada 10 min/dia. Escola: posicionar a aluna próximo à professora.');
   await pg.selectOption('[name=evolucao]', 'avancou');
   await foto(pg, '04-form-atendimento');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
@@ -137,7 +145,7 @@ try {
 
   // retificar
   await pg.click('[data-retificar]');
-  await pg.fill('[name=desenvolvido]', 'Acertou 8 de 10 pares; maior dificuldade em posição medial.');
+  await pg.fill('[name=avaliacao]', 'Acertou 8 de 10 pares; maior dificuldade em posição medial.');
   await pg.fill('[name=motivo]', 'Correção da contagem.');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
   await pg.waitForSelector('text=editada');
@@ -145,6 +153,16 @@ try {
   assert.match(await pg.textContent('.versao'), /7 de 10/);
   await pg.click('#modal [data-fechar]');
 
+  // folha de rosto: problemas e condições
+  assert.match(await pg.textContent('.folha-rosto'), /Informado pela escola:[\s\S]*dislalia/i);
+  assert.match(await pg.textContent('.folha-rosto'), /Paula Psicopedagoga[\s\S]*Plano:[\s\S]*avaliação fonoaudiológica/);
+  await pg.click('[data-acao=nova-condicao]'); await pg.fill('#modal [name=descricao]', 'Troca de fonemas /p/ e /b/');
+  await pg.click('#modal [type=submit]'); await pg.waitForSelector('.cond-ativo');
+  assert.match(await pg.textContent('.cond-ativo'), /Troca de fonemas[\s\S]*Fonoaudiologia/);
+  await foto(pg, '05b-folha-de-rosto');
+  await pg.click('[data-condicao][data-para=resolvido]'); await pg.fill('#modal [name=observacao]', 'Objetivo atingido.');
+  await pg.click('#modal [type=submit]'); await pg.waitForSelector('.resolvidos');
+  assert.equal(await pg.locator('.lista-cond > .cond-ativo').count(), 0);
   // filtro por especialidade
   await pg.click('[data-filtro-esp=psicopedagogia]'); await pg.waitForTimeout(150);
   assert.equal(await pg.locator('.card-atendimento').count(), 1);
@@ -178,7 +196,7 @@ try {
   assert.equal(await pg.locator('.linha-agenda.s-agendado').count(), 1);
   assert.match(await pg.textContent('#conteudo'), /Remarcado para|Cancelado/);
   await pg.click('.linha-agenda.s-agendado'); await pg.click('[data-c=sim]');
-  await pg.fill('[name=trabalhado]', 'Sessão agendada: leitura de pseudopalavras.');
+  await pg.fill('[name=objetivo]', 'Sessão agendada: leitura de pseudopalavras.');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(200);
   assert.equal(await pg.locator('.linha-agenda.s-agendado').count(), 0);
   assert.equal(await pg.locator('.linha-agenda.s-realizado').count(), 1);

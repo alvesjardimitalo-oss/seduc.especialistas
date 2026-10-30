@@ -51,12 +51,24 @@ test('cadastro de aluno: validação e duplicidade', () => {
   assert.equal(d.idade('2018-05-01', d.instante('2026-05-01', '12:00')), 8);
 });
 
-test('registro clínico exige o que foi trabalhado e respeita limites', () => {
-  assert.throws(() => d.validarRegistro({ trabalhado: ' ', tipo: 'sessao', evolucao: 'avancou' }), /trabalhado/);
-  assert.throws(() => d.validarRegistro({ trabalhado: 'x', tipo: 'outro', evolucao: 'avancou' }), /tipo/);
-  assert.throws(() => d.validarRegistro({ trabalhado: 'x'.repeat(300), desenvolvido: 'y'.repeat(201), tipo: 'sessao', evolucao: 'avancou' }), /500/);
-  assert.ok(d.validarRegistro({ trabalhado: 'x'.repeat(300), desenvolvido: 'y'.repeat(200), tipo: 'sessao', evolucao: 'avancou' }));
-  assert.deepEqual(d.validarRegistro({ trabalhado: ' a ', desenvolvido: '', orientacoes: 'c', tipo: 'sessao', evolucao: 'estavel' }), { trabalhado: 'a', desenvolvido: '', orientacoes: 'c', orientacao_escola: '' });
+test('registro SOAP: objetivo obrigatório e até 500 caracteres no total', () => {
+  assert.throws(() => d.validarRegistro({ subjetivo: 'Relato da mãe', objetivo: ' ', tipo: 'sessao', evolucao: 'avancou' }), /Objetivo/);
+  assert.throws(() => d.validarRegistro({ objetivo: 'x', tipo: 'outro', evolucao: 'avancou' }), /tipo/);
+  assert.throws(() => d.validarRegistro({ subjetivo: 'a'.repeat(200), objetivo: 'b'.repeat(200), avaliacao: 'c'.repeat(50), plano: 'd'.repeat(51), tipo: 'sessao', evolucao: 'avancou' }), /500/);
+  assert.deepEqual(d.validarRegistro({ subjetivo: ' s ', objetivo: 'o', avaliacao: '', plano: 'p', tipo: 'sessao', evolucao: 'estavel' }), { subjetivo: 's', objetivo: 'o', avaliacao: '', plano: 'p', orientacao_escola: '' });
+  assert.deepEqual(d.secoesRegistro({ objetivo: 'o', plano: 'p' }).map(x => x[0]), ['O — Objetivo', 'P — Plano']);
+  assert.deepEqual(d.secoesRegistro({ trabalhado: 't', orientacoes: 'or' }).map(x => x[1]), ['t', 'or']);
+  assert.equal(d.planoDoRegistro({ orientacoes: 'antigo' }), 'antigo'); assert.equal(d.planoDoRegistro({ plano: 'novo', orientacoes: 'x' }), 'novo');
+});
+
+test('problemas e condições; fila do dia por ordem de chegada', () => {
+  assert.throws(() => d.validarCondicao({ descricao: 'ab' }), /3 a 150/);
+  assert.deepEqual(d.validarCondicao({ descricao: '  Troca  de fonemas ', observacao: '' }), { descricao: 'Troca de fonemas', observacao: '' });
+  const ord = d.ordenarCondicoes([{ id: 'r', situacao: 'resolvido', criado_em: 3 }, { id: 'a1', situacao: 'ativo', criado_em: 1 }, { id: 'a2', situacao: 'ativo', criado_em: 2 }]);
+  assert.deepEqual(ord.map(c => c.id), ['a2', 'a1', 'r']);
+  const t = h => d.instante('2026-11-03', h);
+  const fila = d.filaDoDia([{ id: 'x', status: 'agendado', inicio: t('08:00') }, { id: 'y', status: 'agendado', inicio: t('09:00'), chegada_em: t('07:55') }, { id: 'z', status: 'agendado', inicio: t('08:30'), chegada_em: t('07:50') }, { id: 'w', status: 'realizado', inicio: t('07:30'), chegada_em: t('07:20') }]);
+  assert.deepEqual(fila.map(f => f.id), ['z', 'y', 'w', 'x']);
 });
 
 test('situação do acompanhamento por especialidade, com alta e anulados', () => {
@@ -161,9 +173,9 @@ test('calendário escolar: bloqueio da rede e da escola', () => {
 });
 
 test('orientação para a escola separada do registro clínico', () => {
-  const r = d.validarRegistro({ trabalhado: 'x'.repeat(500), orientacao_escola: 'Sentar perto da professora.', tipo: 'observacao_sala', evolucao: 'estavel' });
+  const r = d.validarRegistro({ objetivo: 'x'.repeat(500), orientacao_escola: 'Sentar perto da professora.', tipo: 'observacao_sala', evolucao: 'estavel' });
   assert.equal(r.orientacao_escola, 'Sentar perto da professora.');
-  assert.throws(() => d.validarRegistro({ trabalhado: 'x', orientacao_escola: 'y'.repeat(501), tipo: 'grupo', evolucao: 'estavel' }), /escola/);
+  assert.throws(() => d.validarRegistro({ objetivo: 'x', orientacao_escola: 'y'.repeat(501), tipo: 'grupo', evolucao: 'estavel' }), /escola/);
 });
 
 test('calendário escolar em PDF (Frei Inocêncio 2026): leitura por cor confere com os dias letivos', async () => {

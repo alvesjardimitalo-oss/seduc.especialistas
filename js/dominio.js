@@ -213,17 +213,54 @@ export function filtrarEstudantes(lista, { busca = '', escola = '', situacao = '
 }
 
 // ---------- prontuário ----------
+// Registro no formato SOAP do PEC, adaptado à escola. Registros antigos (trabalhado/desenvolvido/orientações)
+// continuam válidos para leitura.
+export const CAMPOS_SOAP = Object.freeze([
+  ['subjetivo', 'S — Subjetivo', 'Queixa e relato do aluno, da família ou da professora'],
+  ['objetivo', 'O — Objetivo', 'O que foi observado e trabalhado: atividades, recursos, desempenho'],
+  ['avaliacao', 'A — Avaliação', 'Análise profissional: evolução, dificuldades, hipóteses'],
+  ['plano', 'P — Plano', 'Próximos passos, orientações à família e encaminhamentos']
+]);
+const CAMPOS_ANTIGOS = [['trabalhado', 'O que foi trabalhado'], ['desenvolvido', 'O que foi desenvolvido'], ['orientacoes', 'Orientações e próximos passos']];
+/** Seções de texto de um registro (SOAP ou formato antigo), na ordem de leitura. */
+export function secoesRegistro(r = {}) {
+  return [...CAMPOS_SOAP.map(([k, t]) => [t, r[k]]), ...CAMPOS_ANTIGOS.map(([k, t]) => [t, r[k]])].filter(([, v]) => String(v || '').trim());
+}
+/** Plano (P) do registro, ou as orientações do formato antigo. */
+export const planoDoRegistro = (r = {}) => String(r.plano || r.orientacoes || '').trim();
 export function validarRegistro(d) {
   const r = {};
-  for (const k of ['trabalhado', 'desenvolvido', 'orientacoes']) r[k] = String(d[k] || '').trim();
-  const total = r.trabalhado.length + r.desenvolvido.length + r.orientacoes.length;
+  for (const [k] of CAMPOS_SOAP) r[k] = String(d[k] || '').trim();
+  const total = CAMPOS_SOAP.reduce((n, [k]) => n + r[k].length, 0);
   if (total > LIMITES.texto) throw Error('O registro da consulta aceita até ' + LIMITES.texto + ' caracteres no total (agora: ' + total + ').');
-  if (!r.trabalhado) throw Error('Descreva o que foi trabalhado no atendimento.');
-  r.orientacao_escola = String(d.orientacao_escola || '').trim();
-  if (r.orientacao_escola.length > LIMITES.texto) throw Error('A orientação para a escola aceita até ' + LIMITES.texto + ' caracteres.');
+  if (!r.objetivo) throw Error('Preencha o Objetivo: o que foi observado e trabalhado no atendimento.');
   if (!TIPOS_ATENDIMENTO[d.tipo]) throw Error('Selecione o tipo de atendimento.');
   if (!EVOLUCAO[d.evolucao]) throw Error('Selecione a evolução observada.');
+  r.orientacao_escola = String(d.orientacao_escola || '').trim();
+  if (r.orientacao_escola.length > LIMITES.texto) throw Error('A orientação para a escola aceita até ' + LIMITES.texto + ' caracteres.');
   return r;
+}
+
+// ---------- problemas e condições (lista do PEC) ----------
+export function validarCondicao(d) {
+  const descricao = String(d.descricao || '').trim().replace(/\s+/g, ' ');
+  if (descricao.length < 3 || descricao.length > 150) throw Error('Descreva o problema ou condição (3 a 150 caracteres).');
+  const observacao = String(d.observacao || '').trim();
+  if (observacao.length > 300) throw Error('A observação aceita até 300 caracteres.');
+  return { descricao, observacao };
+}
+/** Ativos primeiro (mais recentes no topo), depois resolvidos. */
+export const ordenarCondicoes = (lista = []) => lista.slice().sort((a, b) => (a.situacao === 'ativo' ? 0 : 1) - (b.situacao === 'ativo' ? 0 : 1) || ms(b.criado_em) - ms(a.criado_em));
+
+// ---------- lista de atendimento do dia (chegada) ----------
+/** Ordem da fila: quem chegou primeiro (pela hora de chegada), depois os demais pelo horário marcado. */
+export function filaDoDia(itens = []) {
+  return itens.slice().sort((a, b) => {
+    const ca = a.status === 'agendado' && a.chegada_em ? ms(a.chegada_em) : null, cb = b.status === 'agendado' && b.chegada_em ? ms(b.chegada_em) : null;
+    if (ca != null && cb != null) return ca - cb;
+    if (ca != null) return -1; if (cb != null) return 1;
+    return ms(a.inicio) - ms(b.inicio);
+  });
 }
 
 /** Ordena a linha do tempo (mais recente primeiro). */

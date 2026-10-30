@@ -249,15 +249,19 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Até 500 caracteres no total por consulta.
+    // Registro SOAP (subjetivo, objetivo, avaliação, plano) ou formato anterior (trabalhado,
+    // desenvolvido, orientações). Até 500 caracteres no total por consulta.
     function registroValido(d) {
-      return txtObr(d.trabalhado, 500) && txt(d.get('desenvolvido', ''), 500) && txt(d.get('orientacoes', ''), 500)
-        && d.trabalhado.size() + d.get('desenvolvido', '').size() + d.get('orientacoes', '').size() <= 500;
+      return txt(d.get('subjetivo', ''), 500) && txt(d.get('objetivo', ''), 500) && txt(d.get('avaliacao', ''), 500) && txt(d.get('plano', ''), 500)
+        && txt(d.get('trabalhado', ''), 500) && txt(d.get('desenvolvido', ''), 500) && txt(d.get('orientacoes', ''), 500)
+        && (d.get('objetivo', '').trim().size() > 0 || d.get('trabalhado', '').trim().size() > 0)
+        && d.get('subjetivo', '').size() + d.get('objetivo', '').size() + d.get('avaliacao', '').size() + d.get('plano', '').size()
+          + d.get('trabalhado', '').size() + d.get('desenvolvido', '').size() + d.get('orientacoes', '').size() <= 500;
     }
     match /atendimentos_registro/{id} {
       allow get, list: if clinico();
       allow create: if equipe()
-        && request.resource.data.keys().hasOnly(['estudante_id', 'profissional_uid', 'trabalhado', 'desenvolvido', 'orientacoes', 'versao'])
+        && request.resource.data.keys().hasOnly(['estudante_id', 'profissional_uid', 'subjetivo', 'objetivo', 'avaliacao', 'plano', 'trabalhado', 'desenvolvido', 'orientacoes', 'versao'])
         && request.resource.data.profissional_uid == request.auth.uid && request.resource.data.versao == 1
         && registroValido(request.resource.data)
         && getAfter(doc('atendimentos', id)).data.profissional_uid == request.auth.uid
@@ -265,7 +269,7 @@ service cloud.firestore {
         && getAfter(doc('atendimentos', id)).data.versao == 1;
       allow update: if equipe() && resource.data.profissional_uid == request.auth.uid
         && semMudar(['estudante_id', 'profissional_uid'])
-        && soMudar(['trabalhado', 'desenvolvido', 'orientacoes', 'versao'])
+        && soMudar(['subjetivo', 'objetivo', 'avaliacao', 'plano', 'trabalhado', 'desenvolvido', 'orientacoes', 'versao'])
         && registroValido(request.resource.data)
         && request.resource.data.versao == resource.data.versao + 1
         && getAfter(doc('atendimentos', id)).data.versao == request.resource.data.versao
@@ -347,6 +351,12 @@ service cloud.firestore {
             && resource.data.inicio <= request.time
             && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao()))
           ||
+          // chegada do aluno (lista de atendimento do dia): registra ou desfaz a hora de chegada
+          (request.resource.data.status == 'agendado'
+            && soMudar(['chegada_em', 'alterado_por', 'alterado_em'])
+            && (request.resource.data.chegada_em == request.time || request.resource.data.chegada_em == null)
+            && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(resource.data.escola_id)))
+          ||
           // realizado: somente junto com o registro do atendimento pela profissional
           (request.resource.data.status == 'realizado'
             && soMudar(['status', 'atendimento_id', 'alterado_por', 'alterado_em'])
@@ -372,6 +382,23 @@ service cloud.firestore {
         && get(doc('agendamentos', resource.data.agendamento_id)).data.status == 'agendado'
         && getAfter(doc('agendamentos', resource.data.agendamento_id)).data.status == 'cancelado';
       allow update: if false;
+    }
+
+    // ---------- problemas e condições do aluno (como no PEC) ----------
+    match /condicoes/{id} {
+      allow get, list: if clinico();
+      allow create: if equipe()
+        && request.resource.data.keys().hasOnly(['estudante_id', 'descricao', 'observacao', 'situacao', 'especialidade', 'registrado_por', 'registrado_nome', 'criado_em'])
+        && exists(doc('estudantes', request.resource.data.estudante_id))
+        && txtObr(request.resource.data.descricao, 150) && txt(request.resource.data.get('observacao', ''), 300)
+        && request.resource.data.situacao == 'ativo' && request.resource.data.especialidade == eu().especialidade
+        && request.resource.data.registrado_por == request.auth.uid && txtObr(request.resource.data.registrado_nome, 180)
+        && request.resource.data.criado_em == request.time;
+      allow update: if equipe()
+        && soMudar(['situacao', 'observacao', 'resolvido_em', 'resolvido_por', 'atualizado_em', 'atualizado_por'])
+        && request.resource.data.situacao in ['ativo', 'resolvido'] && txt(request.resource.data.get('observacao', ''), 300)
+        && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time;
+      allow delete: if false;
     }
 
     // ---------- calendário escolar ----------

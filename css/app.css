@@ -307,3 +307,27 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .conferencia span { font-size: .75rem; padding: .1rem .45rem; border-radius: 6px; background: #e3f4ea; color: var(--ok); font-weight: 700; }
 .conferencia span.erro { background: #fdeeee; color: var(--perigo); }
 .entrada-tabela { width: 100%; padding: .35rem .5rem; border: 1px solid #cfdae4; border-radius: 7px; }
+
+/* ---------- v2.3: itens do PEC ---------- */
+.folha-rosto { border-top: 4px solid var(--marinho); }
+.folha-grade { display: grid; grid-template-columns: 1.1fr 1fr 1.1fr; gap: 1.2rem; }
+.folha-col h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--suave); margin: 0 0 .5rem; }
+.folha-col h3:not(:first-child) { margin-top: 1rem; }
+.lista-cond { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+.cond { display: flex; justify-content: space-between; gap: .6rem; align-items: flex-start; border-left: 4px solid var(--perigo); background: #fff6f6; border-radius: 8px; padding: .45rem .6rem; }
+.cond strong { display: block; } .cond small { display: block; color: var(--suave); font-size: .76rem; } .cond span { display: block; font-size: .85rem; }
+.cond-resolvido { border-left-color: #b9c4cf; background: #f6f8fa; opacity: .8; }
+.resolvidos { margin-top: .5rem; } .resolvidos summary { cursor: pointer; color: var(--suave); font-size: .85rem; }
+.cond-escola { font-size: .88rem; margin: .6rem 0 0; }
+.orient-prof { border-left: 4px solid var(--esp, var(--acento)); background: var(--esp-claro, #f4f8fa); border-radius: 8px; padding: .5rem .7rem; margin-bottom: .5rem; }
+.orient-prof strong { display: block; } .orient-prof small { color: var(--suave); } .orient-prof p { margin: .3rem 0 0; font-size: .88rem; white-space: pre-wrap; }
+.soap { display: grid; gap: .6rem; }
+.soap textarea { border-left: 4px solid var(--acento); }
+.fila-dia { display: grid; gap: .5rem; }
+.item-fila { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .6rem; }
+.item-fila:not(.chegou) { grid-template-columns: 1fr auto; }
+.item-fila .posicao { width: 34px; height: 34px; border-radius: 50%; background: var(--acento); color: #fff; display: grid; place-items: center; font-weight: 800; }
+.item-fila.chegou .linha-agenda { border-left-color: var(--psico); background: #fffaf1; }
+.acoes-fila { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.chegada { font-size: .8rem; font-weight: 700; color: var(--aviso); }
+@media (max-width: 900px) { .folha-grade { grid-template-columns: 1fr; } .item-fila, .item-fila:not(.chegou) { grid-template-columns: 1fr; } .item-fila .posicao { display: none; } }

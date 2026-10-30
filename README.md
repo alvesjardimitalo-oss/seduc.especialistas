@@ -11,6 +11,8 @@ O sistema segue o modelo de acompanhamento do SUS. Cada criança tem um cadastro
 Login (e-mail e senha, ou Google) → termo de LGPD (primeiro acesso) → escolha da instituição → **painel de consultas** com busca por aluno ou código, filtro de data e de profissional, e botão **+** (agendar, registrar, cadastrar aluno).
 Cada consulta tem um **código único** (ex.: `C261030-7K3F`) e abre numa janela ampliada que pergunta **"O aluno compareceu?"**: *Sim* abre o registro da consulta (até **500 caracteres**); *Não* registra a falta e oferece **reagendar**. A consulta registrada pode ser **editada** pela autora (a versão anterior fica guardada).
 
+**Inspirado no PEC (e-SUS APS):** folha de rosto no topo do prontuário (problemas e condições ativos/resolvidos, acompanhamentos por especialidade, últimas orientações de cada profissional), lista de atendimento do dia com "Chegou" e fila por ordem de chegada, e registro no formato **SOAP** (Subjetivo, Objetivo, Avaliação, Plano) dentro de 500 caracteres. Registros antigos continuam legíveis e são convertidos para SOAP ao editar.
+
 **Adaptações para a escola:** orientação para a professora/escola em cada consulta (a direção lê; o registro clínico não), calendário escolar (férias, recesso e feriados bloqueiam a agenda também no servidor), tipos de atendimento escolares (observação em sala, grupo, reunião com professora/família), painel com "Hoje na escola" e ficha de uma página para a professora.
 
 ## Como funciona

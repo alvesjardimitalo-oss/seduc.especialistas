@@ -413,3 +413,42 @@ test('apagar definitivamente: só a administração, só conta já excluída', a
   await assertFails(deleteDoc(doc(db('sec'), 'usuarios', 'psico')));
   await assertSucceeds(deleteDoc(doc(db('admin'), 'usuarios', 'psico')));
 });
+
+// ---------- v2.3: itens do PEC ----------
+test('registro SOAP aceito; antigo continua válido; limite de 500 somando tudo', async () => {
+  const f = db('fono');
+  const soap = (id, reg) => { const b = writeBatch(f);
+    b.set(doc(f, 'atendimentos', id), { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'sessao', evolucao: 'avancou', data: Timestamp.now(), duracao_min: 30, agendamento_id: '', codigo: 'C261103-SP01', situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+    b.set(doc(f, 'atendimentos_registro', id), { estudante_id: 'alunoA', profissional_uid: 'fono', versao: 1, ...reg }); return b.commit(); };
+  await assertSucceeds(soap('s1', { subjetivo: 'Mãe relata trocas', objetivo: 'Discriminação auditiva', avaliacao: 'Melhora', plano: 'Manter' }));
+  await assertFails(soap('s2', { subjetivo: 'Só relato', objetivo: '' }));
+  await assertFails(soap('s3', { objetivo: 'x'.repeat(300), plano: 'y'.repeat(201) }));
+  await assertFails(soap('s4', { objetivo: 'ok', diagnostico_cid: 'F80' }));
+});
+
+test('problemas e condições: equipe registra e resolve; gestão e direção não leem', async () => {
+  const c = (f, uid, extra = {}) => setDoc(doc(f, 'condicoes', 'c1'), { estudante_id: 'alunoA', descricao: 'Troca de fonemas', observacao: '', situacao: 'ativo', especialidade: 'fonoaudiologia', registrado_por: uid, registrado_nome: 'Fono', criado_em: serverTimestamp(), ...extra });
+  await assertFails(c(db('dirA'), 'dirA'));
+  await assertFails(c(db('fono'), 'fono', { especialidade: 'psicopedagogia' }));
+  await assertSucceeds(c(db('fono'), 'fono'));
+  await assertSucceeds(getDoc(doc(db('psico'), 'condicoes', 'c1')));
+  await assertFails(getDoc(doc(db('sec'), 'condicoes', 'c1')));
+  await assertFails(getDoc(doc(db('dirA'), 'condicoes', 'c1')));
+  await assertFails(updateDoc(doc(db('psico'), 'condicoes', 'c1'), { descricao: 'Outra coisa', atualizado_por: 'psico', atualizado_em: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('psico'), 'condicoes', 'c1'), { situacao: 'resolvido', resolvido_em: serverTimestamp(), resolvido_por: 'psico', atualizado_por: 'psico', atualizado_em: serverTimestamp() }));
+  await assertFails(deleteDoc(doc(db('admin'), 'condicoes', 'c1')));
+});
+
+test('lista do dia: chegada registrada pela profissional, gestão ou direção da escola', async () => {
+  await loteAgenda(db('fono'), { criador: 'fono' }).commit();
+  const chega = (uid, v = serverTimestamp()) => updateDoc(doc(db(uid), 'agendamentos', 'ag1'), { chegada_em: v, alterado_por: uid, alterado_em: serverTimestamp() });
+  await assertFails(chega('psico'));
+  await assertSucceeds(chega('dirA'));
+  await assertSucceeds(chega('fono', null));
+  await assertFails(chega('fono', Timestamp.fromMillis(1)));
+  await assertSucceeds(chega('fono'));
+  // depois da chegada, o atendimento é registrado normalmente
+  const f = db('fono'), b = loteAtendimento(f, 'fono', { id: 'ch1', ag: 'ag1' });
+  b.update(doc(f, 'agendamentos', 'ag1'), { status: 'realizado', atendimento_id: 'ch1', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  await assertSucceeds(b.commit());
+});
