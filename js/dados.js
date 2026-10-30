@@ -42,9 +42,29 @@ export async function carregarOuCriarPerfil(u) {
 
 // ---------- usuários e convites ----------
 export const listarUsuarios = async () => lista(await getDocs(collection(db, 'usuarios')));
-export async function salvarUsuario(uid, dados) {
-  await writeBatch(db).update(doc(db, 'usuarios', uid), { ...dados, atualizado_em: serverTimestamp(), atualizado_por: uidAtual() }).commit();
+// Campos aceitos pelas regras. Contas criadas na versão antiga podem ter outros campos:
+// a gravação reescreve o documento só com estes, preservando e-mail e data de criação.
+const CAMPOS_USUARIO = ['nome', 'email', 'perfil', 'ativo', 'excluido', 'gerenciar', 'escolas', 'especialidade', 'registro_profissional',
+  'telefone', 'jornada', 'slots', 'criado_em', 'motivo_exclusao', 'excluido_em'];
+export async function salvarUsuario(uid, dados, atual = {}) {
+  const base = {};
+  for (const k of CAMPOS_USUARIO) if (atual[k] !== undefined) base[k] = atual[k];
+  await writeBatch(db).set(doc(db, 'usuarios', uid), { ...base, ...dados, atualizado_em: serverTimestamp(), atualizado_por: uidAtual() }).commit();
 }
+/** Exclui o acesso (reversível). Opcionalmente cancela os agendamentos futuros da profissional. */
+export async function excluirAcesso(usuario, motivo, cancelarFuturos = false) {
+  let cancelados = 0;
+  if (cancelarFuturos) {
+    const futuros = await listarAgendamentos({ profissional: usuario.id, de: new Date(), ate: new Date(Date.now() + 730 * 864e5) });
+    for (const a of futuros.filter(x => x.status === 'agendado')) { await cancelarAgendamento(a, 'Acesso da profissional excluído: ' + motivo); cancelados++; }
+  }
+  await salvarUsuario(usuario.id, { ativo: false, excluido: true, motivo_exclusao: motivo, excluido_em: serverTimestamp() }, usuario);
+  return cancelados;
+}
+export async function restaurarAcesso(usuario) {
+  await salvarUsuario(usuario.id, { ativo: true, excluido: false, motivo_exclusao: '' }, usuario);
+}
+export async function apagarSolicitacao(uid) { await writeBatch(db).delete(doc(db, 'usuarios', uid)).commit(); }
 export const listarConvites = async () => lista(await getDocs(collection(db, 'convites')));
 export async function salvarConvite(d) {
   const email = d.email.trim().toLowerCase();

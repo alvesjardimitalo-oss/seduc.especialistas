@@ -1,7 +1,9 @@
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta } from '../estado.js';
 import { ESPECIALIDADES, PERFIS, DIAS, prepararJornada, resumoJornada, formatarData } from '../dominio.js';
-import { esc, iniciais, vazio, modal, campo, opcoes, aviso, erro, $, $$ } from '../ui.js';
+import { esc, iniciais, vazio, modal, campo, area, opcoes, aviso, erro, $, $$ } from '../ui.js';
+
+let mostrarExcluidos = false;
 
 export async function render(main, vigente) {
   const gerencia = pode.gerenciar();
@@ -9,9 +11,11 @@ export async function render(main, vigente) {
   if (!vigente()) return;
   S.usuarios = usuarios;
   const ord = (a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR');
-  const pendentes = usuarios.filter(u => u.perfil === 'pendente' && !u.excluido).sort(ord);
-  const esp = usuarios.filter(u => u.perfil === 'especialista').sort((a, b) => String(a.especialidade).localeCompare(b.especialidade) || ord(a, b));
-  const outros = usuarios.filter(u => !['especialista', 'pendente'].includes(u.perfil)).sort(ord);
+  const ativos = usuarios.filter(u => !u.excluido);
+  const excluidos = usuarios.filter(u => u.excluido).sort(ord);
+  const pendentes = ativos.filter(u => u.perfil === 'pendente').sort(ord);
+  const esp = ativos.filter(u => u.perfil === 'especialista').sort((a, b) => String(a.especialidade).localeCompare(b.especialidade) || ord(a, b));
+  const outros = ativos.filter(u => !['especialista', 'pendente'].includes(u.perfil)).sort(ord);
 
   let h = '<header class="pagina-topo"><div><h1>Equipe</h1><p>Especialistas, jornadas de trabalho e acessos.</p></div>'
     + (gerencia ? '<div class="acoes-linha"><button class="btn" id="convidar">+ Autorizar por e-mail</button></div>' : '') + '</header>';
@@ -23,9 +27,19 @@ export async function render(main, vigente) {
       const usado = usuarios.some(u => String(u.email).toLowerCase() === c.email);
       return '<tr><td>' + esc(c.nome) + '</td><td>' + esc(c.email) + '</td><td>' + esc(c.perfil === 'especialista' ? ESPECIALIDADES[c.especialidade] : PERFIS[c.perfil]) + '</td><td>' + (usado ? 'Já acessou' : 'Aguardando primeiro acesso') + '</td><td><button class="link perigo" data-remover-convite="' + esc(c.email) + '">Remover</button></td></tr>';
     }).join('') + '</tbody></table>' : vazio('Nenhuma autorização pendente.')) + '</section>';
+  if (gerencia && excluidos.length) h += '<section class="cartao"><header class="cartao-topo"><h2>Acessos excluídos (' + excluidos.length + ')</h2><button class="link" id="ver-excluidos">' + (mostrarExcluidos ? 'Ocultar' : 'Mostrar') + '</button></header>'
+    + '<p class="nota">Contas bloqueadas. Os atendimentos registrados por elas continuam no prontuário com a autoria original.</p>'
+    + (mostrarExcluidos ? excluidos.map(linha).join('') : '') + '</section>';
   main.innerHTML = h;
 
   $$('[data-editar]', main).forEach(b => b.onclick = () => editar(usuarios.find(u => u.id === b.dataset.editar)));
+  $$('[data-excluir]', main).forEach(b => b.onclick = () => excluir(usuarios.find(u => u.id === b.dataset.excluir)));
+  $$('[data-restaurar]', main).forEach(b => b.onclick = async () => {
+    const u = usuarios.find(x => x.id === b.dataset.restaurar); b.disabled = true;
+    try { await dados.restaurarAcesso(u); aviso('Acesso de ' + u.nome + ' restaurado.'); render(main, vigente); } catch (e) { erro(e); b.disabled = false; }
+  });
+  $$('[data-recusar]', main).forEach(b => b.onclick = () => recusar(usuarios.find(u => u.id === b.dataset.recusar)));
+  $('#ver-excluidos', main)?.addEventListener('click', () => { mostrarExcluidos = !mostrarExcluidos; render(main, vigente); });
   $('#convidar', main)?.addEventListener('click', convidar);
   $$('[data-remover-convite]', main).forEach(b => b.onclick = async () => {
     if (!confirm('Remover a autorização de ' + b.dataset.removerConvite + '?')) return;
@@ -34,11 +48,19 @@ export async function render(main, vigente) {
 
   function linha(u) {
     const papel = u.perfil === 'especialista' ? ESPECIALIDADES[u.especialidade] || 'Especialidade não definida' : PERFIS[u.perfil] || u.perfil;
-    const situacao = u.excluido || (!u.ativo && u.perfil !== 'pendente') ? '<span class="selo s-cancelado">Desativado</span>' : '';
+    const situacao = u.excluido ? '<span class="selo s-cancelado">Excluído</span>' : !u.ativo && u.perfil !== 'pendente' ? '<span class="selo s-cancelado">Desativado</span>' : '';
+    const protegido = u.id === S.user.uid || (u.perfil === 'superadmin' && !pode.admin());
+    let botoes = '';
+    if (gerencia && !protegido) {
+      if (u.excluido) botoes = '<button class="btn sec pequeno" data-restaurar="' + esc(u.id) + '">Restaurar acesso</button>';
+      else if (u.perfil === 'pendente') botoes = '<button class="btn pequeno" data-editar="' + esc(u.id) + '">Liberar acesso</button><button class="btn sec pequeno perigo" data-recusar="' + esc(u.id) + '">Recusar</button>';
+      else botoes = '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">Editar</button><button class="btn sec pequeno perigo" data-excluir="' + esc(u.id) + '">Excluir acesso</button>';
+    } else if (gerencia && u.id === S.user.uid) botoes = '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">Editar</button>';
     return '<div class="pessoa"><span class="avatar">' + esc(iniciais(u.nome)) + '</span><div class="pessoa-info"><strong>' + esc(u.nome) + ' ' + situacao + '</strong>'
       + '<small>' + esc(papel) + (u.registro_profissional ? ' · ' + esc(u.registro_profissional) : '') + (gerencia ? ' · ' + esc(u.email) : '') + (u.perfil === 'direcao' ? ' · ' + esc((u.escolas || []).map(escolaCurta).join(', ')) : '') + '</small>'
-      + (u.perfil === 'especialista' ? '<span class="jornada-txt">' + esc(resumoJornada(u.jornada, escolaCurta)) + '</span>' : '') + '</div>'
-      + (gerencia && (u.perfil !== 'superadmin' || pode.admin()) ? '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">' + (u.perfil === 'pendente' ? 'Liberar acesso' : 'Editar') + '</button>' : '') + '</div>';
+      + (u.perfil === 'especialista' && !u.excluido ? '<span class="jornada-txt">' + esc(resumoJornada(u.jornada, escolaCurta)) + '</span>' : '')
+      + (u.excluido ? '<span class="nota">Excluído' + (u.excluido_em ? ' em ' + esc(formatarData(u.excluido_em)) : '') + (u.motivo_exclusao ? ': ' + esc(u.motivo_exclusao) : '') + '</span>' : '') + '</div>'
+      + '<div class="acoes-linha">' + botoes + '</div></div>';
   }
 
   function camposAcesso(u = {}) {
@@ -77,7 +99,7 @@ export async function render(main, vigente) {
           Object.assign(novo, prepararJornada(faixas));
         } else Object.assign(novo, { jornada: [], slots: [] });
         if (d.perfil === 'direcao' && !novo.escolas.length) throw Error('Selecione a(s) escola(s) da direção.');
-        await dados.salvarUsuario(u.id, novo);
+        await dados.salvarUsuario(u.id, novo, u);
         aviso('Conta atualizada.'); render(main, vigente);
       }
     });
@@ -86,6 +108,31 @@ export async function render(main, vigente) {
     $('#mais-faixa', form).onclick = () => { box.insertAdjacentHTML('beforeend', linhaJ()); ligarRemover(); };
     const ligarRemover = () => $$('[data-tirar]', box).forEach(b => b.onclick = () => b.parentElement.remove());
     ligarRemover();
+  }
+
+  async function excluir(u) {
+    let futuros = [];
+    if (u.perfil === 'especialista') {
+      try { futuros = (await dados.listarAgendamentos({ profissional: u.id, de: new Date(), ate: new Date(Date.now() + 730 * 864e5) })).filter(a => a.status === 'agendado'); } catch (e) { erro(e); }
+    }
+    modal({
+      titulo: 'Excluir acesso — ' + u.nome, botao: 'Excluir acesso',
+      corpo: '<p>A conta deixa de entrar no sistema imediatamente. <strong>Os atendimentos, relatórios e o histórico registrados por ela são preservados</strong> com a autoria original, como exige a guarda do prontuário. O acesso pode ser restaurado depois.</p>'
+        + (futuros.length ? '<div class="alerta-caixa aviso">Esta profissional tem <strong>' + futuros.length + ' agendamento(s) futuro(s)</strong>.</div><label class="check"><input type="checkbox" name="cancelar" checked> Cancelar esses agendamentos e liberar os horários</label>' : '')
+        + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2, dica: 'Ex.: fim do contrato; licença; conta de teste' }),
+      aoSalvar: async d => {
+        const n = await dados.excluirAcesso(u, d.motivo.trim(), Boolean(d.cancelar));
+        aviso('Acesso excluído.' + (n ? ' ' + n + ' agendamento(s) cancelado(s).' : '')); render(main, vigente);
+      }
+    });
+  }
+
+  function recusar(u) {
+    modal({
+      titulo: 'Recusar solicitação', botao: 'Recusar e apagar',
+      corpo: '<p>A solicitação de <strong>' + esc(u.nome) + '</strong> (' + esc(u.email) + ') será apagada. Esta conta nunca teve acesso nem registros. Se a pessoa entrar de novo com o Google, aparecerá outra vez como pendente.</p>',
+      aoSalvar: async () => { await dados.apagarSolicitacao(u.id); aviso('Solicitação recusada.'); render(main, vigente); }
+    });
   }
 
   function convidar() {

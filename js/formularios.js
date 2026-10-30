@@ -117,7 +117,8 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
   if (!S.perfil.especialidade) return aviso('Sua conta não tem especialidade definida. Peça à administração.', 'erro');
   const ret = Boolean(atendimento);
   const alunoId = atendimento?.estudante_id || agendamento?.estudante_id || estudanteId;
-  const quando = atendimento ? ms(atendimento.data) : agendamento ? ms(agendamento.inicio) : Date.now();
+  // Registro de agendamento antecipado (antes do horário marcado) usa o horário atual.
+  const quando = atendimento ? ms(atendimento.data) : agendamento ? Math.min(ms(agendamento.inicio), Date.now()) : Date.now();
   const corpo = '<div class="grade">'
     + seletorAluno('estudante_id', alunoId)
     + '<div class="campo"><span>Especialidade</span><div class="aluno-fixo">' + esc(ESPECIALIDADES[S.perfil.especialidade]) + ' · ' + esc(S.perfil.nome) + '</div></div>'
@@ -163,8 +164,9 @@ export function anularAtendimento(a) {
 }
 
 // ---------- agendamento ----------
-export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '' } = {}) {
+export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', remarcar = null } = {}) {
   if (!pode.agendar()) return;
+  if (remarcar) { estudanteId = remarcar.estudante_id; profissionalUid = remarcar.profissional_uid; }
   const profs = especialistas();
   const fixo = S.perfil.perfil === 'especialista';
   const prof0 = fixo ? S.user.uid : profissionalUid || '';
@@ -176,9 +178,10 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '' }
     + campo('dia', 'Dia', { tipo: 'date', valor: diaInicial, obrig: true, extra: 'min="' + hoje() + '"' })
     + opcoes('duracao_min', 'Duração', [[30, '30 minutos'], [60, '1 hora']], { valor: 30 })
     + '</div><div class="campo largo"><span>Horários disponíveis <b class="obrig">*</b></span><div class="horarios" data-horarios><p class="nota">Selecione a profissional e o dia.</p></div></div>'
-    + campo('observacao', 'Observação (opcional)', { largo: true, extra: 'maxlength="300"', dica: 'Ex.: trazer caderno; responsável deve acompanhar' });
+    + campo('observacao', 'Observação (opcional)', { largo: true, extra: 'maxlength="300"', valor: remarcar?.observacao || '', dica: 'Ex.: trazer caderno; responsável deve acompanhar' })
+    + (remarcar ? '<p class="alerta-caixa aviso largo">Remarcando o atendimento de <strong>' + esc(formatarDataHora(remarcar.inicio)) + '</strong>. O horário antigo será cancelado e liberado.</p>' + area('motivo_remarcacao', 'Motivo da remarcação', { obrig: true, max: 300, linhas: 2 }) : '');
   const form = modal({
-    titulo: 'Agendar atendimento', corpo, largo: true, botao: 'Confirmar agendamento',
+    titulo: remarcar ? 'Remarcar atendimento' : 'Agendar atendimento', corpo, largo: true, botao: remarcar ? 'Confirmar remarcação' : 'Confirmar agendamento',
     aoSalvar: async d => {
       if (!d.estudante_id) throw Error('Selecione o aluno.');
       if (!d.horario) throw Error('Escolha um horário disponível.');
@@ -187,7 +190,9 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '' }
       const ocupados = await dados.listarAgendamentos({ profissional: prof.id, de: instante(d.dia, '00:00'), ate: instante(somarDias(d.dia, 1), '00:00') });
       validarAgendamento({ inicio, duracao, slots: prof.slots || [], ocupados });
       await dados.agendar({ estudante_id: e.id, escola_id: e.escola_id, profissional_uid: prof.id, profissional_nome: prof.nome, especialidade: prof.especialidade, inicio, duracao_min: duracao, observacao: d.observacao.trim() });
-      aviso('Agendado para ' + formatarDataHora(inicio) + '.'); mudou();
+      // Remarcação: o novo horário é reservado primeiro; só então o antigo é cancelado.
+      if (remarcar) await dados.cancelarAgendamento(remarcar, ('Remarcado para ' + formatarDataHora(inicio) + '. ' + d.motivo_remarcacao.trim()).slice(0, 500));
+      aviso((remarcar ? 'Remarcado para ' : 'Agendado para ') + formatarDataHora(inicio) + '.'); mudou();
     }
   });
   const atualizar = async () => {
@@ -229,7 +234,7 @@ export function abrirAgendamento(ag) {
     + '<div class="acoes-linha">'
     + (propria && ag.status === 'agendado' ? '<button type="button" class="btn" data-ag="registrar">Registrar atendimento</button>' : '')
     + ((propria || pode.gestao()) && ag.status === 'agendado' && passou ? '<button type="button" class="btn sec" data-ag="falta">Aluno faltou</button>' : '')
-    + (podeCancelar ? '<button type="button" class="btn sec perigo" data-ag="cancelar">Cancelar agendamento</button>' : '')
+    + (podeCancelar ? '<button type="button" class="btn sec" data-ag="remarcar">Remarcar</button><button type="button" class="btn sec perigo" data-ag="cancelar">Cancelar agendamento</button>' : '')
     + (e ? '<a class="btn sec" href="#/aluno/' + esc(e.id) + '" data-fechar-link>Abrir prontuário</a>' : '')
     + '</div>';
   const form = modal({ titulo: 'Agendamento', corpo, somenteLeitura: true });
@@ -237,6 +242,7 @@ export function abrirAgendamento(ag) {
   $$('[data-ag]', form).forEach(b => b.onclick = () => {
     const acao = b.dataset.ag;
     if (acao === 'registrar') return formAtendimento({ agendamento: ag });
+    if (acao === 'remarcar') return formAgendar({ remarcar: ag });
     if (acao === 'cancelar') return modal({ titulo: 'Cancelar agendamento', corpo: '<p>O horário volta a ficar disponível. O cancelamento fica registrado.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar agendamento', aoSalvar: async d => { await dados.cancelarAgendamento(ag, d.motivo.trim()); aviso('Agendamento cancelado.'); mudou(); } });
     if (acao === 'falta') return modal({ titulo: 'Registrar falta do aluno', corpo: area('motivo', 'Justificativa (se houver)', { max: 500, linhas: 2 }), botao: 'Registrar falta', aoSalvar: async d => { await dados.marcarFalta(ag, d.motivo.trim()); aviso('Falta registrada.'); mudou(); } });
   });
