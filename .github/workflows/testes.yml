@@ -26,9 +26,15 @@ jobs:
       - name: Instalar ferramentas de teste
         run: npm install --no-audit --no-fund && npm install --no-save --no-audit --no-fund playwright@1.55.0 && npx playwright install --with-deps chromium
       - name: Regras de segurança do Firestore (emulador)
-        run: npm run test:regras
+        run: |
+          set -o pipefail
+          npm run test:regras 2>&1 | tee regras.log || {
+            grep -E "^not ok|^# Subtest|Error|expected|PERMISSION|evaluation error|L[0-9]+" regras.log | grep -v "^# Subtest" | head -40 | while IFS= read -r l; do echo "::error title=regras::$l"; done
+            exit 1; }
       - name: Interface no navegador (simulador, dados fictícios)
-        run: node tests/tela.local.mjs capturas
+        run: |
+          set -o pipefail
+          node tests/tela.local.mjs capturas 2>&1 | tee tela.log || { tail -15 tela.log | while IFS= read -r l; do echo "::error title=tela::$l"; done; exit 1; }
       - name: Guardar capturas de tela
         if: always()
         uses: actions/upload-artifact@v4
