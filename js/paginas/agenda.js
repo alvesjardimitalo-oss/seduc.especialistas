@@ -65,7 +65,8 @@ function calendario(main, vigente) {
   const futuros = periodos.filter(p => p.ate >= hoje);
   const form = modal({
     titulo: 'Calendário escolar', largo: true, botao: 'Bloquear período',
-    corpo: '<p class="nota">Dias sem atendimento não aparecem para agendamento (o servidor também recusa). Atendimentos já registrados não são afetados.</p>'
+    corpo: '<div class="importar-pdf"><div><strong>Calendário do ano letivo</strong><p class="nota">Carregue o PDF "Calendário Escolar" emitido pelo sistema da escola: o sistema lê os dias sem aula e você confere antes de aplicar.</p></div><button type="button" class="btn" id="importar-pdf">Carregar PDF do calendário</button></div>'
+      + '<p class="nota">Dias sem atendimento não aparecem para agendamento (o servidor também recusa). Atendimentos já registrados não são afetados.</p>'
       + '<div class="grade">' + campo('de', 'De', { tipo: 'date', obrig: true, valor: hoje }) + campo('ate', 'Até', { tipo: 'date', valor: hoje })
       + opcoes('escola_id', 'Abrangência', [['', 'Toda a rede'], ...S.escolas.map(e => [e.id, e.nome])])
       + campo('motivo', 'Motivo', { obrig: true, extra: 'maxlength="120" placeholder="Ex.: Recesso escolar, Feriado de Natal, Conselho de classe"' }) + '</div>'
@@ -78,9 +79,55 @@ function calendario(main, vigente) {
       aviso(dias.length + ' dia(s) bloqueado(s).'); render(main, vigente);
     }
   });
+  $('#importar-pdf', form).onclick = () => importarCalendarioPdf(main, vigente);
   $$('[data-remover-periodo]', form).forEach(b => b.onclick = async () => {
     const p = futuros[Number(b.dataset.removerPeriodo)]; b.disabled = true;
     try { await dadosCal.removerBloqueios(p.ids); S.bloqueios = await dadosCal.listarBloqueios(); aviso('Período liberado.'); document.getElementById('modal')?.remove(); render(main, vigente); }
     catch (e) { erro(e); b.disabled = false; }
   });
+}
+
+/** Importa o PDF do calendário escolar: lê, confere com o total de dias letivos e aplica os bloqueios. */
+function importarCalendarioPdf(main, vigente) {
+  let leitura = null;
+  const form = modal({
+    titulo: 'Carregar calendário escolar (PDF)', largo: true, botao: 'Aplicar dias sem aula',
+    corpo: '<label class="campo largo"><span>Arquivo PDF do calendário escolar</span><input type="file" name="pdf" accept="application/pdf,.pdf" required></label><div data-leitura></div>',
+    aoSalvar: async (d, f) => {
+      if (!leitura) throw Error('Selecione o PDF do calendário.');
+      const marcados = leitura.periodos.filter((p, i) => f.querySelector('[data-incluir="' + i + '"]')?.checked)
+        .map((p, i) => ({ ...p, motivo: (f.querySelector('[data-motivo="' + leitura.periodos.indexOf(p) + '"]')?.value || p.motivo).trim().slice(0, 120) }));
+      const existentes = new Set(S.bloqueios.map(b => b.id));
+      let total = 0;
+      for (const p of marcados) {
+        const novos = p.dias.filter(dia => !existentes.has(idBloqueio(dia)));
+        if (novos.length) await dadosCal.criarBloqueios(novos, '', p.motivo || 'Dia sem aula (calendário escolar)', idBloqueio, numeroDoDia);
+        total += novos.length;
+      }
+      S.bloqueios = await dadosCal.listarBloqueios();
+      aviso('Calendário ' + leitura.ano + ' aplicado: ' + total + ' dia(s) sem aula bloqueado(s)' + (total ? '' : ' (já estavam cadastrados)') + '.');
+      render(main, vigente);
+    }
+  });
+  const enviar = $('[type=submit]', form); enviar.disabled = true;
+  form.pdf.onchange = async () => {
+    const box = $('[data-leitura]', form); box.innerHTML = '<p class="nota">Lendo o calendário…</p>'; enviar.disabled = true; leitura = null;
+    try {
+      const { lerCalendarioPdf } = await import('../calendario-pdf.js');
+      leitura = await lerCalendarioPdf(form.pdf.files[0]);
+      const erros = leitura.conferencia.filter(c => !c.ok);
+      const letivos = leitura.conferencia.reduce((n, c) => n + c.lidos, 0);
+      const NOMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      const existentes = new Set(S.bloqueios.map(b => b.id));
+      box.innerHTML = '<div class="alerta-caixa ' + (erros.length ? 'erro' : '') + '"><strong>Ano letivo ' + leitura.ano + ': ' + letivos + ' dias letivos lidos.</strong> '
+        + (erros.length ? 'A leitura não bateu com o total do PDF em: ' + erros.map(c => NOMES[c.mes - 1] + ' (' + c.lidos + ' lidos, ' + c.pdf + ' no PDF)').join(', ') + '. Confira os períodos abaixo antes de aplicar.' : 'Conferido com o total de dias letivos de cada mês impresso no PDF ✓')
+        + '<div class="conferencia">' + leitura.conferencia.map(c => '<span class="' + (c.ok ? 'ok' : 'erro') + '">' + NOMES[c.mes - 1] + ' ' + c.lidos + '</span>').join('') + '</div></div>'
+        + '<h3 class="subtitulo">Dias sem aula encontrados (dias úteis)</h3><p class="nota">Confira e ajuste o nome de cada período. Desmarque o que não deve bloquear a agenda.</p>'
+        + '<table class="tabela"><thead><tr><th></th><th>Período</th><th>Dias</th><th>Motivo</th></tr></thead><tbody>'
+        + leitura.periodos.map((p, i) => { const ja = p.dias.every(d => existentes.has(idBloqueio(d)));
+          return '<tr><td><input type="checkbox" data-incluir="' + i + '"' + (ja ? '' : ' checked') + ' aria-label="Incluir período"></td><td>' + formatarData(instante(p.de, '12:00')) + (p.ate !== p.de ? ' a ' + formatarData(instante(p.ate, '12:00')) : '') + (ja ? '<br><small class="nota">já cadastrado</small>' : '') + '</td><td class="num">' + p.dias.length + '</td><td><input class="entrada-tabela" data-motivo="' + i + '" maxlength="120" value="' + esc(p.motivo) + '"></td></tr>'; }).join('')
+        + '</tbody></table>';
+      enviar.disabled = false;
+    } catch (e) { box.innerHTML = '<p class="alerta-caixa erro">' + esc(e.message) + '</p>'; console.error(e); }
+  };
 }

@@ -10,7 +10,7 @@ const { chromium } = require('playwright');
 
 const raiz = new URL('..', import.meta.url).pathname, saida = process.argv[2] || '/tmp/capturas';
 await import('node:fs').then(fs => fs.mkdirSync(saida, { recursive: true }));
-const tipos = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+const tipos = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.pdf': 'application/pdf' };
 const servidor = createServer(async (req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname); if (p === '/') p = '/index.html';
   if (p === '/js/firebase.js') p = '/tests/simulador-firebase.js';
@@ -271,6 +271,18 @@ try {
   await adm.selectOption('#prof', 'fono'); await adm.waitForTimeout(300);
   if (await adm.$('.faixa-bloqueio') === null) { await adm.click('#prox'); await adm.waitForSelector('.semana'); }
   assert.match(await adm.textContent('.faixa-bloqueio'), /Conselho de classe/);
+  // calendário do ano letivo a partir do PDF emitido pelo sistema da escola
+  await adm.click('#calendario'); await adm.click('#importar-pdf');
+  await adm.setInputFiles('#modal [name=pdf]', new URL('./fixtures/calendario-2026.pdf', import.meta.url).pathname);
+  await adm.waitForSelector('#modal .conferencia', { timeout: 30000 });
+  assert.match(await adm.textContent('#modal .alerta-caixa'), /200 dias letivos lidos[\s\S]*Conferido/);
+  assert.equal(await adm.locator('#modal [data-incluir]').count(), 12);
+  await adm.fill('#modal [data-motivo="8"]', 'Semana do Professor');
+  await foto(adm, '13d-calendario-pdf');
+  await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached', timeout: 30000 });
+  const nBloq = await adm.evaluate(() => [...window.__banco.keys()].filter(k => k.startsWith('bloqueios/')).length);
+  assert.equal(nBloq, 1 + 63);
+  assert.equal(await adm.evaluate(() => [...window.__banco.values()].filter(v => v.motivo === 'Semana do Professor').length), 5);
   await adm.click('#agendar'); await adm.selectOption('#modal [name=profissional_uid]', 'fono'); await adm.fill('#modal [name=dia]', amanhaTxt);
   await adm.locator('#modal [name=dia]').dispatchEvent('change'); await adm.waitForSelector('text=Sem atendimento neste dia');
   await adm.click('#modal [data-fechar]');

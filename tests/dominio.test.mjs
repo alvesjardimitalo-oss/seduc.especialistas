@@ -165,3 +165,17 @@ test('orientação para a escola separada do registro clínico', () => {
   assert.equal(r.orientacao_escola, 'Sentar perto da professora.');
   assert.throws(() => d.validarRegistro({ trabalhado: 'x', orientacao_escola: 'y'.repeat(501), tipo: 'grupo', evolucao: 'estavel' }), /escola/);
 });
+
+test('calendário escolar em PDF (Frei Inocêncio 2026): leitura por cor confere com os dias letivos', async () => {
+  const { interpretarCalendario, feriados } = await import('../js/calendario-pdf.js');
+  const { readFileSync } = await import('node:fs');
+  const { itens, rets } = JSON.parse(readFileSync(new URL('./fixtures/calendario-2026.json', import.meta.url), 'utf8'));
+  const r = interpretarCalendario(itens, rets);
+  assert.equal(r.ano, 2026); assert.equal(Object.keys(r.dias).length, 365);
+  assert.ok(r.conferencia.every(c => c.ok)); assert.equal(r.conferencia.reduce((n, c) => n + c.lidos, 0), 200);
+  assert.deepEqual(r.periodos.map(p => [p.de, p.ate]), [['2026-01-01', '2026-02-03'], ['2026-02-16', '2026-02-20'], ['2026-04-02', '2026-04-03'], ['2026-04-20', '2026-04-21'], ['2026-05-01', '2026-05-01'], ['2026-06-04', '2026-06-05'], ['2026-07-20', '2026-07-31'], ['2026-09-07', '2026-09-07'], ['2026-10-12', '2026-10-16'], ['2026-11-02', '2026-11-02'], ['2026-11-20', '2026-11-20'], ['2026-12-21', '2026-12-31']]);
+  assert.equal(r.periodos[6].motivo, 'Recesso escolar de julho'); assert.match(r.periodos[1].motivo, /Carnaval/);
+  assert.equal(r.periodos.reduce((n, p) => n + p.dias.length, 0), 63);
+  assert.equal(feriados(2026)['2026-04-03'], 'Sexta-feira Santa'); assert.equal(feriados(2027)['2027-02-08'], 'Carnaval');
+  assert.throws(() => interpretarCalendario([{ str: 'qualquer coisa', x: 0, y: 0, w: 1 }], []), /ano/);
+});
