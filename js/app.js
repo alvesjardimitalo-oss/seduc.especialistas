@@ -151,7 +151,12 @@ async function renderizar() {
     document.title = PAGINAS[S.rota.pagina].titulo + ' · SEDUC Especialistas';
   } catch (e) {
     if (vez !== renderizando) return;
-    main.innerHTML = '<div class="alerta-caixa erro">Não foi possível carregar esta tela. ' + esc(String(e?.code || '').includes('permission') ? 'Sua conta não tem permissão para estes dados.' : e.message) + '</div>';
+    const linkIndice = String(e?.message || '').match(/https:\/\/console\.firebase\.google\.com\S+/);
+    main.innerHTML = linkIndice
+      ? '<div class="alerta-caixa aviso"><strong>Falta um índice no banco de dados</strong> (configuração feita uma única vez pela administração).'
+        + '<ol><li>Clique em <a class="btn pequeno" href="' + esc(linkIndice[0]) + '" target="_blank" rel="noopener">Criar índice no Firebase</a> (entre com a conta administradora do Firebase).</li>'
+        + '<li>Na janela do Firebase, clique em <strong>Salvar</strong>.</li><li>Aguarde de 2 a 5 minutos até o índice ficar "Ativado" e recarregue esta página.</li></ol></div>'
+      : '<div class="alerta-caixa erro">Não foi possível carregar esta tela. ' + esc(String(e?.code || '').includes('permission') ? 'Sua conta não tem permissão para estes dados.' : e.message) + '</div>';
     console.error(e);
   }
 }
