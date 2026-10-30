@@ -164,8 +164,11 @@ test('anulação: autora ou administração, com motivo', async () => {
   await loteAtendimento(db('fono'), 'fono').commit();
   const anular = async (uid) => {
     const f = db(uid);
-    const atual = (await env.withSecurityRulesDisabled(async c => (await getDoc(doc(c.firestore(), 'atendimentos', 'at1'))).data()));
-    const reg = (await env.withSecurityRulesDisabled(async c => (await getDoc(doc(c.firestore(), 'atendimentos_registro', 'at1'))).data()));
+    let atual, reg;
+    await env.withSecurityRulesDisabled(async c => {
+      atual = (await getDoc(doc(c.firestore(), 'atendimentos', 'at1'))).data();
+      reg = (await getDoc(doc(c.firestore(), 'atendimentos_registro', 'at1'))).data();
+    });
     const b = writeBatch(f);
     b.set(doc(f, 'atendimentos_versoes', 'at1_' + atual.versao), { atendimento_id: 'at1', versao: atual.versao, autor_uid: uid, em: serverTimestamp(), motivo: 'Aluno errado', atendimento: atual, registro: reg });
     b.update(doc(f, 'atendimentos', 'at1'), { situacao: 'anulado', motivo_anulacao: 'Aluno errado', anulado_por: uid, versao: atual.versao + 1, atualizado_em: serverTimestamp() });
