@@ -301,3 +301,9 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .anteriores { margin-top: 1rem; } .anteriores > summary { cursor: pointer; color: var(--suave); font-weight: 600; }
 .dia.bloqueado { background: repeating-linear-gradient(-45deg, #fafbfc, #fafbfc 8px, #f1f3f5 8px, #f1f3f5 16px); }
 .faixa-bloqueio { font-size: .74rem; background: #fdf0dc; color: #8a5a10; border-radius: 6px; padding: .2rem .4rem; font-weight: 600; }
+.importar-pdf { display: flex; justify-content: space-between; align-items: center; gap: 1rem; background: var(--acento-claro); border: 1px solid #bfe5df; border-radius: 12px; padding: .8rem 1rem; }
+.importar-pdf p { margin: .2rem 0 0; }
+.conferencia { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
+.conferencia span { font-size: .75rem; padding: .1rem .45rem; border-radius: 6px; background: #e3f4ea; color: var(--ok); font-weight: 700; }
+.conferencia span.erro { background: #fdeeee; color: var(--perigo); }
+.entrada-tabela { width: 100%; padding: .35rem .5rem; border: 1px solid #cfdae4; border-radius: 7px; }
