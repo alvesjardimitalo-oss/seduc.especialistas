@@ -229,7 +229,7 @@ try {
   await adm.selectOption('#modal [name=especialidade]', 'psicopedagogia');
   await adm.check('#modal [name=escolas][value=monteiro-lobato]');
   await foto(adm, '11a-novo-acesso');
-  await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
+  await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached', timeout: 8000 }).catch(async e => { throw Error('novo acesso: ' + await adm.textContent('#modal .form-erro')); });
   await adm.waitForSelector('text=Carla Psicopedagoga');
   assert.deepEqual(await adm.evaluate(() => window.__emails), ['carla@x.br']);
   assert.deepEqual(await adm.evaluate(() => window.__banco.get('usuarios/novo_carla').escolas), ['monteiro-lobato']);
