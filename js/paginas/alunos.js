@@ -1,7 +1,7 @@
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta, garantirAtendimentos, escolasVisiveis, carregarBase } from '../estado.js';
 import { formAluno, irPara } from '../formularios.js';
-import { ESPECIALIDADES, filtrarEstudantes, idade, formatarData, conferirImportacaoAlunos } from '../dominio.js';
+import { ESPECIALIDADES, filtrarEstudantes, idade, formatarData, conferirImportacaoAlunos, resolverEscolasImportacao } from '../dominio.js';
 import { esc, iniciais, vazio, modal, aviso, erro, $ } from '../ui.js';
 
 const ABREV = { fonoaudiologia: 'Fono', neuropsicologia: 'Neuropsico', psicopedagogia: 'Psicopedagogia' };
@@ -49,7 +49,8 @@ function importar() {
     botao: 'Importar',
     aoSalvar: async (_, f) => {
       const arq = f.arquivo.files[0]; if (!arq) throw Error('Selecione o arquivo.');
-      const registros = conferirImportacaoAlunos(JSON.parse(await arq.text()));
+      const { registros, faltando } = resolverEscolasImportacao(conferirImportacaoAlunos(JSON.parse(await arq.text())), S.escolas);
+      if (faltando.length) throw Error('Escola(s) não cadastrada(s): ' + faltando.join(', ') + '. Vá em Escolas → "Adicionar as escolas da rede" e importe de novo.');
       const r = await dados.importarEstudantes(registros, n => { $('[type=submit]', f).textContent = 'Importando ' + n + '/' + registros.length; });
       await carregarBase(); aviso(r.criados + ' aluno(s) novo(s); ' + r.completados + ' completado(s) com dados que faltavam; ' + r.iguais + ' sem alteração.');
       irPara('#/alunos');
@@ -58,9 +59,11 @@ function importar() {
   form.arquivo.onchange = async () => {
     const box = form.querySelector('[data-previa]');
     try {
-      const registros = conferirImportacaoAlunos(JSON.parse(await form.arquivo.files[0].text()));
+      const { registros, faltando } = resolverEscolasImportacao(conferirImportacaoAlunos(JSON.parse(await form.arquivo.files[0].text())), S.escolas);
       const porEscola = {}; registros.forEach(r => { porEscola[r.estudante.escola_id] = (porEscola[r.estudante.escola_id] || 0) + 1; });
-      box.innerHTML = '<p class="nota">' + registros.length + ' alunos no arquivo:</p><ul>' + Object.entries(porEscola).map(([k, n]) => '<li>' + esc(escolaCurta(k)) + ': ' + n + '</li>').join('') + '</ul>';
+      box.innerHTML = '<p class="nota">' + registros.length + ' alunos no arquivo:</p><ul>' + Object.entries(porEscola).map(([k, n]) => '<li>' + (faltando.includes(k) ? '<strong class="alerta-texto">' + esc(k) + ' — escola não cadastrada</strong>' : esc(escolaCurta(k))) + ': ' + n + '</li>').join('') + '</ul>'
+        + (faltando.length ? '<p class="alerta-caixa aviso">Cadastre antes a(s) escola(s) em destaque: vá em <strong>Escolas → Adicionar as escolas da rede</strong> e volte aqui.</p>' : '');
+      const enviar = form.querySelector('[type=submit]'); if (enviar) enviar.disabled = faltando.length > 0;
     } catch (e) { box.innerHTML = '<p class="nota alerta">' + esc(e.message) + '</p>'; erro(e); }
   };
 }

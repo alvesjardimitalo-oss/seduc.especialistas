@@ -301,6 +301,29 @@ export function csv(linhas) {
 }
 
 // ---------- importação do arquivo privado de alunos 2026 ----------
+// Palavra-chave do nome de cada instituição: reconhece a escola mesmo cadastrada com outro identificador.
+export const CHAVES_ESCOLAS = Object.freeze({
+  'doutor-joao-souza-lima': 'joao de souza lima', 'professora-terezinha-sarmento': 'terezinha sarmento',
+  'prefeito-jose-pedro': 'jose pedro', 'monteiro-lobato': 'monteiro lobato',
+  'creche-wilma-gloria': 'wilma gloria', 'creche-sebastiana-duarte-cabral': 'sebastiana'
+});
+/** Encontra no cadastro a escola correspondente ao identificador padrão (pelo ID ou pelo nome). */
+export function localizarEscola(idPadrao, escolas = []) {
+  const porId = escolas.find(e => e.id === idPadrao);
+  if (porId) return porId;
+  const chave = CHAVES_ESCOLAS[idPadrao];
+  return chave ? escolas.find(e => normalizar(e.nome).includes(chave)) || null : null;
+}
+/** Ajusta o escola_id dos registros para as escolas existentes; devolve os identificadores não encontrados. */
+export function resolverEscolasImportacao(registros, escolas) {
+  const faltando = new Set();
+  const ajustados = registros.map(r => {
+    const e = localizarEscola(r.estudante.escola_id, escolas);
+    if (!e) { faltando.add(r.estudante.escola_id); return r; }
+    return { ...r, estudante: { ...r.estudante, escola_id: e.id } };
+  });
+  return { registros: ajustados, faltando: [...faltando] };
+}
 const ESCOLAS_IMPORTACAO = new Set(['doutor-joao-souza-lima', 'professora-terezinha-sarmento', 'creche-wilma-gloria', 'prefeito-jose-pedro', 'monteiro-lobato', 'creche-sebastiana-duarte-cabral']);
 export function conferirImportacaoAlunos(dados) {
   if (!dados || !['seduc_alunos_especiais_v1', 'seduc_alunos_especiais_v2'].includes(dados.esquema) || !Array.isArray(dados.alunos)) throw Error('Arquivo incompatível. Use o JSON privado de alunos (seduc_alunos_especiais).');
