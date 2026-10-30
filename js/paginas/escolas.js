@@ -1,5 +1,6 @@
 import * as dados from '../dados.js';
-import { S, pode, carregarBase } from '../estado.js';
+import { S, pode, carregarBase, especialistas } from '../estado.js';
+import { ESPECIALIDADES } from '../dominio.js';
 import { esc, vazio, modal, campo, opcoes, aviso, erro, $, $$ } from '../ui.js';
 
 const INICIAIS = [
@@ -14,11 +15,12 @@ const INICIAIS = [
 export async function render(main) {
   const g = pode.gerenciar();
   const contagem = id => S.estudantes.filter(e => e.escola_id === id && (e.situacao || 'ativo') === 'ativo').length;
+  const profsDa = id => especialistas().filter(u => !(u.escolas || []).length || u.escolas.includes(id)).map(u => esc(u.nome.split(' ')[0]) + ' <small class="nota">(' + esc((ESPECIALIDADES[u.especialidade] || '').slice(0, 5)) + '.)</small>').join('<br>') || '—';
   const faltam = INICIAIS.filter(([id]) => !S.escolas.some(e => e.id === id));
   main.innerHTML = '<header class="pagina-topo"><div><h1>Escolas</h1><p>Instituições da rede municipal atendidas pela equipe.</p></div>'
     + (g ? '<div class="acoes-linha">' + (faltam.length ? '<button class="btn sec" id="semear">Adicionar as ' + faltam.length + ' escolas da rede</button>' : '') + '<button class="btn" id="nova">+ Nova escola</button></div>' : '') + '</header>'
-    + (S.escolas.length ? '<section class="cartao"><table class="tabela"><thead><tr><th>Instituição</th><th>Tipo</th><th>INEP</th><th>Telefone</th><th>Direção</th><th>Alunos ativos</th>' + (g ? '<th></th>' : '') + '</tr></thead><tbody>'
-      + S.escolas.map(e => '<tr><td><strong>' + esc(e.nome) + '</strong><br><small class="nota">' + esc(e.endereco || '') + '</small></td><td>' + (e.tipo === 'creche' ? 'Creche' : 'Escola') + '</td><td>' + esc(e.inep || '—') + '</td><td>' + esc(e.telefone || '—') + '</td><td>' + esc(e.direcao || '—') + '</td><td class="num">' + contagem(e.id) + '</td>' + (g ? '<td><button class="btn sec pequeno" data-editar="' + esc(e.id) + '">Editar</button></td>' : '') + '</tr>').join('')
+    + (S.escolas.length ? '<section class="cartao"><table class="tabela"><thead><tr><th>Instituição</th><th>Tipo</th><th>INEP</th><th>Telefone</th><th>Direção</th><th>Profissionais que atendem</th><th>Alunos ativos</th>' + (g ? '<th></th>' : '') + '</tr></thead><tbody>'
+      + S.escolas.map(e => '<tr><td><strong>' + esc(e.nome) + '</strong><br><small class="nota">' + esc(e.endereco || '') + '</small></td><td>' + (e.tipo === 'creche' ? 'Creche' : 'Escola') + '</td><td>' + esc(e.inep || '—') + '</td><td>' + esc(e.telefone || '—') + '</td><td>' + esc(e.direcao || '—') + '</td><td>' + profsDa(e.id) + '</td><td class="num">' + contagem(e.id) + '</td>' + (g ? '<td><button class="btn sec pequeno" data-editar="' + esc(e.id) + '">Editar</button></td>' : '') + '</tr>').join('')
       + '</tbody></table></section>' : vazio('Nenhuma escola cadastrada.', g ? 'Use "Adicionar as escolas da rede".' : ''));
   $('#nova', main)?.addEventListener('click', () => editar());
   $$('[data-editar]', main).forEach(b => b.onclick = () => editar(S.escolas.find(e => e.id === b.dataset.editar)));

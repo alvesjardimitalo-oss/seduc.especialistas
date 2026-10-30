@@ -7,6 +7,7 @@ export const S = {
   escolas: [], usuarios: [], estudantes: [],
   atendimentos: null,          // metadados (carregados sob demanda)
   rota: { pagina: 'painel', id: '', aba: '' },
+  instituicao: '',             // escola escolhida após o login ('' = todas)
   filtrosAlunos: { busca: '', escola: '', situacao: 'ativo', especialidade: '' },
   agendaSemana: '', agendaProf: '',
   filtrosRelatorio: null
@@ -29,6 +30,15 @@ export const especialistas = () => S.usuarios.filter(u => u.perfil === 'especial
   .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 export const estudante = id => S.estudantes.find(e => e.id === id);
 export const escolasVisiveis = () => p().perfil === 'direcao' ? S.escolas.filter(e => (p().escolas || []).includes(e.id)) : S.escolas;
+/** Instituições que a pessoa atende (especialista: as vinculadas no perfil; sem vínculo, todas). */
+export const escolasDaPessoa = () => {
+  const ids = p().escolas || [];
+  if (p().perfil === 'direcao' || (p().perfil === 'especialista' && ids.length)) return S.escolas.filter(e => ids.includes(e.id));
+  return S.escolas;
+};
+export const escolaAtual = () => S.instituicao;
+/** Especialistas que atendem uma escola (sem escolas vinculadas = atende todas). */
+export const especialistasDaEscola = escolaId => especialistas().filter(u => !escolaId || !(u.escolas || []).length || u.escolas.includes(escolaId));
 export const escopoEscolas = () => p().perfil === 'direcao' ? (p().escolas || []) : null;
 
 export async function carregarBase() {

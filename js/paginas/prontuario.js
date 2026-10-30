@@ -4,7 +4,7 @@ import { S, pode, nomeEscola, escolaCurta, estudante } from '../estado.js';
 import { formAtendimento, formAgendar, formAluno, arquivarAluno, anularAtendimento, abrirAgendamento, irPara } from '../formularios.js';
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, linhaDoTempo, situacaoAcompanhamento, idade,
-  formatarData, formatarDataHora, diaMunicipal, ms, noPeriodo
+  formatarData, formatarDataHora, diaMunicipal, ms, noPeriodo, formatarCPF
 } from '../dominio.js';
 import { esc, iniciais, vazio, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from '../ui.js';
 import { chipsAcompanhamento } from './alunos.js';
@@ -113,14 +113,14 @@ function cardAtendimento(a, r, clinico, aberto) {
     + '<summary><span class="card-data"><b>' + esc(formatarData(a.data).slice(0, 5)) + '</b><small>' + esc(formatarData(a.data).slice(6)) + '</small></span>'
     + '<span class="card-info"><span class="card-linha1"><strong>' + esc(TIPOS_ATENDIMENTO[a.tipo]) + '</strong><span class="tag-esp esp-' + esc(a.especialidade) + '">' + esc(ESPECIALIDADES[a.especialidade]) + '</span>'
     + (anulado ? '<span class="selo s-cancelado">Anulado</span>' : '<span class="evo evo-' + esc(a.evolucao) + '">' + esc(EVOLUCAO[a.evolucao]) + '</span>') + '</span>'
-    + '<small>' + esc(a.profissional_nome) + ' · ' + esc(formatarDataHora(a.data).slice(11)) + ' · ' + a.duracao_min + ' min' + (a.versao > 1 && !anulado ? ' · retificado' : '') + '</small>'
+    + '<small>' + esc(a.profissional_nome) + ' · ' + esc(formatarDataHora(a.data).slice(11)) + ' · ' + a.duracao_min + ' min' + (a.codigo ? ' · ' + esc(a.codigo) : '') + (a.versao > 1 && !anulado ? ' · editada' : '') + '</small>'
     + (previa ? '<span class="previa">' + esc(previa) + '</span>' : '') + '</span><span class="seta" aria-hidden="true">⌄</span></summary>'
     + '<div class="card-corpo">'
     + (anulado ? '<p class="alerta-caixa aviso">Registro anulado: ' + esc(a.motivo_anulacao) + '</p>' : '')
     + (clinico ? (r ? secao('O que foi trabalhado', r.trabalhado) + secao('O que foi desenvolvido / resposta do aluno', r.desenvolvido) + secao('Orientações e próximos passos', r.orientacoes) : '<p class="nota">Texto indisponível.</p>')
       : '<p class="nota">Conteúdo restrito à equipe de especialistas.</p>')
     + (clinico ? '<div class="acoes-linha pequeno">'
-      + (autor && !anulado && pode.registrar() ? '<button type="button" class="btn sec pequeno" data-retificar="' + esc(a.id) + '">Retificar</button>' : '')
+      + (autor && !anulado && pode.registrar() ? '<button type="button" class="btn sec pequeno" data-retificar="' + esc(a.id) + '">Editar</button>' : '')
       + ((autor || pode.admin()) && !anulado ? '<button type="button" class="btn sec pequeno perigo" data-anular="' + esc(a.id) + '">Anular</button>' : '')
       + (a.versao > 1 ? '<button type="button" class="link" data-versoes="' + esc(a.id) + '">Ver versões anteriores</button>' : '') + '</div>' : '')
     + '</div></details>';
@@ -142,7 +142,7 @@ async function verVersoes(id) {
 function abaAgenda(agenda) {
   const futuros = agenda.filter(a => a.status === 'agendado').sort((a, b) => ms(a.inicio) - ms(b.inicio));
   const passados = agenda.filter(a => a.status !== 'agendado').sort((a, b) => ms(b.inicio) - ms(a.inicio));
-  const linha = a => '<button type="button" class="linha-agenda s-' + esc(a.status) + '" data-agendamento="' + esc(a.id) + '"><span class="hora">' + esc(formatarData(a.inicio).slice(0, 5)) + '<small>' + esc(formatarDataHora(a.inicio).slice(11)) + '</small></span><span class="quem"><strong>' + esc(a.profissional_nome) + '</strong><small>' + esc(ESPECIALIDADES[a.especialidade]) + ' · ' + esc(escolaCurta(a.escola_id)) + '</small></span><span class="selo s-' + esc(a.status) + '">' + esc(STATUS_AGENDA[a.status]) + '</span></button>';
+  const linha = a => '<button type="button" class="linha-agenda s-' + esc(a.status) + '" data-agendamento="' + esc(a.id) + '"><span class="hora">' + esc(formatarData(a.inicio).slice(0, 5)) + '<small>' + esc(formatarDataHora(a.inicio).slice(11)) + '</small></span><span class="quem"><strong>' + esc(a.profissional_nome) + '</strong><small>' + esc(ESPECIALIDADES[a.especialidade]) + ' · ' + esc(escolaCurta(a.escola_id)) + (a.codigo ? ' · ' + esc(a.codigo) : '') + '</small></span><span class="selo s-' + esc(a.status) + '">' + esc(STATUS_AGENDA[a.status]) + '</span></button>';
   return '<section class="cartao"><header class="cartao-topo"><h2>Agendados</h2>' + (pode.agendar() ? '<button class="btn sec" data-acao="agendar">Agendar</button>' : '') + '</header>'
     + (futuros.length ? '<div class="lista-agenda">' + futuros.map(linha).join('') + '</div>' : vazio('Nenhum agendamento futuro.'))
     + '<h3 class="subtitulo">Histórico da agenda</h3>' + (passados.length ? '<div class="lista-agenda">' + passados.map(linha).join('') + '</div>' : vazio('Sem histórico.'))
@@ -207,7 +207,7 @@ function abaFicha(e, privado, saude, clinico) {
     + item('Situação', e.situacao === 'arquivado' ? 'Arquivado — ' + (e.motivo_arquivamento || '') : 'Ativo')
     + ((e.escolas_anteriores || []).length ? item('Escolas anteriores', e.escolas_anteriores.map(x => nomeEscola(x.escola_id) + ' (até ' + formatarData(x.ate + 'T12:00:00-03:00') + ')').join('; ')) : '')
     + '</dl></section>'
-    + (privado !== null ? '<section class="cartao"><h2>Responsável e contato</h2><dl class="ficha-dados">' + item('Responsável', privado?.responsavel) + item('Parentesco', privado?.parentesco) + item('Telefone', privado?.telefone) + item('Endereço', privado?.endereco) + item('Cartão SUS', privado?.cartao_sus) + '</dl></section>' : '')
+    + (privado !== null ? '<section class="cartao"><h2>Filiação e contato</h2><dl class="ficha-dados">' + item('Mãe', privado?.mae ?? '') + item('Pai', privado?.pai ?? '') + (privado?.responsavel ? item('Responsável (cadastro anterior)', privado.responsavel + (privado.parentesco ? ' — ' + privado.parentesco : '')) : '') + item('Telefone', privado?.telefone) + item('Endereço', privado?.endereco) + item('Cartão SUS', privado?.cartao_sus) + item('CPF', formatarCPF(privado?.cpf)) + '</dl></section>' : '')
     + (clinico ? '<section class="cartao"><h2>Informações de saúde</h2><dl class="ficha-dados">' + item('Condição informada', saude?.necessidade_informada) + item('Fonte', saude?.fonte) + item('Observações', saude?.observacoes) + '</dl></section>' : '');
 }
 

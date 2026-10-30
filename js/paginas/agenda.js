@@ -1,5 +1,5 @@
 import * as dados from '../dados.js';
-import { S, pode, escolaCurta, especialistas, escopoEscolas } from '../estado.js';
+import { S, pode, escolaCurta, especialistasDaEscola, escopoEscolas, escolaAtual } from '../estado.js';
 import { formAgendar } from '../formularios.js';
 import { ESPECIALIDADES, DIAS, diaMunicipal, inicioDaSemana, somarDias, instante, formatarData, ms } from '../dominio.js';
 import { esc, $, $$ } from '../ui.js';
@@ -13,17 +13,17 @@ export async function render(main, vigente) {
   if (S.agendaProf === '' && S.perfil.perfil === 'especialista') S.agendaProf = S.user.uid;
   const ini = S.agendaSemana, fim = somarDias(ini, 7);
   const prof = S.agendaProf && S.agendaProf !== 'todas' ? S.usuarios.find(u => u.id === S.agendaProf) : null;
-  const filtro = prof ? { profissional: prof.id } : { escolas: escopoEscolas() || undefined };
+  const filtro = prof ? { profissional: prof.id } : { escolas: escolaAtual() ? [escolaAtual()] : escopoEscolas() || undefined };
   const lista = await dados.listarAgendamentos({ ...filtro, de: instante(ini, '00:00'), ate: instante(fim, '00:00') });
   if (!vigente()) return;
-  const visiveis = lista.filter(a => mostrarCancelados || a.status !== 'cancelado').sort((a, b) => ms(a.inicio) - ms(b.inicio));
+  const visiveis = lista.filter(a => (mostrarCancelados || a.status !== 'cancelado') && (!escolaAtual() || a.escola_id === escolaAtual())).sort((a, b) => ms(a.inicio) - ms(b.inicio));
   const temSabado = visiveis.some(a => diaMunicipal(a.inicio) === somarDias(ini, 6)) || (prof?.jornada || []).some(f => f.dia === 6);
   const dias = [1, 2, 3, 4, 5, ...(temSabado ? [6] : [])].map(n => somarDias(ini, n));
 
   main.innerHTML = '<header class="pagina-topo"><div><h1>Agenda</h1><p>Semana de ' + formatarData(instante(dias[0], '12:00')) + ' a ' + formatarData(instante(dias[dias.length - 1], '12:00')) + '</p></div>'
     + '<div class="acoes-linha">' + (pode.agendar() ? '<button class="btn" id="agendar">+ Agendar</button>' : '') + '</div></header>'
     + '<div class="cartao filtros agenda-controles"><div class="acoes-linha"><button class="btn sec" id="ant" aria-label="Semana anterior">←</button><button class="btn sec" id="hoje">Hoje</button><button class="btn sec" id="prox" aria-label="Próxima semana">→</button></div>'
-    + '<label class="campo"><span>Profissional</span><select id="prof"><option value="todas">Toda a equipe</option>' + especialistas().map(u => '<option value="' + esc(u.id) + '"' + (S.agendaProf === u.id ? ' selected' : '') + '>' + esc(u.nome) + ' — ' + esc(ESPECIALIDADES[u.especialidade] || '') + '</option>').join('') + '</select></label>'
+    + '<label class="campo"><span>Profissional</span><select id="prof"><option value="todas">Toda a equipe</option>' + especialistasDaEscola(escolaAtual()).map(u => '<option value="' + esc(u.id) + '"' + (S.agendaProf === u.id ? ' selected' : '') + '>' + esc(u.nome) + ' — ' + esc(ESPECIALIDADES[u.especialidade] || '') + '</option>').join('') + '</select></label>'
     + '<label class="check"><input type="checkbox" id="cancelados"' + (mostrarCancelados ? ' checked' : '') + '> Mostrar cancelados</label></div>'
     + (prof && !(prof.slots || []).length ? '<div class="alerta-caixa aviso">' + esc(prof.nome) + ' ainda não tem jornada cadastrada. A gestão define em Equipe.</div>' : '')
     + '<div class="semana" style="--dias:' + dias.length + '">' + dias.map(d => {

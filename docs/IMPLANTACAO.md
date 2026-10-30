@@ -1,7 +1,9 @@
 # Implantação e homologação — versão 2
 
 ## 1. Firebase (projeto `seduc-especialistas`)
-1. **Authentication → Sign-in method:** o Google deve estar habilitado.
+1. **Authentication → Sign-in method:** habilite **E-mail/senha** (login principal) e mantenha o **Google** habilitado (opcional).
+   - Em **Authentication → Settings → User actions**, desmarque *Enable create (sign-up)* para que só a administração crie contas com senha.
+   - Em **Authentication → Templates → Password reset**, ajuste o idioma para português; é o e-mail que a profissional recebe para criar a senha.
 2. **Authentication → Settings → Authorized domains:** inclua `alvesjardimitalo-oss.github.io`.
 3. **Publicar regras e índices:** no GitHub, abra Actions → *Publicar regras do Firestore SEDUC* → *Run workflow*. Escolha a branch `v2-prontuario` e digite `seduc-especialistas`.
    - O workflow roda os testes antes de publicar.
@@ -17,7 +19,9 @@ GitHub → Settings → Pages → Branch `v2-prontuario`, pasta `/ (root)`. Depo
 
 ## 4. Primeiro uso
 1. **Escolas:** clique em *Adicionar as 6 escolas da rede*. Depois complete INEP, telefone e direção.
-2. **Equipe:** use *Autorizar por e-mail* para cada especialista, com o e-mail Google e a especialidade.
+2. **Equipe:** use *+ Novo acesso* para cada especialista: nome, e-mail, especialidade e as **instituições que ela atende**.
+   - Modo **E-mail e senha** (padrão): a conta é criada e a pessoa recebe um e-mail para definir a senha.
+   - Modo **Google**: a pessoa entra com o Google desse e-mail.
    - Quando ela entrar, use *Editar* para definir a **jornada**: dias, horários e local de cada período.
    - Quem já entrou sem autorização aparece em *Aguardando liberação*.
 3. **Direções:** autorize da mesma forma, escolhendo a(s) escola(s).

@@ -43,7 +43,27 @@ export const STATUS_AGENDA = Object.freeze({
 
 export const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
-export const LIMITES = Object.freeze({ texto: 3000, motivo: 500, relatorio: 10000, nome: 180 });
+// Registro da consulta: até 500 caracteres no total (trabalhado + desenvolvido + orientações).
+export const LIMITES = Object.freeze({ texto: 500, motivo: 500, relatorio: 10000, nome: 180 });
+
+/** Código único da consulta, legível: C + AAMMDD + '-' + 4 caracteres (ex.: C261030-7K3F). */
+export function gerarCodigo(data = Date.now(), aleatorio = Math.random) {
+  const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let sufixo = ''; for (let i = 0; i < 4; i++) sufixo += alfabeto[Math.floor(aleatorio() * alfabeto.length)];
+  return 'C' + diaMunicipal(data).slice(2).replace(/-/g, '') + '-' + sufixo;
+}
+export const codigoValido = c => /^C[0-9]{6}-[A-Z0-9]{4}$/.test(String(c || ''));
+
+export function cpfValido(cpf) {
+  const n = String(cpf || '').replace(/\D/g, '');
+  if (n.length !== 11 || /^(\d)\1{10}$/.test(n)) return false;
+  for (const t of [9, 10]) {
+    let soma = 0; for (let i = 0; i < t; i++) soma += Number(n[i]) * (t + 1 - i);
+    if (((soma * 10) % 11) % 10 !== Number(n[t])) return false;
+  }
+  return true;
+}
+export const formatarCPF = cpf => { const n = String(cpf || '').replace(/\D/g, ''); return n.length === 11 ? n.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : n; };
 
 // ---------- datas no horário municipal ----------
 export const ms = v => {
@@ -164,6 +184,7 @@ export function validarEstudante(d) {
   if (!d.escola_id) throw Error('Selecione a escola.');
   if (d.nascimento && !/^\d{4}-\d{2}-\d{2}$/.test(d.nascimento)) throw Error('Data de nascimento inválida.');
   if (d.nascimento && idade(d.nascimento) == null) throw Error('Confira a data de nascimento.');
+  if (d.cpf && !cpfValido(d.cpf)) throw Error('CPF inválido.');
   return {
     nome, escola_id: d.escola_id, nascimento: d.nascimento || '',
     turma: String(d.turma || '').trim().slice(0, 80), turno: String(d.turno || ''),
@@ -189,10 +210,9 @@ export function filtrarEstudantes(lista, { busca = '', escola = '', situacao = '
 // ---------- prontuário ----------
 export function validarRegistro(d) {
   const r = {};
-  for (const k of ['trabalhado', 'desenvolvido', 'orientacoes']) {
-    r[k] = String(d[k] || '').trim();
-    if (r[k].length > LIMITES.texto) throw Error('Cada campo aceita até ' + LIMITES.texto + ' caracteres.');
-  }
+  for (const k of ['trabalhado', 'desenvolvido', 'orientacoes']) r[k] = String(d[k] || '').trim();
+  const total = r.trabalhado.length + r.desenvolvido.length + r.orientacoes.length;
+  if (total > LIMITES.texto) throw Error('O registro da consulta aceita até ' + LIMITES.texto + ' caracteres no total (agora: ' + total + ').');
   if (!r.trabalhado) throw Error('Descreva o que foi trabalhado no atendimento.');
   if (!TIPOS_ATENDIMENTO[d.tipo]) throw Error('Selecione o tipo de atendimento.');
   if (!EVOLUCAO[d.evolucao]) throw Error('Selecione a evolução observada.');
@@ -296,4 +316,21 @@ export function conferirImportacaoAlunos(dados) {
       necessidade: String(x.deficiencia || '').trim().slice(0, 500)
     };
   });
+}
+
+// ---------- painel: lista unificada de consultas ----------
+/** Junta agendamentos e atendimentos avulsos (sem agendamento) numa lista de consultas. */
+export function consultasDoPainel({ agendamentos = [], atendimentos = [], estudantes = [], filtros = {} }) {
+  const nomes = new Map(estudantes.map(e => [e.id, e.nome]));
+  const avulsos = atendimentos.filter(a => !a.agendamento_id && a.situacao !== 'anulado')
+    .map(a => ({ ...a, tipo_item: 'atendimento', inicio: a.data, status: 'realizado' }));
+  const agenda = agendamentos.map(a => ({ ...a, tipo_item: 'agendamento' }));
+  const b = normalizar(filtros.busca);
+  return [...agenda, ...avulsos].filter(c =>
+    (!b || normalizar(nomes.get(c.estudante_id)).includes(b) || normalizar(c.codigo).includes(b))
+    && (!filtros.dia || diaMunicipal(c.inicio) === filtros.dia)
+    && (!filtros.profissional || c.profissional_uid === filtros.profissional)
+    && (!filtros.escola || c.escola_id === filtros.escola)
+    && (filtros.mostrarCancelados || c.status !== 'cancelado'))
+    .sort((x, y) => ms(x.inicio) - ms(y.inicio));
 }

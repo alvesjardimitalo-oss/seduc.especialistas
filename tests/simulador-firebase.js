@@ -14,14 +14,22 @@ const SERVIDOR = { __servidor: true };
 export const serverTimestamp = () => SERVIDOR;
 const resolver = d => { const o = {}; for (const [k, v] of Object.entries(d)) o[k] = v === SERVIDOR ? Timestamp.now() : v; return o; };
 
-export const initializeApp = c => ({ c });
-export const getAuth = () => ({ get currentUser() { return usuarioAtual; } });
+export const initializeApp = (c, nome) => ({ c, nome });
+export const deleteApp = async () => {};
+window.__emails = window.__emails || [];
+export async function signInWithEmailAndPassword(_, email, senha) {
+  const u = window.__usuarioTeste; if (!u || !senha) throw Object.assign(Error('cred'), { code: 'auth/invalid-credential' });
+  usuarioAtual = u; ouvintes.forEach(f => f(usuarioAtual)); return { user: u };
+}
+export async function sendPasswordResetEmail(_, email) { window.__emails.push(email); }
+export async function createUserWithEmailAndPassword(_, email) { return { user: { uid: 'novo_' + email.split('@')[0].replace(/\W/g, '') } }; }
+export const getAuth = app => ({ secundaria: Boolean(app?.nome), get currentUser() { return usuarioAtual; } });
 export class GoogleAuthProvider {}
 export async function signInWithPopup() {
   usuarioAtual = window.__usuarioTeste; ouvintes.forEach(f => f(usuarioAtual)); return { user: usuarioAtual };
 }
 export function onAuthStateChanged(_, cb) { ouvintes.push(cb); setTimeout(() => cb(usuarioAtual), 0); return () => {}; }
-export async function signOut() { usuarioAtual = null; ouvintes.forEach(f => f(null)); }
+export async function signOut(a) { if (a && a.secundaria) return; usuarioAtual = null; ouvintes.forEach(f => f(null)); }
 export const getFirestore = () => ({});
 
 let seq = 0;

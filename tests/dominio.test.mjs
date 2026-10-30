@@ -54,7 +54,8 @@ test('cadastro de aluno: validação e duplicidade', () => {
 test('registro clínico exige o que foi trabalhado e respeita limites', () => {
   assert.throws(() => d.validarRegistro({ trabalhado: ' ', tipo: 'sessao', evolucao: 'avancou' }), /trabalhado/);
   assert.throws(() => d.validarRegistro({ trabalhado: 'x', tipo: 'outro', evolucao: 'avancou' }), /tipo/);
-  assert.throws(() => d.validarRegistro({ trabalhado: 'x'.repeat(3001), tipo: 'sessao', evolucao: 'avancou' }), /3000/);
+  assert.throws(() => d.validarRegistro({ trabalhado: 'x'.repeat(300), desenvolvido: 'y'.repeat(201), tipo: 'sessao', evolucao: 'avancou' }), /500/);
+  assert.ok(d.validarRegistro({ trabalhado: 'x'.repeat(300), desenvolvido: 'y'.repeat(200), tipo: 'sessao', evolucao: 'avancou' }));
   assert.deepEqual(d.validarRegistro({ trabalhado: ' a ', desenvolvido: '', orientacoes: 'c', tipo: 'sessao', evolucao: 'estavel' }), { trabalhado: 'a', desenvolvido: '', orientacoes: 'c' });
 });
 
@@ -92,4 +93,39 @@ test('importação do arquivo privado valida esquema e escolas', () => {
   assert.equal(r[0].estudante.nome, 'Maria Teste'); assert.equal(r[0].necessidade, 'TEA');
   assert.throws(() => d.conferirImportacaoAlunos({ ...ok, esquema: 'x' }), /incompatível/);
   assert.throws(() => d.conferirImportacaoAlunos({ ...ok, alunos: [{ ...ok.alunos[0], escola_id: 'outra' }] }), /Escola/);
+});
+
+test('código único da consulta', () => {
+  const c = d.gerarCodigo(d.instante('2026-10-30', '09:00'), () => 0);
+  assert.equal(c, 'C261030-AAAA'); assert.ok(d.codigoValido(c));
+  assert.ok(!d.codigoValido('C2610-AAAA')); assert.ok(!d.codigoValido(''));
+  const vistos = new Set(); for (let i = 0; i < 2000; i++) vistos.add(d.gerarCodigo());
+  assert.ok(vistos.size > 1990, 'códigos praticamente não se repetem no mesmo dia');
+});
+
+test('CPF', () => {
+  assert.ok(d.cpfValido('529.982.247-25')); assert.ok(!d.cpfValido('529.982.247-24')); assert.ok(!d.cpfValido('111.111.111-11'));
+  assert.equal(d.formatarCPF('52998224725'), '529.982.247-25');
+  assert.throws(() => d.validarEstudante({ nome: 'Ana Souza', escola_id: 'x', cpf: '123' }), /CPF/);
+});
+
+test('painel junta agendamentos e atendimentos avulsos com busca, data, profissional e escola', () => {
+  const t = h => d.instante('2026-11-03', h);
+  const estudantes = [{ id: 'a', nome: 'Ana Barreto' }, { id: 'b', nome: 'Bruno Lima' }];
+  const agendamentos = [
+    { id: 'g1', estudante_id: 'a', escola_id: 'e1', profissional_uid: 'p1', inicio: t('10:00'), status: 'agendado', codigo: 'C261103-AAAA' },
+    { id: 'g2', estudante_id: 'b', escola_id: 'e2', profissional_uid: 'p2', inicio: t('08:00'), status: 'cancelado' },
+    { id: 'g3', estudante_id: 'b', escola_id: 'e2', profissional_uid: 'p2', inicio: t('09:00'), status: 'realizado', atendimento_id: 'x1' }];
+  const atendimentos = [
+    { id: 'x1', estudante_id: 'b', agendamento_id: 'g3', data: t('09:05') },
+    { id: 'x2', estudante_id: 'a', agendamento_id: '', escola_id: 'e1', profissional_uid: 'p1', data: t('07:00'), codigo: 'C261103-BBBB' },
+    { id: 'x3', estudante_id: 'a', agendamento_id: '', situacao: 'anulado', data: t('07:30') }];
+  const ids = f => d.consultasDoPainel({ agendamentos, atendimentos, estudantes, filtros: f }).map(c => c.id);
+  assert.deepEqual(ids({}), ['x2', 'g3', 'g1']);
+  assert.deepEqual(ids({ mostrarCancelados: true }), ['x2', 'g2', 'g3', 'g1']);
+  assert.deepEqual(ids({ busca: 'barreto' }), ['x2', 'g1']);
+  assert.deepEqual(ids({ busca: 'c261103-bbbb' }), ['x2']);
+  assert.deepEqual(ids({ profissional: 'p2' }), ['g3']);
+  assert.deepEqual(ids({ escola: 'e1' }), ['x2', 'g1']);
+  assert.deepEqual(ids({ dia: '2026-11-04' }), []);
 });
