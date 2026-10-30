@@ -2,8 +2,9 @@
 // Cada consulta abre em janela ampliada (ver abrirConsulta em formularios.js).
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta, estudante, garantirAtendimentos, escopoEscolas, escolaAtual, especialistasDaEscola } from '../estado.js';
-import { formAtendimento, formAgendar, formAluno, abrirConsulta } from '../formularios.js';
-import { ESPECIALIDADES, STATUS_AGENDA, TIPOS_ATENDIMENTO, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel, bloqueioDoDia } from '../dominio.js';
+import { formAtendimento, formAgendar, formAluno, abrirConsulta, eventos } from '../formularios.js';
+import { aviso, erro } from '../ui.js';
+import { ESPECIALIDADES, STATUS_AGENDA, TIPOS_ATENDIMENTO, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel, bloqueioDoDia, filaDoDia } from '../dominio.js';
 import { esc, vazio, $, $$ } from '../ui.js';
 
 const filtros = { busca: '', dia: '', profissional: null, mostrarCancelados: false };
@@ -43,8 +44,19 @@ export async function render(main, vigente) {
   const bloqHoje = bloqueioDoDia(hoje, escolaAtual(), S.bloqueios);
   const blocoHoje = () => '<div class="hoje-escola"><h3>Hoje' + (escolaAtual() ? ' em ' + esc(escolaCurta(escolaAtual())) : '') + ' · ' + formatarData(Date.now()) + '</h3>'
     + (bloqHoje ? '<p class="alerta-caixa aviso">Sem atendimento hoje (calendário escolar): ' + esc(bloqHoje.motivo) + '.</p>' : '')
-    + (porDia.get(hoje)?.length ? '<div class="lista-agenda">' + porDia.get(hoje).map(c => linhaAgenda(c, { mostrarProf: !filtros.profissional })).join('') + '</div>'
+    + (porDia.get(hoje)?.length ? '<div class="fila-dia">' + filaDoDia(porDia.get(hoje)).map(itemFila).join('') + '</div>'
       : '<p class="nota">Nenhuma consulta agendada para hoje.' + (pode.registrar() ? ' Atendeu alguém sem agendamento? Use + → Registrar atendimento.' : '') + '</p>') + '</div>';
+  // Lista de atendimento do dia (como no PEC): "Chegou" marca a chegada e a fila segue a ordem de chegada.
+  const podeChegada = c => c.tipo_item !== 'atendimento' && c.status === 'agendado' && ((eu.perfil === 'especialista' && c.profissional_uid === S.user.uid) || pode.gestao() || (eu.perfil === 'direcao' && (eu.escolas || []).includes(c.escola_id)));
+  const itemFila = (c, i) => {
+    const chegou = c.status === 'agendado' && c.chegada_em, propria = eu.perfil === 'especialista' && c.profissional_uid === S.user.uid;
+    return '<div class="item-fila' + (chegou ? ' chegou' : '') + ' s-' + esc(c.status) + '">' + (chegou ? '<span class="posicao">' + (i + 1) + 'º</span>' : '')
+      + linhaAgenda(c, { mostrarProf: !filtros.profissional })
+      + '<div class="acoes-fila">' + (chegou ? '<span class="chegada">Chegou às ' + esc(horaMunicipal(c.chegada_em)) + '</span>' : '')
+      + (podeChegada(c) && !chegou ? '<button type="button" class="btn sec pequeno" data-chegou="' + esc(c.id) + '">Chegou</button>' : '')
+      + (chegou && propria ? '<button type="button" class="btn pequeno" data-atender="' + esc(c.id) + '">Atender</button>' : '')
+      + (chegou && podeChegada(c) ? '<button type="button" class="link" data-desfazer="' + esc(c.id) + '">desfazer</button>' : '') + '</div></div>';
+  };
   const orientacoes = atendimentos.filter(a => a.orientacao_escola && a.situacao !== 'anulado' && (!escolaAtual() || a.escola_id === escolaAtual()))
     .sort((a, b) => ms(b.data) - ms(a.data)).slice(0, 6);
 
@@ -82,6 +94,10 @@ export async function render(main, vigente) {
 
   main.innerHTML = h;
   ligarAgendamentos(main, [...lista, ...semRegistro]);
+  const acharAg = id => lista.find(a => a.id === id);
+  $$('[data-chegou]', main).forEach(b => b.onclick = async () => { b.disabled = true; try { await dados.marcarChegada(acharAg(b.dataset.chegou)); aviso('Chegada registrada.'); render(main, vigente); } catch (e) { erro(e); b.disabled = false; } });
+  $$('[data-desfazer]', main).forEach(b => b.onclick = async () => { try { await dados.marcarChegada(acharAg(b.dataset.desfazer), true); render(main, vigente); } catch (e) { erro(e); } });
+  $$('[data-atender]', main).forEach(b => b.onclick = () => formAtendimento({ agendamento: acharAg(b.dataset.atender) }));
   const form = $('#busca', main);
   let t;
   form.oninput = ev => {

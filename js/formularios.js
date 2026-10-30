@@ -4,7 +4,7 @@ import { S, pode, nomeEscola, escolaCurta, especialistas, estudante, escolasVisi
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, LIMITES, validarEstudante, possiveisDuplicados, validarRegistro,
   instante, diaMunicipal, horaMunicipal, horariosLivres, validarAgendamento, somarDias, formatarData, formatarDataHora,
-  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF, bloqueioDoDia
+  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF, bloqueioDoDia, CAMPOS_SOAP, secoesRegistro
 } from './dominio.js';
 import { esc, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from './ui.js';
 
@@ -130,9 +130,7 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
     + campo('hora', 'Horário', { tipo: 'time', valor: horaMunicipal(quando), obrig: true })
     + opcoes('duracao_min', 'Duração', DURACOES, { valor: atendimento?.duracao_min || agendamento?.duracao_min || 30 })
     + '</div>'
-    + area('trabalhado', 'O que foi trabalhado', { valor: registro?.trabalhado, obrig: true, max: LIMITES.texto, linhas: 3, dica: 'Objetivos, atividades e estratégias' })
-    + area('desenvolvido', 'O que foi desenvolvido / resposta do aluno', { valor: registro?.desenvolvido, max: LIMITES.texto, linhas: 3, dica: 'Desempenho, avanços e dificuldades' })
-    + area('orientacoes', 'Orientações e próximos passos', { valor: registro?.orientacoes, max: LIMITES.texto, linhas: 2, dica: 'Para a família, a escola e a equipe' })
+    + '<div class="soap">' + CAMPOS_SOAP.map(([k, rot, dica]) => area(k, rot, { valor: valorSoap(registro, k), obrig: k === 'objetivo', max: LIMITES.texto, linhas: k === 'objetivo' ? 3 : 2, dica })).join('') + '</div>'
     + '<p class="contador-total largo" aria-live="polite">Total do registro: <b data-total>0</b>/' + LIMITES.texto + ' caracteres</p>'
     + '<div class="campo-escola">' + area('orientacao_escola', 'Orientação para a professora / escola', { valor: atendimento?.orientacao_escola, max: LIMITES.texto, linhas: 2, dica: 'A direção e a escola leem este campo. Escreva estratégias para a sala de aula, sem diagnóstico' }) + '</div>'
     + '<div class="grade">' + opcoes('evolucao', 'Evolução observada', EVOLUCAO, { valor: atendimento?.evolucao || 'nao_avaliado', obrig: true }) + '</div>'
@@ -156,9 +154,18 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
     }
   });
   ativarContadores(form); ativarSeletorAluno(form);
-  const campos = ['trabalhado', 'desenvolvido', 'orientacoes'].map(n => form.elements.namedItem(n)), total = $('[data-total]', form);
+  const campos = CAMPOS_SOAP.map(([n]) => form.elements.namedItem(n)), total = $('[data-total]', form);
   const contar = () => { const n = campos.reduce((s2, c) => s2 + c.value.trim().length, 0); total.textContent = n; total.parentElement.classList.toggle('excedido', n > LIMITES.texto); };
   campos.forEach(c => c.addEventListener('input', contar)); contar();
+}
+
+/** Valor inicial do campo SOAP; registros antigos são convertidos ao editar. */
+function valorSoap(r, k) {
+  if (!r) return '';
+  if (r.subjetivo || r.objetivo || r.avaliacao || r.plano) return r[k] || '';
+  if (k === 'objetivo') return [r.trabalhado, r.desenvolvido].filter(Boolean).join('\n');
+  if (k === 'plano') return r.orientacoes || '';
+  return '';
 }
 
 export function anularAtendimento(a) {
@@ -264,7 +271,7 @@ export async function abrirConsulta(item) {
     + (at?.orientacao_escola && at.situacao !== 'anulado' ? '<div class="orientacao-escola"><h4>Orientação para a professora / escola</h4><p>' + esc(at.orientacao_escola) + '</p></div>' : '')
     // Registro da consulta realizada
     + (at ? '<div class="registro-consulta' + (at.situacao === 'anulado' ? ' anulado' : '') + '"><h4>' + esc(TIPOS_ATENDIMENTO[at.tipo]) + ' · Evolução: ' + esc(EVOLUCAO[at.evolucao]) + (at.versao > 1 ? ' · editada' : '') + (at.situacao === 'anulado' ? ' · ANULADA: ' + esc(at.motivo_anulacao) : '') + '</h4>'
-      + (pode.clinico() ? (reg ? secao('O que foi trabalhado', reg.trabalhado) + secao('O que foi desenvolvido', reg.desenvolvido) + secao('Orientações', reg.orientacoes) : '') : '<p class="nota">Conteúdo restrito à equipe de especialistas.</p>') + '</div>' : '')
+      + (pode.clinico() ? (reg ? secoesRegistro(reg).map(([t, v]) => secao(t, v)).join('') : '') : '<p class="nota">Conteúdo restrito à equipe de especialistas.</p>') + '</div>' : '')
     + '<div class="acoes-linha">'
     + (at && at.situacao !== 'anulado' && at.profissional_uid === S.user.uid && pode.registrar() ? '<button type="button" class="btn" data-c="editar">Editar consulta</button>' : '')
     + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">Cancelar agendamento</button>' : '')

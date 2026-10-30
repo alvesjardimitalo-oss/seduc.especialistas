@@ -1,6 +1,6 @@
 // Documentos para impressão / PDF (gerados no navegador, sem envio a terceiros).
 import { S, nomeEscola, escolaCurta } from './estado.js';
-import { ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms } from './dominio.js';
+import { ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms, secoesRegistro } from './dominio.js';
 import { esc, imprimir } from './ui.js';
 
 const cabecalho = titulo => '<header class="doc-cab"><div><strong>Prefeitura Municipal de Frei Inocêncio/MG</strong><span>Secretaria Municipal de Educação · Atendimento Educacional Especializado</span></div><h1>' + esc(titulo) + '</h1></header>';
@@ -27,7 +27,7 @@ export function imprimirProntuario({ estudante: e, privado, saude, atendimentos,
   h += atendimentos.length ? atendimentos.map(a => {
     const r = registros.get(a.id) || {};
     return '<article class="doc-reg"><header><strong>' + esc(formatarDataHora(a.data)) + '</strong>' + (a.codigo ? ' · ' + esc(a.codigo) : '') + ' · ' + esc(TIPOS_ATENDIMENTO[a.tipo]) + ' · ' + esc(ESPECIALIDADES[a.especialidade]) + ' · ' + esc(a.profissional_nome) + ' · ' + a.duracao_min + ' min · Evolução: ' + esc(EVOLUCAO[a.evolucao]) + (a.versao > 1 ? ' · (retificado)' : '') + '</header>'
-      + (r.trabalhado ? '<p><b>Trabalhado:</b> ' + esc(r.trabalhado) + '</p>' : '') + (r.desenvolvido ? '<p><b>Desenvolvido:</b> ' + esc(r.desenvolvido) + '</p>' : '') + (r.orientacoes ? '<p><b>Orientações:</b> ' + esc(r.orientacoes) + '</p>' : '') + '</article>';
+      + secoesRegistro(r).map(([t, v]) => '<p><b>' + esc(t) + ':</b> ' + esc(v) + '</p>').join('') + '</article>';
   }).join('') : '<p>Nenhum registro no período.</p>';
   h += '<div class="assinaturas">' + [...profs.values()].map(a => assinatura(a.profissional_nome, a.especialidade, S.usuarios.find(u => u.id === a.profissional_uid)?.registro_profissional)).join('') + '</div>' + rodape();
   imprimir('Prontuário — ' + e.nome, h);

@@ -241,7 +241,8 @@ export function retificarAtendimento(id, meta, registro, motivo) {
   return comVersao(id, motivo, (tx, aRef, rRef, atual, reg) => {
     const versao = atual.versao + 1;
     tx.update(aRef, { tipo: meta.tipo, evolucao: meta.evolucao, data: ts(meta.data), duracao_min: meta.duracao_min, orientacao_escola: meta.orientacao_escola || '', versao, atualizado_em: serverTimestamp() });
-    tx.update(rRef, { ...registro, versao: (reg?.versao || 1) + 1 });
+    // A edição grava no formato SOAP e limpa os campos do formato anterior (já guardados na versão).
+    tx.update(rRef, { trabalhado: '', desenvolvido: '', orientacoes: '', ...registro, versao: (reg?.versao || 1) + 1 });
   });
 }
 export function anularAtendimento(id, motivo) {
@@ -285,6 +286,23 @@ export async function cancelarAgendamento(ag, motivo) {
 }
 export async function marcarFalta(ag, motivo) {
   await writeBatch(db).update(doc(db, 'agendamentos', ag.id), { status: 'falta', motivo: motivo || '', alterado_por: uidAtual(), alterado_em: serverTimestamp() }).commit();
+}
+
+// ---------- lista do dia: chegada do aluno ----------
+export async function marcarChegada(ag, desfazer = false) {
+  await writeBatch(db).update(doc(db, 'agendamentos', ag.id), { chegada_em: desfazer ? null : serverTimestamp(), alterado_por: uidAtual(), alterado_em: serverTimestamp() }).commit();
+}
+
+// ---------- problemas e condições ----------
+export const listarCondicoes = async estudanteId => lista(await getDocs(query(collection(db, 'condicoes'), where('estudante_id', '==', estudanteId))));
+export async function criarCondicao(estudanteId, c, perfil) {
+  await writeBatch(db).set(doc(collection(db, 'condicoes')), { estudante_id: estudanteId, descricao: c.descricao, observacao: c.observacao || '', situacao: 'ativo', especialidade: perfil.especialidade, registrado_por: uidAtual(), registrado_nome: perfil.nome, criado_em: serverTimestamp() }).commit();
+}
+export async function mudarSituacaoCondicao(id, situacao, observacao) {
+  const d = { situacao, atualizado_por: uidAtual(), atualizado_em: serverTimestamp() };
+  if (observacao !== undefined) d.observacao = observacao;
+  if (situacao === 'resolvido') { d.resolvido_em = serverTimestamp(); d.resolvido_por = uidAtual(); }
+  await writeBatch(db).update(doc(db, 'condicoes', id), d).commit();
 }
 
 // ---------- calendário escolar ----------
