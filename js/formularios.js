@@ -1,10 +1,10 @@
 // Formulários compartilhados entre as páginas.
 import * as dados from './dados.js';
-import { S, pode, nomeEscola, escolaCurta, especialistas, estudante, escolasVisiveis, invalidarAtendimentos } from './estado.js';
+import { S, pode, nomeEscola, escolaCurta, especialistas, estudante, escolasVisiveis, invalidarAtendimentos, escolaAtual, especialistasDaEscola } from './estado.js';
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, LIMITES, validarEstudante, possiveisDuplicados, validarRegistro,
   instante, diaMunicipal, horaMunicipal, horariosLivres, validarAgendamento, somarDias, formatarData, formatarDataHora,
-  faixaDoHorario, normalizar, ms, idade
+  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF
 } from './dominio.js';
 import { esc, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from './ui.js';
 
@@ -15,7 +15,8 @@ const hoje = () => diaMunicipal(Date.now());
 
 // ---------- seletor de aluno com busca ----------
 function seletorAluno(nome = 'estudante_id', valor = '') {
-  const lista = S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo' && escolasVisiveis().some(x => x.id === e.escola_id))
+  // Com uma instituição escolhida, mostra só os alunos dela.
+  const lista = S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo' && escolasVisiveis().some(x => x.id === e.escola_id) && (!escolaAtual() || e.escola_id === escolaAtual()))
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   if (valor) {
     const e = estudante(valor);
@@ -49,14 +50,15 @@ export async function formAluno(id = '') {
   const corpo = '<fieldset><legend>Identificação</legend><div class="grade">'
     + campo('nome', 'Nome completo', { valor: e.nome, obrig: true, largo: true, extra: 'maxlength="180" autocomplete="off"' })
     + campo('nascimento', 'Data de nascimento', { tipo: 'date', valor: e.nascimento })
-    + opcoes('escola_id', 'Escola', escolas, { valor: e.escola_id, obrig: true, vazio: 'Selecione' })
+    + campo('cpf', 'CPF', { valor: formatarCPF(privado.cpf), extra: 'maxlength="14" inputmode="numeric" placeholder="000.000.000-00"' })
+    + opcoes('escola_id', 'Escola', escolas, { valor: e.escola_id || escolaAtual(), obrig: true, vazio: 'Selecione' })
     + campo('turma', 'Turma / ano', { valor: e.turma, extra: 'maxlength="80"', dica: 'Ex.: 2º ano B' })
     + opcoes('turno', 'Turno', [['', 'Não informado'], ['manha', 'Manhã'], ['tarde', 'Tarde'], ['integral', 'Integral']], { valor: e.turno || '' })
     + campo('ano_letivo', 'Ano letivo', { tipo: 'number', valor: e.ano_letivo || new Date().getFullYear(), extra: 'min="2020" max="2100"' })
     + '</div></fieldset>'
-    + '<fieldset><legend>Responsável</legend><div class="grade">'
-    + campo('responsavel', 'Nome do responsável', { valor: privado.responsavel, extra: 'maxlength="180"' })
-    + campo('parentesco', 'Parentesco', { valor: privado.parentesco, extra: 'maxlength="60"', dica: 'Mãe, pai, avó…' })
+    + '<fieldset><legend>Filiação e contato</legend><div class="grade">'
+    + campo('mae', 'Nome da mãe', { valor: privado.mae ?? (privado.parentesco?.toLowerCase().startsWith('m') ? privado.responsavel : ''), extra: 'maxlength="180"' })
+    + campo('pai', 'Nome do pai', { valor: privado.pai ?? (privado.parentesco?.toLowerCase().startsWith('p') ? privado.responsavel : ''), extra: 'maxlength="180"' })
     + campo('telefone', 'Telefone', { tipo: 'tel', valor: privado.telefone, extra: 'maxlength="40"' })
     + campo('cartao_sus', 'Cartão SUS', { valor: privado.cartao_sus, extra: 'maxlength="20" inputmode="numeric"' })
     + campo('endereco', 'Endereço', { valor: privado.endereco, largo: true, extra: 'maxlength="300"' })
@@ -78,7 +80,8 @@ export async function formAluno(id = '') {
       }
       if (id && e.escola_id !== est.escola_id) est.escolas_anteriores = [...(e.escolas_anteriores || []), { escola_id: e.escola_id, ate: hoje() }];
       else if (id) est.escolas_anteriores = e.escolas_anteriores || [];
-      const privadoNovo = { responsavel: d.responsavel.trim(), parentesco: d.parentesco.trim(), telefone: d.telefone.trim(), endereco: d.endereco.trim(), cartao_sus: d.cartao_sus.replace(/\D/g, ''), cpf: privado.cpf || '', motivo_encaminhamento: d.motivo_encaminhamento.trim() };
+      if (d.cpf && !cpfValido(d.cpf)) throw Error('CPF inválido.');
+      const privadoNovo = { responsavel: privado.responsavel || '', parentesco: privado.parentesco || '', mae: d.mae.trim(), pai: d.pai.trim(), telefone: d.telefone.trim(), endereco: d.endereco.trim(), cartao_sus: d.cartao_sus.replace(/\D/g, ''), cpf: d.cpf.replace(/\D/g, ''), motivo_encaminhamento: d.motivo_encaminhamento.trim() };
       const clinicoNovo = pode.clinico() ? { necessidade_informada: d.necessidade_informada.trim(), fonte: d.fonte.trim(), observacoes: d.observacoes.trim() } : null;
       const novoId = await dados.salvarEstudante({ id, estudante: est, privado: privadoNovo, clinico: clinicoNovo, novo: !id });
       const local = { situacao: 'ativo', ...e, ...est, id: novoId };
@@ -127,15 +130,16 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
     + campo('hora', 'Horário', { tipo: 'time', valor: horaMunicipal(quando), obrig: true })
     + opcoes('duracao_min', 'Duração', DURACOES, { valor: atendimento?.duracao_min || agendamento?.duracao_min || 30 })
     + '</div>'
-    + area('trabalhado', 'O que foi trabalhado', { valor: registro?.trabalhado, obrig: true, max: LIMITES.texto, linhas: 4, dica: 'Objetivos da sessão, atividades, recursos e estratégias' })
-    + area('desenvolvido', 'O que foi desenvolvido / resposta do aluno', { valor: registro?.desenvolvido, max: LIMITES.texto, linhas: 4, dica: 'Desempenho, avanços, dificuldades, comportamento observado' })
-    + area('orientacoes', 'Orientações e próximos passos', { valor: registro?.orientacoes, max: LIMITES.texto, linhas: 3, dica: 'Para a família, a escola e a equipe; encaminhamentos' })
+    + area('trabalhado', 'O que foi trabalhado', { valor: registro?.trabalhado, obrig: true, max: LIMITES.texto, linhas: 3, dica: 'Objetivos, atividades e estratégias' })
+    + area('desenvolvido', 'O que foi desenvolvido / resposta do aluno', { valor: registro?.desenvolvido, max: LIMITES.texto, linhas: 3, dica: 'Desempenho, avanços e dificuldades' })
+    + area('orientacoes', 'Orientações e próximos passos', { valor: registro?.orientacoes, max: LIMITES.texto, linhas: 2, dica: 'Para a família, a escola e a equipe' })
+    + '<p class="contador-total largo" aria-live="polite">Total do registro: <b data-total>0</b>/' + LIMITES.texto + ' caracteres</p>'
     + '<div class="grade">' + opcoes('evolucao', 'Evolução observada', EVOLUCAO, { valor: atendimento?.evolucao || 'nao_avaliado', obrig: true }) + '</div>'
-    + (ret ? area('motivo', 'Motivo da retificação', { obrig: true, max: 500, linhas: 2, dica: 'A versão anterior fica guardada no histórico' }) : '')
-    + '<p class="nota">O registro fica visível para toda a equipe de especialistas no prontuário do aluno. Somente você pode retificá-lo.</p>';
+    + (ret ? campo('motivo', 'Motivo da edição (opcional)', { largo: true, extra: 'maxlength="300"', dica: 'A versão anterior fica guardada no histórico da consulta' }) : '')
+    + '<p class="nota">O registro fica visível para toda a equipe de especialistas no prontuário do aluno. Somente você pode editá-lo.</p>';
   const form = modal({
-    titulo: ret ? 'Retificar atendimento' : agendamento ? 'Registrar atendimento agendado' : 'Registrar atendimento',
-    corpo, largo: true, botao: ret ? 'Salvar retificação' : 'Salvar no prontuário',
+    titulo: (ret ? 'Editar consulta' : agendamento ? 'O aluno compareceu — registrar consulta' : 'Registrar atendimento') + ((atendimento || agendamento)?.codigo ? ' · ' + (atendimento || agendamento).codigo : ''),
+    corpo, largo: true, botao: ret ? 'Salvar edição' : 'Salvar no prontuário',
     aoSalvar: async d => {
       if (!d.estudante_id) throw Error('Selecione o aluno.');
       const e = estudante(d.estudante_id);
@@ -143,20 +147,23 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
       const data = instante(d.dia, d.hora);
       if (!data || data.getTime() > Date.now() + 5 * 60000) throw Error('A data e hora não podem estar no futuro. Para atendimentos futuros, use Agendar.');
       const meta = { estudante_id: e.id, escola_id: e.escola_id, profissional_nome: S.perfil.nome, especialidade: S.perfil.especialidade, tipo: d.tipo, evolucao: d.evolucao, data, duracao_min: Number(d.duracao_min) };
-      if (ret) await dados.retificarAtendimento(atendimento.id, meta, registroNovo, d.motivo.trim());
-      else await dados.registrarAtendimento({ meta, registro: registroNovo, agendamentoId: agendamento?.id || '' });
+      if (ret) await dados.retificarAtendimento(atendimento.id, meta, registroNovo, d.motivo.trim() || 'Edição do registro pela autora');
+      else await dados.registrarAtendimento({ meta, registro: registroNovo, agendamentoId: agendamento?.id || '', codigo: agendamento?.codigo || '' });
       invalidarAtendimentos();
-      aviso(ret ? 'Atendimento retificado.' : 'Atendimento salvo no prontuário.');
+      aviso(ret ? 'Consulta editada.' : 'Consulta salva no prontuário.');
       if (!ret && !estudanteId && !agendamento) irPara('#/aluno/' + e.id); else mudou();
     }
   });
   ativarContadores(form); ativarSeletorAluno(form);
+  const campos = ['trabalhado', 'desenvolvido', 'orientacoes'].map(n => form.elements.namedItem(n)), total = $('[data-total]', form);
+  const contar = () => { const n = campos.reduce((s2, c) => s2 + c.value.trim().length, 0); total.textContent = n; total.parentElement.classList.toggle('excedido', n > LIMITES.texto); };
+  campos.forEach(c => c.addEventListener('input', contar)); contar();
 }
 
 export function anularAtendimento(a) {
   modal({
     titulo: 'Anular registro',
-    corpo: '<p>Use apenas para registro feito por engano (aluno errado, duplicado). O card continua no prontuário, riscado, com o motivo. <strong>Para corrigir o texto, use Retificar.</strong></p>'
+    corpo: '<p>Use apenas para registro feito por engano (aluno errado, duplicado). O card continua no prontuário, riscado, com o motivo. <strong>Para corrigir o texto, use Editar.</strong></p>'
       + area('motivo', 'Motivo da anulação', { obrig: true, max: 500, linhas: 2 }),
     botao: 'Anular registro',
     aoSalvar: async d => { await dados.anularAtendimento(a.id, d.motivo.trim()); invalidarAtendimentos(); aviso('Registro anulado.'); mudou(); }
@@ -167,7 +174,7 @@ export function anularAtendimento(a) {
 export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', remarcar = null } = {}) {
   if (!pode.agendar()) return;
   if (remarcar) { estudanteId = remarcar.estudante_id; profissionalUid = remarcar.profissional_uid; }
-  const profs = especialistas();
+  const profs = especialistasDaEscola(escolaAtual());
   const fixo = S.perfil.perfil === 'especialista';
   const prof0 = fixo ? S.user.uid : profissionalUid || '';
   let diaInicial = dia || somarDias(hoje(), 1);
@@ -219,33 +226,66 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', 
   atualizar();
 }
 
-export function abrirAgendamento(ag) {
-  const e = estudante(ag.estudante_id);
-  const propria = S.perfil.perfil === 'especialista' && ag.profissional_uid === S.user.uid;
-  const passou = ms(ag.inicio) <= Date.now();
-  const podeCancelar = ag.status === 'agendado' && (propria || pode.gestao() || (S.perfil.perfil === 'direcao' && (S.perfil.escolas || []).includes(ag.escola_id)));
-  const corpo = '<dl class="ficha-dados">'
-    + '<div><dt>Aluno</dt><dd>' + esc(e?.nome || 'Aluno') + '</dd></div>'
-    + '<div><dt>Escola</dt><dd>' + esc(nomeEscola(ag.escola_id)) + '</dd></div>'
-    + '<div><dt>Data e horário</dt><dd>' + esc(formatarDataHora(ag.inicio)) + ' · ' + ag.duracao_min + ' min</dd></div>'
-    + '<div><dt>Profissional</dt><dd>' + esc(ag.profissional_nome) + ' · ' + esc(ESPECIALIDADES[ag.especialidade]) + '</dd></div>'
-    + '<div><dt>Situação</dt><dd><span class="selo s-' + esc(ag.status) + '">' + esc(STATUS_AGENDA[ag.status]) + '</span>' + (ag.motivo ? ' — ' + esc(ag.motivo) : '') + '</dd></div>'
-    + (ag.observacao ? '<div><dt>Observação</dt><dd>' + esc(ag.observacao) + '</dd></div>' : '') + '</dl>'
+/**
+ * Janela ampliada da consulta (agendada ou avulsa): dados, código, presença, reagendar e registro.
+ * Para agendamento em aberto: "O aluno compareceu?" Sim → registro; Não → falta (e opção de reagendar).
+ */
+export async function abrirConsulta(item) {
+  if (!item) return;
+  const avulso = item.tipo_item === 'atendimento';
+  const ag = avulso ? null : item;
+  const e = estudante(item.estudante_id);
+  const eu = S.perfil, propria = eu.perfil === 'especialista' && item.profissional_uid === S.user.uid;
+  const passou = ms(item.inicio) <= Date.now();
+  const aberto = ag && ag.status === 'agendado';
+  const podeAlterar = aberto && (propria || pode.gestao() || (eu.perfil === 'direcao' && (eu.escolas || []).includes(item.escola_id)));
+  const atendimentoId = avulso ? item.id : ag?.atendimento_id;
+  let at = null, reg = null;
+  try {
+    if (atendimentoId) [at, reg] = await Promise.all([dados.lerDoc('atendimentos', atendimentoId), pode.clinico() ? dados.lerDoc('atendimentos_registro', atendimentoId) : null]);
+  } catch (err) { erro(err); }
+  const status = avulso ? 'realizado' : ag.status;
+  const secao = (t, v) => v ? '<div class="secao"><h4>' + t + '</h4><p>' + esc(v) + '</p></div>' : '';
+  const corpo = '<div class="consulta-cabecalho"><div><span class="codigo">' + esc(item.codigo || 'sem código') + '</span><h3>' + esc(e?.nome || 'Aluno') + '</h3>'
+    + '<p>' + esc(formatarDataHora(item.inicio)) + ' · ' + (item.duracao_min || '') + ' min · ' + esc(nomeEscola(item.escola_id)) + '</p>'
+    + '<p>' + esc(item.profissional_nome) + ' · ' + esc(ESPECIALIDADES[item.especialidade] || '') + '</p></div>'
+    + '<span class="selo grande s-' + esc(status) + '">' + esc(STATUS_AGENDA[status]) + '</span></div>'
+    + (ag?.observacao ? '<p class="nota">Observação: ' + esc(ag.observacao) + '</p>' : '')
+    + (ag?.motivo && status !== 'agendado' ? '<p class="alerta-caixa aviso">' + esc(status === 'falta' ? 'Falta: ' : 'Motivo: ') + esc(ag.motivo) + '</p>' : '')
+    // Pergunta de presença
+    + (aberto && (propria || pode.gestao()) ? '<div class="pergunta-presenca"><strong>O aluno compareceu?</strong><div class="acoes-linha">'
+      + (propria ? '<button type="button" class="btn" data-c="sim">Sim — registrar consulta</button>' : '')
+      + '<button type="button" class="btn sec" data-c="nao"' + (passou ? '' : ' disabled title="Disponível depois do horário marcado"') + '>Não compareceu</button></div>'
+      + (passou ? '' : '<small class="nota">A falta só pode ser registrada depois do horário marcado.</small>') + '</div>' : '')
+    // Registro da consulta realizada
+    + (at ? '<div class="registro-consulta' + (at.situacao === 'anulado' ? ' anulado' : '') + '"><h4>' + esc(TIPOS_ATENDIMENTO[at.tipo]) + ' · Evolução: ' + esc(EVOLUCAO[at.evolucao]) + (at.versao > 1 ? ' · editada' : '') + (at.situacao === 'anulado' ? ' · ANULADA: ' + esc(at.motivo_anulacao) : '') + '</h4>'
+      + (pode.clinico() ? (reg ? secao('O que foi trabalhado', reg.trabalhado) + secao('O que foi desenvolvido', reg.desenvolvido) + secao('Orientações', reg.orientacoes) : '') : '<p class="nota">Conteúdo restrito à equipe de especialistas.</p>') + '</div>' : '')
     + '<div class="acoes-linha">'
-    + (propria && ag.status === 'agendado' ? '<button type="button" class="btn" data-ag="registrar">Registrar atendimento</button>' : '')
-    + ((propria || pode.gestao()) && ag.status === 'agendado' && passou ? '<button type="button" class="btn sec" data-ag="falta">Aluno faltou</button>' : '')
-    + (podeCancelar ? '<button type="button" class="btn sec" data-ag="remarcar">Remarcar</button><button type="button" class="btn sec perigo" data-ag="cancelar">Cancelar agendamento</button>' : '')
+    + (at && at.situacao !== 'anulado' && at.profissional_uid === S.user.uid && pode.registrar() ? '<button type="button" class="btn" data-c="editar">Editar consulta</button>' : '')
+    + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">Cancelar agendamento</button>' : '')
+    + (!aberto && !avulso && pode.agendar() && ['falta', 'cancelado'].includes(status) ? '<button type="button" class="btn sec" data-c="novo">Agendar novamente</button>' : '')
     + (e ? '<a class="btn sec" href="#/aluno/' + esc(e.id) + '" data-fechar-link>Abrir prontuário</a>' : '')
     + '</div>';
-  const form = modal({ titulo: 'Agendamento', corpo, somenteLeitura: true });
+  const form = modal({ titulo: 'Consulta', corpo, somenteLeitura: true, largo: true });
   $$('[data-fechar-link]', form).forEach(a => a.addEventListener('click', () => document.getElementById('modal')?.remove()));
-  $$('[data-ag]', form).forEach(b => b.onclick = () => {
-    const acao = b.dataset.ag;
-    if (acao === 'registrar') return formAtendimento({ agendamento: ag });
-    if (acao === 'remarcar') return formAgendar({ remarcar: ag });
+  $$('[data-c]', form).forEach(b => b.onclick = () => {
+    const acao = b.dataset.c;
+    if (acao === 'sim') return formAtendimento({ agendamento: ag });
+    if (acao === 'editar') return formAtendimento({ atendimento: { ...at, id: atendimentoId }, registro: reg });
+    if (acao === 'reagendar') return formAgendar({ remarcar: ag });
+    if (acao === 'novo') return formAgendar({ estudanteId: item.estudante_id, profissionalUid: item.profissional_uid });
     if (acao === 'cancelar') return modal({ titulo: 'Cancelar agendamento', corpo: '<p>O horário volta a ficar disponível. O cancelamento fica registrado.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar agendamento', aoSalvar: async d => { await dados.cancelarAgendamento(ag, d.motivo.trim()); aviso('Agendamento cancelado.'); mudou(); } });
-    if (acao === 'falta') return modal({ titulo: 'Registrar falta do aluno', corpo: area('motivo', 'Justificativa (se houver)', { max: 500, linhas: 2 }), botao: 'Registrar falta', aoSalvar: async d => { await dados.marcarFalta(ag, d.motivo.trim()); aviso('Falta registrada.'); mudou(); } });
+    if (acao === 'nao') return modal({
+      titulo: 'O aluno não compareceu', botao: 'Registrar falta',
+      corpo: area('motivo', 'Justificativa (se houver)', { max: 500, linhas: 2, dica: 'Ex.: doente; família não trouxe; escola fechada' })
+        + (pode.agendar() ? '<label class="check"><input type="checkbox" name="reagendar" checked> Reagendar agora</label>' : ''),
+      aoSalvar: async d => {
+        await dados.marcarFalta(ag, d.motivo.trim()); aviso('Falta registrada.');
+        if (d.reagendar) setTimeout(() => formAgendar({ estudanteId: ag.estudante_id, profissionalUid: ag.profissional_uid }), 50); else mudou();
+      }
+    });
   });
 }
+export const abrirAgendamento = abrirConsulta;
 
 export { idade, formatarData };

@@ -6,6 +6,11 @@ O sistema segue o modelo de acompanhamento do SUS. Cada criança tem um cadastro
 
 > **Estado:** versão 2 em homologação. Use apenas dados fictícios até publicar as regras, testar com a equipe e formalizar a política de LGPD com a Prefeitura.
 
+## Fluxo
+
+Login (e-mail e senha, ou Google) → termo de LGPD (primeiro acesso) → escolha da instituição → **painel de consultas** com busca por aluno ou código, filtro de data e de profissional, e botão **+** (agendar, registrar, cadastrar aluno).
+Cada consulta tem um **código único** (ex.: `C261030-7K3F`) e abre numa janela ampliada que pergunta **"O aluno compareceu?"**: *Sim* abre o registro da consulta (até **500 caracteres**); *Não* registra a falta e oferece **reagendar**. A consulta registrada pode ser **editada** pela autora (a versão anterior fica guardada).
+
 ## Como funciona
 
 | Quem | O que faz |

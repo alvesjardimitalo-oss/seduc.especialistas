@@ -9,7 +9,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ---------- identidade e perfis ----------
-    function logado() { return request.auth != null && request.auth.token.email_verified == true; }
+    // Google (e-mail verificado) ou e-mail e senha criados pela administração.
+    function logado() {
+      return request.auth != null && (request.auth.token.email_verified == true
+        || request.auth.token.firebase.sign_in_provider == 'password');
+    }
     function caminhoEu() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
     function eu() { return get(caminhoEu()).data; }
     function ativo() {
@@ -31,6 +35,7 @@ service cloud.firestore {
     function soMudar(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos); }
     function doc(col, id) { return /databases/$(database)/documents/$(col)/$(id); }
     function especialidadeValida(e) { return e in ['fonoaudiologia', 'neuropsicologia', 'psicopedagogia']; }
+    function codigoValido(c) { return c is string && c.matches('^C[0-9]{6}-[A-Z0-9]{4}$'); }
 
     // Índice de meia hora da semana no horário municipal (UTC-3).
     function indice(t) {
@@ -43,8 +48,8 @@ service cloud.firestore {
     function usuarioValido(d) {
       return d.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'excluido', 'gerenciar', 'escolas', 'especialidade',
           'registro_profissional', 'telefone', 'jornada', 'slots', 'criado_em', 'atualizado_em', 'atualizado_por',
-          'motivo_exclusao', 'excluido_em'])
-        && txt(d.get('motivo_exclusao', ''), 500)
+          'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em'])
+        && txt(d.get('motivo_exclusao', ''), 500) && txt(d.get('endereco', ''), 300) && txt(d.get('termo_lgpd', ''), 40)
         && txtObr(d.nome, 180) && txt(d.get('email', ''), 200)
         && d.perfil in ['pendente', 'especialista', 'secretaria', 'direcao', 'superadmin']
         && d.ativo is bool && d.get('gerenciar', false) is bool && d.get('excluido', false) is bool
@@ -68,6 +73,7 @@ service cloud.firestore {
             && request.resource.data.perfil == 'pendente' && request.resource.data.ativo == false)
           ||
           (request.resource.data.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'especialidade', 'escolas', 'criado_em'])
+            && request.auth.token.email_verified == true
             && exists(doc('convites', request.auth.token.email.lower()))
             && get(doc('convites', request.auth.token.email.lower())).data.ativo == true
             && request.resource.data.perfil == get(doc('convites', request.auth.token.email.lower())).data.perfil
@@ -76,7 +82,16 @@ service cloud.firestore {
             && request.resource.data.escolas == get(doc('convites', request.auth.token.email.lower())).data.get('escolas', [])
             && request.resource.data.ativo == true
             && usuarioValido(request.resource.data))
-        );
+        )
+        // Gestão cria a conta de quem recebeu login e senha (a conta de acesso é criada no mesmo momento).
+        || (gerencia() && uid != request.auth.uid && usuarioValido(request.resource.data)
+          && request.resource.data.criado_em == request.time
+          && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+          && (request.resource.data.perfil != 'secretaria' || admin())
+          && request.resource.data.get('gerenciar', false) == false);
+      // A própria pessoa só registra o aceite do termo de LGPD.
+      allow update: if ativo() && uid == request.auth.uid && soMudar(['termo_lgpd', 'termo_lgpd_em'])
+        && txtObr(request.resource.data.termo_lgpd, 40) && request.resource.data.termo_lgpd_em == request.time;
       // Superadministrador altera qualquer conta, mas não rebaixa a si mesmo.
       // Secretaria com gerenciamento delegado não toca em administradores, em si mesma
       // nem na própria delegação de gerenciamento.
@@ -152,8 +167,9 @@ service cloud.firestore {
       allow get: if clinico() || gerencia() || direcaoDe(get(doc('estudantes', id)).data.escola_id);
       allow create, update: if existsAfter(doc('estudantes', id))
         && podeCadastrar(getAfter(doc('estudantes', id)).data.escola_id)
-        && request.resource.data.keys().hasOnly(['responsavel', 'parentesco', 'telefone', 'endereco', 'cartao_sus', 'cpf',
+        && request.resource.data.keys().hasOnly(['responsavel', 'parentesco', 'mae', 'pai', 'telefone', 'endereco', 'cartao_sus', 'cpf',
             'motivo_encaminhamento', 'atualizado_por', 'atualizado_em'])
+        && txt(request.resource.data.get('mae', ''), 180) && txt(request.resource.data.get('pai', ''), 180)
         && txt(request.resource.data.get('responsavel', ''), 180) && txt(request.resource.data.get('parentesco', ''), 60)
         && txt(request.resource.data.get('telefone', ''), 40) && txt(request.resource.data.get('endereco', ''), 300)
         && txt(request.resource.data.get('cartao_sus', ''), 20) && txt(request.resource.data.get('cpf', ''), 14)
@@ -187,8 +203,9 @@ service cloud.firestore {
       allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
       allow create: if equipe()
         && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
-            'tipo', 'evolucao', 'data', 'duracao_min', 'agendamento_id', 'situacao', 'versao', 'criado_em', 'atualizado_em'])
+            'tipo', 'evolucao', 'data', 'duracao_min', 'agendamento_id', 'codigo', 'situacao', 'versao', 'criado_em', 'atualizado_em'])
         && request.resource.data.profissional_uid == request.auth.uid
+        && codigoValido(request.resource.data.codigo)
         && request.resource.data.especialidade == eu().especialidade
         && txtObr(request.resource.data.profissional_nome, 180)
         && camposClinicosValidos(request.resource.data)
@@ -201,12 +218,13 @@ service cloud.firestore {
           || (get(doc('agendamentos', request.resource.data.agendamento_id)).data.status == 'agendado'
             && get(doc('agendamentos', request.resource.data.agendamento_id)).data.profissional_uid == request.auth.uid
             && get(doc('agendamentos', request.resource.data.agendamento_id)).data.estudante_id == request.resource.data.estudante_id
+            && get(doc('agendamentos', request.resource.data.agendamento_id)).data.get('codigo', '') == request.resource.data.codigo
             && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.status == 'realizado'
             && getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.atendimento_id == id));
       // Toda alteração grava antes a versão anterior (imutável).
       allow update: if request.resource.data.versao == resource.data.versao + 1
         && versaoGravada(id, resource.data.versao)
-        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade', 'agendamento_id', 'criado_em'])
+        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade', 'agendamento_id', 'codigo', 'criado_em'])
         && request.resource.data.atualizado_em == request.time
         && resource.data.situacao == 'valido'
         && (
@@ -226,8 +244,10 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Até 500 caracteres no total por consulta.
     function registroValido(d) {
-      return txtObr(d.trabalhado, 3000) && txt(d.get('desenvolvido', ''), 3000) && txt(d.get('orientacoes', ''), 3000);
+      return txtObr(d.trabalhado, 500) && txt(d.get('desenvolvido', ''), 500) && txt(d.get('orientacoes', ''), 500)
+        && d.trabalhado.size() + d.get('desenvolvido', '').size() + d.get('orientacoes', '').size() <= 500;
     }
     match /atendimentos_registro/{id} {
       allow get, list: if clinico();
@@ -278,7 +298,8 @@ service cloud.firestore {
     match /agendamentos/{id} {
       allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
       allow create: if request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome',
-            'especialidade', 'inicio', 'duracao_min', 'status', 'observacao', 'criado_por', 'criado_em'])
+            'especialidade', 'inicio', 'duracao_min', 'status', 'observacao', 'codigo', 'criado_por', 'criado_em'])
+        && codigoValido(request.resource.data.codigo)
         && ((equipe() && request.resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(request.resource.data.escola_id))
         && request.resource.data.status == 'agendado'
         && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time
@@ -296,7 +317,7 @@ service cloud.firestore {
         && (request.resource.data.duracao_min == 30
           || reservado(request.resource.data.profissional_uid, request.resource.data.inicio + duration.value(30, 'm'), id));
       allow update: if resource.data.status == 'agendado'
-        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'especialidade', 'inicio', 'duracao_min', 'criado_por', 'criado_em'])
+        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'especialidade', 'inicio', 'duracao_min', 'codigo', 'criado_por', 'criado_em'])
         && request.resource.data.alterado_por == request.auth.uid && request.resource.data.alterado_em == request.time
         && (
           // cancelamento libera os horários

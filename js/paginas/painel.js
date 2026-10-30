@@ -1,76 +1,85 @@
+// Painel: agenda de consultas com busca (aluno ou código), filtro de data e de profissional.
+// Cada consulta abre em janela ampliada (ver abrirConsulta em formularios.js).
 import * as dados from '../dados.js';
-import { S, pode, escolaCurta, estudante, garantirAtendimentos, escopoEscolas } from '../estado.js';
-import { formAtendimento, formAgendar, formAluno, abrirAgendamento } from '../formularios.js';
-import { ESPECIALIDADES, TIPOS_ATENDIMENTO, STATUS_AGENDA, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, formatarDataHora, ms, resumoGerencial } from '../dominio.js';
-import { esc, vazio, $$ } from '../ui.js';
+import { S, pode, escolaCurta, estudante, garantirAtendimentos, escopoEscolas, escolaAtual, especialistasDaEscola } from '../estado.js';
+import { formAtendimento, formAgendar, formAluno, abrirConsulta } from '../formularios.js';
+import { ESPECIALIDADES, STATUS_AGENDA, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel } from '../dominio.js';
+import { esc, vazio, $, $$ } from '../ui.js';
 
-export function linhaAgenda(a, { mostrarProf = true } = {}) {
+const filtros = { busca: '', dia: '', profissional: null, mostrarCancelados: false };
+
+export function linhaAgenda(a, { mostrarProf = true, mostrarData = false } = {}) {
   const e = estudante(a.estudante_id);
-  return '<button type="button" class="linha-agenda s-' + esc(a.status) + '" data-agendamento="' + esc(a.id) + '">'
-    + '<span class="hora">' + esc(horaMunicipal(a.inicio)) + '<small>' + a.duracao_min + ' min</small></span>'
-    + '<span class="quem"><strong>' + esc(e?.nome || 'Aluno') + '</strong><small>' + esc(escolaCurta(a.escola_id)) + (mostrarProf ? ' · ' + esc(a.profissional_nome) : '') + '</small></span>'
-    + '<span class="selo s-' + esc(a.status) + '">' + esc(STATUS_AGENDA[a.status]) + '</span></button>';
+  return '<button type="button" class="linha-agenda s-' + esc(a.status) + '" data-consulta="' + esc(a.id) + '">'
+    + '<span class="hora">' + (mostrarData ? '<em>' + esc(formatarData(a.inicio).slice(0, 5)) + '</em>' : '') + esc(horaMunicipal(a.inicio)) + '<small>' + (a.duracao_min || '') + ' min</small></span>'
+    + '<span class="quem"><strong>' + esc(e?.nome || 'Aluno') + '</strong><small>' + esc(escolaCurta(a.escola_id)) + (mostrarProf ? ' · ' + esc(a.profissional_nome) : '') + (a.codigo ? ' · ' + esc(a.codigo) : '') + '</small></span>'
+    + '<span class="selo s-' + esc(a.status) + '">' + esc(STATUS_AGENDA[a.status] || a.status) + '</span></button>';
 }
 export function ligarAgendamentos(raiz, lista) {
-  $$('[data-agendamento]', raiz).forEach(b => b.onclick = () => abrirAgendamento(lista.find(a => a.id === b.dataset.agendamento)));
+  $$('[data-consulta]', raiz).forEach(b => b.onclick = () => abrirConsulta(lista.find(a => a.id === b.dataset.consulta)));
 }
 
 export async function render(main, vigente) {
-  const hoje = diaMunicipal(Date.now()), agora = new Date();
-  const eu = S.perfil, especialista = eu.perfil === 'especialista';
-  const filtroAgenda = especialista ? { profissional: S.user.uid } : { escolas: escopoEscolas() || undefined };
-  const [deHoje, pendentes, atendimentos] = await Promise.all([
-    dados.listarAgendamentos({ ...filtroAgenda, de: instante(hoje, '00:00'), ate: instante(somarDias(hoje, 1), '00:00') }),
-    especialista ? dados.listarAgendamentos({ profissional: S.user.uid, de: instante(somarDias(hoje, -21), '00:00'), ate: new Date() }) : Promise.resolve([]),
-    garantirAtendimentos()
+  const hoje = diaMunicipal(Date.now()), agora = new Date(), eu = S.perfil, especialista = eu.perfil === 'especialista';
+  if (filtros.profissional === null) filtros.profissional = especialista ? S.user.uid : '';
+  const de = filtros.dia || somarDias(hoje, -7), ate = filtros.dia || somarDias(hoje, 30);
+  const escolas = escolaAtual() ? [escolaAtual()] : escopoEscolas() || undefined;
+  const periodo = { de: instante(de, '00:00'), ate: instante(somarDias(ate, 1), '00:00') };
+  const [agendamentos, atendimentos, vencidos] = await Promise.all([
+    filtros.profissional ? dados.listarAgendamentos({ profissional: filtros.profissional, ...periodo }) : dados.listarAgendamentos({ escolas, ...periodo }),
+    garantirAtendimentos(),
+    especialista ? dados.listarAgendamentos({ profissional: S.user.uid, de: instante(somarDias(hoje, -30), '00:00'), ate: new Date() }) : Promise.resolve([])
   ]);
   if (!vigente()) return;
+  const noPeriodo = atendimentos.filter(a => { const d = diaMunicipal(a.data); return d >= de && d <= ate; });
+  const lista = consultasDoPainel({ agendamentos, atendimentos: noPeriodo, estudantes: S.estudantes, filtros: { ...filtros, escola: escolaAtual() } });
+  const semRegistro = vencidos.filter(a => a.status === 'agendado' && ms(a.inicio) < Date.now() && (!escolaAtual() || a.escola_id === escolaAtual()));
+  const ativos = S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo' && (!escolaAtual() || e.escola_id === escolaAtual()));
+  const aguardando = ativos.filter(e => !S.acompanhamento.get(e.id));
   const saudacao = agora.getHours() < 12 ? 'Bom dia' : agora.getHours() < 18 ? 'Boa tarde' : 'Boa noite';
-  const jornadaHoje = (eu.jornada || []).filter(f => f.dia === diaDaSemana(hoje));
-  const ativos = S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo');
-  const aguardando = ativos.filter(e => !S.acompanhamento.get(e.id)).sort((a, b) => ms(a.criado_em) - ms(b.criado_em));
-  const atrasados = pendentes.filter(a => a.status === 'agendado' && ms(a.inicio) < Date.now()).sort((a, b) => ms(a.inicio) - ms(b.inicio));
-  const mes = hoje.slice(0, 7);
-  const r = resumoGerencial({ atendimentos, agendamentos: [], filtros: { de: mes + '-01', ate: hoje, ...(especialista ? { profissional: S.user.uid } : {}) } });
-  const recentes = atendimentos.filter(a => a.situacao !== 'anulado').sort((a, b) => ms(b.data) - ms(a.data)).slice(0, 6);
+  const profs = especialistasDaEscola(escolaAtual());
 
-  let h = '<section class="saudacao"><div><span class="sobre">' + esc(DIAS[diaDaSemana(hoje)] + ', ' + formatarData(Date.now())) + '</span>'
-    + '<h1>' + saudacao + ', ' + esc(String(eu.nome).split(' ')[0]) + '</h1>'
-    + '<p>' + (especialista
-      ? esc(ESPECIALIDADES[eu.especialidade] || '') + ' · ' + (jornadaHoje.length ? 'Hoje: ' + jornadaHoje.map(f => f.inicio + '–' + f.fim + (f.escola_id ? ' em ' + escolaCurta(f.escola_id) : '')).join(', ') : 'Hoje não há jornada cadastrada')
-      : 'Acompanhamento da equipe de especialistas da rede municipal') + '</p></div>'
-    + '<div class="acoes-linha">'
-    + (pode.registrar() ? '<button class="btn" data-acao="registrar">+ Registrar atendimento</button>' : '')
-    + (pode.agendar() ? '<button class="btn ' + (pode.registrar() ? 'claro' : '') + '" data-acao="agendar">Agendar</button>' : '')
-    + (pode.cadastrarAluno() ? '<button class="btn claro" data-acao="aluno">Cadastrar aluno</button>' : '')
-    + '</div></section>';
+  // agrupa por dia
+  const porDia = new Map();
+  for (const c of lista) { const d = diaMunicipal(c.inicio); if (!porDia.has(d)) porDia.set(d, []); porDia.get(d).push(c); }
 
-  h += '<div class="metricas">'
-    + metrica(especialista ? 'Meus atendimentos no mês' : 'Atendimentos no mês', r.atendimentos, 'azul')
-    + metrica(especialista ? 'Alunos que atendi no mês' : 'Alunos atendidos no mês', r.alunos, 'verde')
-    + metrica('Alunos em acompanhamento', ativos.filter(e => S.acompanhamento.get(e.id)?.estado === 'em_acompanhamento').length, 'roxo')
-    + metrica('Aguardando 1º atendimento', aguardando.length, 'ambar') + '</div>';
+  let h = '<header class="pagina-topo painel-topo"><div><span class="sobre-escuro">' + esc(DIAS[diaDaSemana(hoje)] + ', ' + formatarData(Date.now())) + '</span><h1>' + saudacao + ', ' + esc(String(eu.nome).split(' ')[0]) + '</h1></div>'
+    + '<div class="menu-mais"><button class="btn mais" id="mais" aria-haspopup="true" aria-expanded="false" aria-label="Novo">+</button><div class="menu-mais-lista" hidden>'
+    + (pode.agendar() ? '<button data-acao="agendar">Agendar consulta</button>' : '')
+    + (pode.registrar() ? '<button data-acao="registrar">Registrar atendimento sem agendamento</button>' : '')
+    + (pode.cadastrarAluno() ? '<button data-acao="aluno">Cadastrar aluno</button>' : '') + '</div></div></header>';
 
-  h += '<div class="colunas">';
-  h += '<section class="cartao"><header class="cartao-topo"><h2>' + (especialista ? 'Minha agenda de hoje' : 'Agenda de hoje') + '</h2><a href="#/agenda" class="link">Abrir agenda →</a></header>'
-    + (deHoje.length ? '<div class="lista-agenda">' + deHoje.sort((a, b) => ms(a.inicio) - ms(b.inicio)).map(a => linhaAgenda(a, { mostrarProf: !especialista })).join('') + '</div>' : vazio('Nenhum atendimento agendado para hoje.'))
-    + (atrasados.length ? '<h3 class="subtitulo alerta-texto">Agendamentos sem registro (' + atrasados.length + ')</h3><p class="nota">Registre o atendimento ou marque a falta para manter o prontuário em dia.</p><div class="lista-agenda">' + atrasados.map(a => linhaAgenda(a, { mostrarProf: false }).replace('<span class="hora">', '<span class="hora"><em>' + esc(formatarData(a.inicio).slice(0, 5)) + '</em>')).join('') + '</div>' : '')
+  if (semRegistro.length) h += '<div class="alerta-caixa aviso"><strong>' + semRegistro.length + ' consulta(s) sem registro.</strong> Informe se o aluno compareceu: '
+    + semRegistro.slice(0, 6).map(a => '<button class="link" data-consulta="' + esc(a.id) + '">' + esc(formatarData(a.inicio).slice(0, 5) + ' ' + (estudante(a.estudante_id)?.nome || 'Aluno')) + '</button>').join(' · ') + '</div>';
+
+  h += '<section class="cartao"><form class="busca-consultas" id="busca" autocomplete="off">'
+    + '<label class="campo busca-grande"><span>Buscar consulta</span><input type="search" name="busca" value="' + esc(filtros.busca) + '" placeholder="Nome do aluno ou código da consulta"></label>'
+    + '<label class="campo"><span>Data</span><input type="date" name="dia" value="' + esc(filtros.dia) + '"></label>'
+    + '<label class="campo"><span>Profissional</span><select name="profissional"><option value="">Toda a equipe</option>' + profs.map(u => '<option value="' + esc(u.id) + '"' + (filtros.profissional === u.id ? ' selected' : '') + '>' + esc(u.nome) + ' — ' + esc(ESPECIALIDADES[u.especialidade] || '') + '</option>').join('') + '</select></label>'
+    + '<label class="check"><input type="checkbox" name="mostrarCancelados"' + (filtros.mostrarCancelados ? ' checked' : '') + '> Cancelados</label></form>'
+    + '<p class="nota" role="status">' + lista.length + ' consulta(s) ' + (filtros.dia ? 'em ' + formatarData(instante(filtros.dia, '12:00')) : 'de ' + formatarData(instante(de, '12:00')).slice(0, 5) + ' a ' + formatarData(instante(ate, '12:00')).slice(0, 5)) + (escolaAtual() ? ' · ' + esc(escolaCurta(escolaAtual())) : '') + '</p>'
+    + (lista.length ? [...porDia].map(([d, itens]) => '<div class="grupo-dia' + (d === hoje ? ' hoje' : '') + '"><h3>' + (d === hoje ? 'Hoje' : d === somarDias(hoje, 1) ? 'Amanhã' : DIAS[diaDaSemana(d)]) + ' · ' + formatarData(instante(d, '12:00')) + '</h3><div class="lista-agenda">' + itens.map(c => linhaAgenda(c, { mostrarProf: !filtros.profissional })).join('') + '</div></div>').join('')
+      : vazio('Nenhuma consulta encontrada.', filtros.busca || filtros.dia ? 'Revise a busca ou a data.' : 'Use o botão + para agendar.'))
     + '</section>';
 
-  h += '<section class="cartao"><header class="cartao-topo"><h2>Aguardando primeiro atendimento</h2><a href="#/alunos" class="link">Ver alunos →</a></header>'
-    + (aguardando.length ? '<ul class="lista-simples">' + aguardando.slice(0, 8).map(e => '<li><a href="#/aluno/' + esc(e.id) + '"><strong>' + esc(e.nome) + '</strong><small>' + esc(escolaCurta(e.escola_id)) + (e.turma ? ' · ' + esc(e.turma) : '') + '</small></a></li>').join('') + '</ul>'
-      + (aguardando.length > 8 ? '<p class="nota">e mais ' + (aguardando.length - 8) + ' aluno(s).</p>' : '')
-      : vazio('Nenhum aluno aguardando.', 'Todos os alunos ativos já tiveram atendimento.'))
-    + '</section></div>';
-
-  h += '<section class="cartao"><header class="cartao-topo"><h2>Últimos registros da equipe</h2></header>'
-    + (recentes.length ? '<ul class="lista-simples">' + recentes.map(a => '<li><a href="#/aluno/' + esc(a.estudante_id) + '"><span class="ponto esp-' + esc(a.especialidade) + '"></span><strong>' + esc(estudante(a.estudante_id)?.nome || 'Aluno') + '</strong><small>' + esc(TIPOS_ATENDIMENTO[a.tipo]) + ' · ' + esc(ESPECIALIDADES[a.especialidade]) + ' · ' + esc(a.profissional_nome) + ' · ' + esc(formatarDataHora(a.data)) + '</small></a></li>').join('') + '</ul>'
-      : vazio('Ainda não há atendimentos registrados.'))
+  h += '<section class="cartao"><header class="cartao-topo"><h2>Aguardando primeiro atendimento (' + aguardando.length + ')</h2><a href="#/alunos" class="link">Ver alunos →</a></header>'
+    + (aguardando.length ? '<ul class="lista-simples">' + aguardando.slice(0, 6).map(e => '<li><a href="#/aluno/' + esc(e.id) + '"><strong>' + esc(e.nome) + '</strong><small>' + esc(escolaCurta(e.escola_id)) + (e.turma ? ' · ' + esc(e.turma) : '') + '</small></a></li>').join('') + '</ul>' : vazio('Nenhum aluno aguardando.'))
     + '</section>';
 
   main.innerHTML = h;
-  ligarAgendamentos(main, [...deHoje, ...atrasados]);
-  $$('[data-acao]', main).forEach(b => b.onclick = () => ({ registrar: () => formAtendimento(), agendar: () => formAgendar(), aluno: () => formAluno() })[b.dataset.acao]());
+  ligarAgendamentos(main, [...lista, ...semRegistro]);
+  const form = $('#busca', main);
+  let t;
+  form.oninput = ev => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      Object.assign(filtros, { busca: form.busca.value, dia: form.dia.value, profissional: form.profissional.value, mostrarCancelados: form.mostrarCancelados.checked });
+      const foco = ev.target.name, pos = ev.target.selectionStart;
+      render(main, vigente).then(() => { const el = $('#busca [name=' + foco + ']', main); el?.focus(); if (foco === 'busca' && el) el.setSelectionRange(pos, pos); });
+    }, ev.target.name === 'busca' ? 250 : 0);
+  };
+  form.onsubmit = e => e.preventDefault();
+  const mais = $('#mais', main), lista2 = $('.menu-mais-lista', main);
+  mais.onclick = () => { lista2.hidden = !lista2.hidden; mais.setAttribute('aria-expanded', String(!lista2.hidden)); };
+  $$('[data-acao]', main).forEach(b => b.onclick = () => { lista2.hidden = true; ({ registrar: () => formAtendimento(), agendar: () => formAgendar(), aluno: () => formAluno() })[b.dataset.acao](); });
 }
-
-const metrica = (rotulo, valor, cor) => '<div class="metrica m-' + cor + '"><span>' + esc(rotulo) + '</span><b>' + valor + '</b></div>';

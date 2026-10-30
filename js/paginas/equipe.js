@@ -18,7 +18,7 @@ export async function render(main, vigente) {
   const outros = ativos.filter(u => !['especialista', 'pendente'].includes(u.perfil)).sort(ord);
 
   let h = '<header class="pagina-topo"><div><h1>Equipe</h1><p>Especialistas, jornadas de trabalho e acessos.</p></div>'
-    + (gerencia ? '<div class="acoes-linha"><button class="btn" id="convidar">+ Autorizar por e-mail</button></div>' : '') + '</header>';
+    + (gerencia ? '<div class="acoes-linha"><button class="btn" id="convidar">+ Novo acesso</button></div>' : '') + '</header>';
   if (gerencia && pendentes.length) h += '<section class="cartao destaque"><h2>Aguardando liberação (' + pendentes.length + ')</h2><p class="nota">Pessoas que entraram com Google e ainda não têm acesso. Confira o e-mail antes de liberar.</p>' + pendentes.map(linha).join('') + '</section>';
   h += '<section class="cartao"><h2>Especialistas</h2>' + (esp.length ? esp.map(linha).join('') : vazio('Nenhuma especialista cadastrada.', gerencia ? 'Autorize o e-mail Google de cada profissional.' : '')) + '</section>';
   if (gerencia || S.perfil.perfil === 'secretaria') h += '<section class="cartao"><h2>Gestão e direções</h2>' + (outros.length ? outros.map(linha).join('') : vazio('Nenhuma conta.')) + '</section>';
@@ -58,7 +58,7 @@ export async function render(main, vigente) {
     } else if (gerencia && u.id === S.user.uid) botoes = '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">Editar</button>';
     return '<div class="pessoa"><span class="avatar">' + esc(iniciais(u.nome)) + '</span><div class="pessoa-info"><strong>' + esc(u.nome) + ' ' + situacao + '</strong>'
       + '<small>' + esc(papel) + (u.registro_profissional ? ' · ' + esc(u.registro_profissional) : '') + (gerencia ? ' · ' + esc(u.email) : '') + (u.perfil === 'direcao' ? ' · ' + esc((u.escolas || []).map(escolaCurta).join(', ')) : '') + '</small>'
-      + (u.perfil === 'especialista' && !u.excluido ? '<span class="jornada-txt">' + esc(resumoJornada(u.jornada, escolaCurta)) + '</span>' : '')
+      + (u.perfil === 'especialista' && !u.excluido ? '<span class="nota">Atende: ' + esc((u.escolas || []).length ? u.escolas.map(escolaCurta).join(', ') : 'todas as instituições') + '</span><span class="jornada-txt">' + esc(resumoJornada(u.jornada, escolaCurta)) + '</span>' : '')
       + (u.excluido ? '<span class="nota">Excluído' + (u.excluido_em ? ' em ' + esc(formatarData(u.excluido_em)) : '') + (u.motivo_exclusao ? ': ' + esc(u.motivo_exclusao) : '') + '</span>' : '') + '</div>'
       + '<div class="acoes-linha">' + botoes + '</div></div>';
   }
@@ -67,10 +67,10 @@ export async function render(main, vigente) {
     const perfis = [['especialista', 'Especialista'], ['direcao', 'Direção escolar'], ...(pode.admin() ? [['secretaria', 'Secretaria de Educação'], ['superadmin', 'Administração']] : u.perfil === 'secretaria' ? [['secretaria', 'Secretaria de Educação']] : [])];
     return '<div class="grade">' + opcoes('perfil', 'Perfil de acesso', perfis, { valor: u.perfil === 'pendente' ? 'especialista' : u.perfil, obrig: true, extra: 'data-perfil' })
       + opcoes('especialidade', 'Especialidade', ESPECIALIDADES, { valor: u.especialidade || '', vazio: 'Selecione', extra: 'data-so="especialista"' })
-      + '</div><div class="campo largo" data-so="direcao"><span>Escolas da direção</span><div class="checks">' + S.escolas.map(e => '<label class="check"><input type="checkbox" name="escolas" data-lista value="' + esc(e.id) + '"' + ((u.escolas || []).includes(e.id) ? ' checked' : '') + '> ' + esc(escolaCurta(e.id)) + '</label>').join('') + '</div></div>';
+      + '</div><div class="campo largo" data-so="direcao especialista"><span>Instituições que atende <small>(especialista: deixe em branco se atende todas)</small></span><div class="checks">' + S.escolas.map(e => '<label class="check"><input type="checkbox" name="escolas" data-lista value="' + esc(e.id) + '"' + ((u.escolas || []).includes(e.id) ? ' checked' : '') + '> ' + esc(escolaCurta(e.id)) + '</label>').join('') + '</div></div>';
   }
   function ligarPerfil(form) {
-    const atualizar = () => { const p = form.perfil.value; $$('[data-so]', form).forEach(el => { const ok = el.dataset.so === p; (el.closest('label.campo') || el).hidden = !ok; if (el.tagName === 'SELECT') el.required = ok; }); };
+    const atualizar = () => { const p = form.perfil.value; $$('[data-so]', form).forEach(el => { const ok = el.dataset.so.split(' ').includes(p); (el.closest('label.campo') || el).hidden = !ok; if (el.tagName === 'SELECT') el.required = ok; }); };
     form.perfil.onchange = atualizar; atualizar();
   }
 
@@ -83,7 +83,8 @@ export async function render(main, vigente) {
       titulo: (u.perfil === 'pendente' ? 'Liberar acesso — ' : 'Editar — ') + u.nome, largo: true,
       corpo: '<p class="nota">' + esc(u.email) + '</p><div class="grade">' + campo('nome', 'Nome completo', { valor: u.nome, obrig: true, extra: 'maxlength="180"' })
         + campo('registro_profissional', 'Registro profissional', { valor: u.registro_profissional, extra: 'maxlength="60"', dica: 'CRFa, CRP ou ABPp' })
-        + campo('telefone', 'Telefone', { valor: u.telefone, extra: 'maxlength="40"' }) + '</div>'
+        + campo('telefone', 'Telefone', { valor: u.telefone, extra: 'maxlength="40"' })
+        + campo('endereco', 'Endereço', { valor: u.endereco, largo: true, extra: 'maxlength="300"' }) + '</div>'
         + camposAcesso(u)
         + '<fieldset data-so="especialista"><legend>Jornada semanal</legend><p class="nota">Dias e horários em que a profissional atende. Só é possível agendar dentro destas faixas. O local é informativo (onde ela está naquele período).</p><div id="jornada">' + ((u.jornada || []).length ? u.jornada.map(linhaJ).join('') : '') + '</div><button type="button" class="btn sec pequeno" id="mais-faixa">+ Adicionar faixa</button></fieldset>'
         + '<div class="grade">' + (pode.admin() && u.id !== S.user.uid ? '<label class="check"><input type="checkbox" name="gerenciar"' + (u.gerenciar ? ' checked' : '') + '> Pode gerenciar equipe, escolas e acessos (Secretaria)</label>' : '')
@@ -91,8 +92,8 @@ export async function render(main, vigente) {
       botao: u.perfil === 'pendente' ? 'Liberar acesso' : 'Salvar',
       aoSalvar: async (d, f) => {
         const faixas = $$('.jornada-linha', f).map(l => ({ dia: l.querySelector('[name=j_dia]').value, inicio: l.querySelector('[name=j_ini]').value, fim: l.querySelector('[name=j_fim]').value, escola_id: l.querySelector('[name=j_local]').value }));
-        const novo = { nome: d.nome.trim(), perfil: d.perfil, registro_profissional: d.registro_profissional.trim(), telefone: d.telefone.trim(),
-          ativo: u.id === S.user.uid ? true : Boolean(d.ativo), excluido: false, escolas: d.perfil === 'direcao' ? (d.escolas || []) : [], especialidade: d.perfil === 'especialista' ? d.especialidade : '' };
+        const novo = { nome: d.nome.trim(), perfil: d.perfil, registro_profissional: d.registro_profissional.trim(), telefone: d.telefone.trim(), endereco: d.endereco.trim(),
+          ativo: u.id === S.user.uid ? true : Boolean(d.ativo), excluido: false, escolas: ['direcao', 'especialista'].includes(d.perfil) ? (d.escolas || []) : [], especialidade: d.perfil === 'especialista' ? d.especialidade : '' };
         if (pode.admin() && u.id !== S.user.uid) novo.gerenciar = d.perfil === 'secretaria' && Boolean(d.gerenciar);
         if (d.perfil === 'especialista') {
           if (!d.especialidade) throw Error('Selecione a especialidade.');
@@ -137,16 +138,25 @@ export async function render(main, vigente) {
 
   function convidar() {
     const form = modal({
-      titulo: 'Autorizar acesso por e-mail', largo: true, botao: 'Autorizar',
-      corpo: '<p class="nota">Use o e-mail da conta Google que a pessoa usará para entrar. Nenhuma senha é criada ou enviada.</p><div class="grade">'
-        + campo('nome', 'Nome completo', { obrig: true, extra: 'maxlength="180"' }) + campo('email', 'E-mail Google', { tipo: 'email', obrig: true, extra: 'maxlength="200"' }) + '</div>' + camposAcesso({ perfil: 'especialista' }),
+      titulo: 'Novo acesso', largo: true, botao: 'Criar acesso',
+      corpo: '<div class="grade">' + campo('nome', 'Nome completo', { obrig: true, extra: 'maxlength="180"' }) + campo('email', 'E-mail', { tipo: 'email', obrig: true, extra: 'maxlength="200"' }) + '</div>'
+        + '<fieldset><legend>Como a pessoa vai entrar</legend><label class="check"><input type="radio" name="modo" value="senha" checked> <span><strong>E-mail e senha</strong> — o sistema cria o login e envia ao e-mail um link para a pessoa definir a própria senha.</span></label>'
+        + '<label class="check"><input type="radio" name="modo" value="google"> <span><strong>Conta Google</strong> — a pessoa entra com o Google deste e-mail e o acesso é liberado automaticamente.</span></label></fieldset>'
+        + camposAcesso({ perfil: 'especialista' }),
       aoSalvar: async d => {
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email.trim())) throw Error('E-mail inválido.');
         if (d.perfil === 'especialista' && !d.especialidade) throw Error('Selecione a especialidade.');
         if (d.perfil === 'direcao' && !(d.escolas || []).length) throw Error('Selecione a(s) escola(s).');
         if (d.perfil === 'superadmin') throw Error('Administradores são definidos apenas na conta já existente.');
-        await dados.salvarConvite({ email: d.email, nome: d.nome.trim(), perfil: d.perfil, especialidade: d.perfil === 'especialista' ? d.especialidade : '', escolas: d.perfil === 'direcao' ? d.escolas : [] });
-        aviso('Autorização registrada. Peça para a pessoa entrar com o Google.'); render(main, vigente);
+        const perfil = { nome: d.nome.trim(), perfil: d.perfil, especialidade: d.perfil === 'especialista' ? d.especialidade : '', escolas: ['direcao', 'especialista'].includes(d.perfil) ? (d.escolas || []) : [] };
+        if (d.modo === 'senha') {
+          await dados.criarContaComSenha(d.email, { ...perfil, ...(d.perfil === 'especialista' ? { jornada: [], slots: [] } : {}) });
+          aviso('Acesso criado. ' + d.email.trim() + ' vai receber um e-mail para definir a senha. Lembre de cadastrar a jornada.');
+        } else {
+          await dados.salvarConvite({ email: d.email, ...perfil });
+          aviso('Autorização registrada. Peça para a pessoa entrar com o Google.');
+        }
+        render(main, vigente);
       }
     });
     ligarPerfil(form);

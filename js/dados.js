@@ -1,21 +1,52 @@
 // Acesso ao Firestore. Toda regra de permissão é reforçada em firestore.rules;
 // aqui ficam as gravações atômicas (lotes e transações) que as regras exigem.
 import {
-  initializeApp, getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
+  initializeApp, deleteApp, getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
+  signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword,
   getFirestore, collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp
 } from './firebase.js';
-import { MEIA_HORA, ms } from './dominio.js';
+import { MEIA_HORA, ms, gerarCodigo } from './dominio.js';
 
-let auth, db;
+let auth, db, configuracao;
 const lista = snap => snap.docs.map(d => ({ id: d.id, ...d.data() }));
 const pedacos = (arr, n = 10) => { const r = []; for (let i = 0; i < arr.length; i += n) r.push(arr.slice(i, i + n)); return r; };
 const ts = d => Timestamp.fromDate(d instanceof Date ? d : new Date(ms(d)));
 
 export function iniciar(config) {
+  configuracao = config;
   const app = initializeApp(config);
   auth = getAuth(app); db = getFirestore(app);
 }
 export const entrar = () => signInWithPopup(auth, new GoogleAuthProvider());
+export const entrarComSenha = (email, senha) => signInWithEmailAndPassword(auth, email.trim(), senha);
+export const recuperarSenha = email => sendPasswordResetEmail(auth, email.trim());
+
+const senhaAleatoria = () => { const b = new Uint8Array(24); crypto.getRandomValues(b); return Array.from(b, x => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%'[x % 61]).join(''); };
+/**
+ * Cria login e senha para uma profissional: a conta é criada numa instância separada do Firebase
+ * (a sessão da administração continua ativa), com senha aleatória que ninguém conhece.
+ * Em seguida o Firebase envia ao e-mail o link para a pessoa definir a própria senha.
+ */
+export async function criarContaComSenha(email, perfil) {
+  const app2 = initializeApp(configuracao, 'cadastro-' + Date.now());
+  let uid;
+  try {
+    const auth2 = getAuth(app2);
+    const cred = await createUserWithEmailAndPassword(auth2, email.trim().toLowerCase(), senhaAleatoria());
+    uid = cred.user.uid;
+    await signOut(auth2);
+  } catch (e) {
+    if (e.code === 'auth/email-already-in-use') throw Error('Este e-mail já tem conta. Peça para a pessoa entrar e libere o acesso em "Aguardando liberação".');
+    if (e.code === 'auth/operation-not-allowed') throw Error('O login por e-mail e senha não está ativado no Firebase (Authentication → Sign-in method → E-mail/senha).');
+    throw e;
+  } finally { await deleteApp(app2).catch(() => {}); }
+  await writeBatch(db).set(doc(db, 'usuarios', uid), { ...perfil, email: email.trim().toLowerCase(), ativo: true, excluido: false, gerenciar: false, criado_em: serverTimestamp() }).commit();
+  await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+  return uid;
+}
+export async function aceitarTermo(uid, versao) {
+  await writeBatch(db).update(doc(db, 'usuarios', uid), { termo_lgpd: versao, termo_lgpd_em: serverTimestamp() }).commit();
+}
 export const sair = () => signOut(auth);
 export const observarSessao = cb => onAuthStateChanged(auth, cb);
 export const uidAtual = () => auth.currentUser?.uid;
@@ -45,7 +76,7 @@ export const listarUsuarios = async () => lista(await getDocs(collection(db, 'us
 // Campos aceitos pelas regras. Contas criadas na versão antiga podem ter outros campos:
 // a gravação reescreve o documento só com estes, preservando e-mail e data de criação.
 const CAMPOS_USUARIO = ['nome', 'email', 'perfil', 'ativo', 'excluido', 'gerenciar', 'escolas', 'especialidade', 'registro_profissional',
-  'telefone', 'jornada', 'slots', 'criado_em', 'motivo_exclusao', 'excluido_em'];
+  'telefone', 'jornada', 'slots', 'criado_em', 'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em'];
 export async function salvarUsuario(uid, dados, atual = {}) {
   const base = {};
   for (const k of CAMPOS_USUARIO) if (atual[k] !== undefined) base[k] = atual[k];
@@ -142,9 +173,11 @@ export async function listarVersoes(atendimentoId) {
 }
 
 /** Registra o atendimento; se veio de um agendamento, conclui-o no mesmo lote. */
-export async function registrarAtendimento({ meta, registro, agendamentoId = '' }) {
+export async function registrarAtendimento({ meta, registro, agendamentoId = '', codigo = '' }) {
   const ref = doc(collection(db, 'atendimentos')), b = writeBatch(db), uid = uidAtual();
-  b.set(ref, { ...meta, data: ts(meta.data), agendamento_id: agendamentoId, profissional_uid: uid, situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+  // A consulta agendada mantém o mesmo código; atendimento sem agendamento ganha um código novo.
+  const cod = codigo || gerarCodigo(meta.data);
+  b.set(ref, { ...meta, data: ts(meta.data), agendamento_id: agendamentoId, codigo: cod, profissional_uid: uid, situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
   b.set(doc(db, 'atendimentos_registro', ref.id), { ...registro, estudante_id: meta.estudante_id, profissional_uid: uid, versao: 1 });
   if (agendamentoId) b.update(doc(db, 'agendamentos', agendamentoId), { status: 'realizado', atendimento_id: ref.id, alterado_por: uid, alterado_em: serverTimestamp() });
   await b.commit();
@@ -199,7 +232,7 @@ export async function agendar(p) {
   const travas = partes.map(t => doc(db, 'reservas', idReserva(p.profissional_uid, t)));
   await runTransaction(db, async tx => {
     for (const t of travas) if ((await tx.get(t)).exists()) throw Error('Esse horário acabou de ser ocupado. Escolha outro.');
-    tx.set(ref, { ...p, inicio: ts(inicio), status: 'agendado', criado_por: uidAtual(), criado_em: serverTimestamp() });
+    tx.set(ref, { ...p, inicio: ts(inicio), codigo: gerarCodigo(inicio), status: 'agendado', criado_por: uidAtual(), criado_em: serverTimestamp() });
     travas.forEach((t, i) => tx.set(t, { agendamento_id: ref.id, profissional_uid: p.profissional_uid, inicio: ts(partes[i]) }));
   });
   return ref.id;

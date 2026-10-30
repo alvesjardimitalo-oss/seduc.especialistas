@@ -15,6 +15,8 @@ export async function render(main, vigente) {
   await garantirAtendimentos();
   if (!vigente()) return;
   const f = S.filtrosAlunos;
+  // Ao trocar a instituição no topo, a lista passa a mostrar os alunos dela.
+  if (f.instAplicada !== S.instituicao) { f.escola = S.instituicao; f.instAplicada = S.instituicao; }
   const lista = filtrarEstudantes(S.estudantes, f, S.acompanhamento);
   const escolas = escolasVisiveis();
   main.innerHTML = '<header class="pagina-topo"><div><h1>Alunos</h1><p>' + S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo').length + ' alunos ativos' + (S.perfil.perfil === 'direcao' ? ' na(s) sua(s) escola(s)' : ' na rede') + '</p></div>'
