@@ -29,7 +29,7 @@ export async function render(main, vigente) {
     }).join('') + '</tbody></table>' : vazio('Nenhuma autorização pendente.')) + '</section>';
   if (gerencia && excluidos.length) h += '<section class="cartao"><header class="cartao-topo"><h2>Acessos excluídos (' + excluidos.length + ')</h2><button class="link" id="ver-excluidos">' + (mostrarExcluidos ? 'Ocultar' : 'Mostrar') + '</button></header>'
     + '<p class="nota">Contas bloqueadas. Os atendimentos registrados por elas continuam no prontuário com a autoria original.</p>'
-    + (mostrarExcluidos ? excluidos.map(linha).join('') : '') + '</section>';
+    + (mostrarExcluidos ? excluidos.map(linha).join('') + (pode.admin() && excluidos.length > 1 ? '<div class="acoes-linha"><button class="btn sec perigo" id="apagar-todos">Apagar definitivamente todos os excluídos sem registros</button></div>' : '') : '') + '</section>';
   main.innerHTML = h;
 
   $$('[data-editar]', main).forEach(b => b.onclick = () => editar(usuarios.find(u => u.id === b.dataset.editar)));
@@ -39,6 +39,8 @@ export async function render(main, vigente) {
     try { await dados.restaurarAcesso(u); aviso('Acesso de ' + u.nome + ' restaurado.'); render(main, vigente); } catch (e) { erro(e); b.disabled = false; }
   });
   $$('[data-recusar]', main).forEach(b => b.onclick = () => recusar(usuarios.find(u => u.id === b.dataset.recusar)));
+  $$('[data-apagar]', main).forEach(b => b.onclick = () => apagar(usuarios.find(u => u.id === b.dataset.apagar)));
+  $('#apagar-todos', main)?.addEventListener('click', () => apagarTodos(excluidos));
   $('#ver-excluidos', main)?.addEventListener('click', () => { mostrarExcluidos = !mostrarExcluidos; render(main, vigente); });
   $('#convidar', main)?.addEventListener('click', convidar);
   $$('[data-remover-convite]', main).forEach(b => b.onclick = async () => {
@@ -52,7 +54,7 @@ export async function render(main, vigente) {
     const protegido = u.id === S.user.uid || (u.perfil === 'superadmin' && !pode.admin());
     let botoes = '';
     if (gerencia && !protegido) {
-      if (u.excluido) botoes = '<button class="btn sec pequeno" data-restaurar="' + esc(u.id) + '">Restaurar acesso</button>';
+      if (u.excluido) botoes = '<button class="btn sec pequeno" data-restaurar="' + esc(u.id) + '">Restaurar acesso</button>' + (pode.admin() ? '<button class="btn sec pequeno perigo" data-apagar="' + esc(u.id) + '">Apagar definitivamente</button>' : '');
       else if (u.perfil === 'pendente') botoes = '<button class="btn pequeno" data-editar="' + esc(u.id) + '">Liberar acesso</button><button class="btn sec pequeno perigo" data-recusar="' + esc(u.id) + '">Recusar</button>';
       else botoes = '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">Editar</button><button class="btn sec pequeno perigo" data-excluir="' + esc(u.id) + '">Excluir acesso</button>';
     } else if (gerencia && u.id === S.user.uid) botoes = '<button class="btn sec pequeno" data-editar="' + esc(u.id) + '">Editar</button>';
@@ -125,6 +127,28 @@ export async function render(main, vigente) {
         const n = await dados.excluirAcesso(u, d.motivo.trim(), Boolean(d.cancelar));
         aviso('Acesso excluído.' + (n ? ' ' + n + ' agendamento(s) cancelado(s).' : '')); render(main, vigente);
       }
+    });
+  }
+
+  async function apagar(u) {
+    let n = 0;
+    try { n = await dados.registrosDaConta(u.id); } catch (e) { return erro(e); }
+    if (n) return modal({ titulo: 'Não é possível apagar', somenteLeitura: true, corpo: '<p><strong>' + esc(u.nome) + '</strong> tem ' + n + ' registro(s) de atendimento, agenda ou relatório. A conta fica excluída (sem acesso), mas é mantida para preservar a autoria no prontuário.</p>' });
+    modal({
+      titulo: 'Apagar definitivamente', botao: 'Apagar definitivamente',
+      corpo: '<p>A conta <strong>' + esc(u.nome) + '</strong> (' + esc(u.email) + ') será apagada do sistema. Ela não tem atendimentos, agendamentos nem relatórios.</p><p class="nota">O login também existe no Firebase Authentication: para removê-lo, apague o usuário em Authentication → Usuários no Console do Firebase.</p>',
+      aoSalvar: async () => { await dados.apagarSolicitacao(u.id); aviso('Conta apagada.'); render(main, vigente); }
+    });
+  }
+  async function apagarTodos(lista) {
+    const livres = [], presos = [];
+    try { for (const u of lista) ((await dados.registrosDaConta(u.id)) ? presos : livres).push(u); } catch (e) { return erro(e); }
+    modal({
+      titulo: 'Apagar contas excluídas', botao: 'Apagar ' + livres.length + ' conta(s)',
+      corpo: (livres.length ? '<p>Serão apagadas definitivamente:</p><ul>' + livres.map(u => '<li>' + esc(u.nome) + ' — ' + esc(u.email) + '</li>').join('') + '</ul>' : '<p>Nenhuma conta pode ser apagada.</p>')
+        + (presos.length ? '<p class="nota">Mantidas por terem registros no prontuário ou na agenda: ' + presos.map(u => esc(u.nome)).join(', ') + '.</p>' : '')
+        + '<p class="nota">Os logins continuam no Firebase Authentication; apague-os lá se quiser.</p>',
+      aoSalvar: async () => { if (!livres.length) return; for (const u of livres) await dados.apagarSolicitacao(u.id); aviso(livres.length + ' conta(s) apagada(s).'); render(main, vigente); }
     });
   }
 

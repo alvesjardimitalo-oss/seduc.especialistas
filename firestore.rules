@@ -109,6 +109,9 @@ service cloud.firestore {
       // Apagar de vez só solicitações pendentes (conta que nunca teve acesso nem registros).
       // Contas que já usaram o sistema são excluídas por "excluido: true" e podem ser restauradas.
       allow delete: if gerencia() && uid != request.auth.uid && resource.data.perfil == 'pendente';
+      // Conta de teste já excluída (acesso bloqueado) pode ser apagada pela administração.
+      // A interface só oferece a opção quando a conta não tem atendimentos nem agendamentos.
+      allow delete: if admin() && uid != request.auth.uid && resource.data.get('excluido', false) == true;
     }
 
     match /convites/{email} {

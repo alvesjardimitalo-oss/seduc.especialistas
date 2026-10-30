@@ -232,7 +232,7 @@ try {
   // ---- administração ----
   const adm = await sessao('admin');
   // novo acesso com login e senha
-  await adm.goto(url + '#/equipe'); await adm.click('#convidar');
+  await adm.goto(url + '#/equipe'); await adm.waitForSelector('.pessoa'); await adm.waitForTimeout(300); await adm.click('#convidar'); await adm.waitForSelector('#modal [name=email]');
   await adm.fill('#modal [name=nome]', 'Carla Psicopedagoga'); await adm.fill('#modal [name=email]', 'carla@x.br');
   await adm.selectOption('#modal [name=especialidade]', 'psicopedagogia');
   await adm.check('#modal [name=escolas][value=monteiro-lobato]');
@@ -256,6 +256,12 @@ try {
   await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
   await adm.waitForSelector('text=Conta Antiga Editada');
   assert.equal(await adm.evaluate(() => 'vinculos_legados' in window.__banco.get('usuarios/antiga')), false);
+  // conta de teste: excluir e apagar definitivamente (sem registros)
+  await adm.click('[data-excluir=antiga]'); await adm.fill('#modal [name=motivo]', 'Conta de teste'); await adm.click('#modal [type=submit]');
+  await adm.waitForSelector('#modal', { state: 'detached' }); if ((await adm.textContent('#ver-excluidos')).includes('Mostrar')) await adm.click('#ver-excluidos'); await adm.click('[data-apagar=antiga]');
+  await adm.waitForSelector('#modal-titulo >> text=Apagar definitivamente'); await adm.click('#modal [type=submit]');
+  await adm.waitForSelector('#modal', { state: 'detached' }); await adm.waitForTimeout(200);
+  assert.equal(await adm.evaluate(() => window.__banco.has('usuarios/antiga')), false);
   // recusar solicitação pendente: apaga
   await adm.click('[data-recusar=pend2]'); await adm.click('#modal [type=submit]');
   await adm.waitForSelector('#modal', { state: 'detached' }); await adm.waitForTimeout(200);
@@ -292,12 +298,22 @@ try {
   assert.match(await adm.textContent('#modal'), /agendamento\(s\) futuro/);
   await adm.fill('[name=motivo]', 'Teste de exclusão'); await foto(adm, '12b-excluir-acesso');
   await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
-  await adm.click('#ver-excluidos'); await adm.waitForSelector('[data-restaurar=fono]');
+  if ((await adm.textContent('#ver-excluidos')).includes('Mostrar')) await adm.click('#ver-excluidos'); await adm.waitForSelector('[data-restaurar=fono]');
   const agendaFono = await adm.evaluate(() => [...window.__banco].filter(([k, v]) => k.startsWith('agendamentos/') && v.profissional_uid === 'fono' && v.status === 'agendado' && (v.inicio?._ms ?? v.inicio) > Date.now()).length);
   assert.equal(agendaFono, 0, 'agendamentos futuros cancelados');
   assert.equal(await adm.evaluate(() => [...window.__banco.keys()].some(k => k.startsWith('atendimentos/') )), true, 'atendimentos preservados');
   await adm.click('[data-restaurar=fono]'); await adm.waitForTimeout(300);
   assert.equal(await adm.evaluate(() => window.__banco.get('usuarios/fono').excluido), false);
+  // conta com registros não pode ser apagada
+  await adm.click('[data-excluir=fono]'); await adm.waitForSelector('#modal [name=motivo]'); await adm.fill('#modal [name=motivo]', 'Teste'); await adm.click('#modal [type=submit]');
+  await adm.waitForSelector('#modal', { state: 'detached', timeout: 8000 }).catch(async () => { throw Error('excluir fono: ' + await adm.textContent('#modal')); });
+  await adm.waitForSelector('#ver-excluidos'); await adm.waitForTimeout(300);
+  if ((await adm.textContent('#ver-excluidos')).includes('Mostrar')) { await adm.click('#ver-excluidos'); await adm.waitForTimeout(300); }
+  await adm.waitForSelector('[data-apagar=fono]');
+  await adm.click('[data-apagar=fono]');
+  await adm.waitForSelector('#modal-titulo >> text=Não é possível');
+  await adm.locator('#modal [data-fechar]').first().click(); await adm.waitForSelector('#modal', { state: 'detached' });
+  await adm.click('[data-restaurar=fono]'); await adm.waitForFunction(() => window.__banco.get('usuarios/fono').excluido === false);
   // excluir de novo e confirmar que a conta não entra mais
   await adm.click('[data-excluir=fono]'); await adm.fill('[name=motivo]', 'Fim do contrato'); await adm.click('#modal [type=submit]');
   await adm.waitForSelector('#modal', { state: 'detached' });
