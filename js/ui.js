@@ -97,6 +97,6 @@ export function vazio(titulo, texto = '') {
 export function imprimir(titulo, html) {
   const w = window.open('', '_blank');
   if (!w) { aviso('Permita pop-ups para imprimir ou salvar em PDF.', 'erro'); return; }
-  w.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>' + esc(titulo) + '</title><link rel="stylesheet" href="' + new URL('css/impressao.css', location.href) + '"></head><body>' + html + '<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>');
+  w.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>' + esc(titulo) + '</title><link rel="stylesheet" href="' + new URL('css/impressao.css?v=2.2.4', location.href) + '"></head><body>' + html + '<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>');
   w.document.close();
 }
