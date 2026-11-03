@@ -410,11 +410,11 @@ test('orientação para a escola: a direção lê; tipos escolares aceitos', asy
   await assertFails(getDoc(doc(db('dirA'), 'atendimentos_registro', 'os1')));
 });
 
-test('apagar definitivamente: só a administração, só conta já excluída', async () => {
+test('apagar definitivamente: só Administração/Secretaria, só conta já excluída', async () => {
   await assertFails(deleteDoc(doc(db('admin'), 'usuarios', 'psico')));
   await updateDoc(doc(db('admin'), 'usuarios', 'psico'), { ativo: false, excluido: true, motivo_exclusao: 'Teste', atualizado_em: serverTimestamp(), atualizado_por: 'admin' });
-  await assertFails(deleteDoc(doc(db('sec'), 'usuarios', 'psico')));
-  await assertSucceeds(deleteDoc(doc(db('admin'), 'usuarios', 'psico')));
+  await assertFails(deleteDoc(doc(db('dirA'), 'usuarios', 'psico')));
+  await assertSucceeds(deleteDoc(doc(db('sec'), 'usuarios', 'psico')));
 });
 
 // ---------- v2.3: itens do PEC ----------
