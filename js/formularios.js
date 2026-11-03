@@ -277,7 +277,7 @@ export async function abrirConsulta(item) {
   const eu = S.perfil, propria = eu.perfil === 'especialista' && item.profissional_uid === S.user.uid;
   const passou = ms(item.inicio) <= Date.now();
   const aberto = ag && ag.status === 'agendado';
-  const podeAlterar = aberto && (propria || pode.gestao() || (eu.perfil === 'direcao' && (eu.escolas || []).includes(item.escola_id)));
+  const podeAlterar = aberto && (propria || pode.gestao() || (['direcao', 'secretaria_escolar'].includes(eu.perfil) && (eu.escolas || []).includes(item.escola_id)));
   const atendimentoId = avulso ? item.id : ag?.atendimento_id;
   let at = null, reg = null;
   try {
@@ -303,7 +303,7 @@ export async function abrirConsulta(item) {
       + (pode.clinico() ? (reg ? secoesRegistro(reg).map(([t, v]) => secao(t, v)).join('') : '') : '<p class="nota">Conteúdo restrito à equipe de especialistas.</p>') + '</div>' : '')
     + '<div class="acoes-linha">'
     + (at && at.situacao !== 'anulado' && at.profissional_uid === S.user.uid && pode.registrar() ? '<button type="button" class="btn" data-c="editar">Editar consulta</button>' : '')
-    + (aberto && !passou && (propria || pode.gestao() || eu.perfil === 'direcao') ? '<button type="button" class="btn sec" data-c="whatsapp">Lembrete por WhatsApp</button>' : '')
+    + (aberto && !passou && (propria || pode.gestao() || ['direcao', 'secretaria_escolar'].includes(eu.perfil)) ? '<button type="button" class="btn sec" data-c="whatsapp">Lembrete por WhatsApp</button>' : '')
     + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">Cancelar agendamento</button>' : '')
     + (!aberto && !avulso && pode.agendar() && ['falta', 'cancelado'].includes(status) ? '<button type="button" class="btn sec" data-c="novo">Agendar novamente</button>' : '')
     + (e ? '<a class="btn sec" href="#/aluno/' + esc(e.id) + '" data-fechar-link>Abrir prontuário</a>' : '')

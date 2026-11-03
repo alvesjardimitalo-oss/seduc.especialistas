@@ -97,7 +97,7 @@ function telaTermo() {
 function telaInstituicao() {
   return new Promise(resolve => {
     const lista = escolasDaPessoa();
-    const todas = !['direcao', 'pedagogico'].includes(S.perfil.perfil) || lista.length > 1;
+    const todas = !['direcao', 'secretaria_escolar', 'pedagogico'].includes(S.perfil.perfil) || lista.length > 1;
     raiz.innerHTML = '<main class="login"><section class="login-cartao instituicoes"><h1>Onde você está atendendo?</h1>'
       + '<p class="nota">Escolha a instituição para ver a agenda e os alunos de lá. Você pode trocar a qualquer momento no topo da tela.</p>'
       + '<div class="lista-inst">' + lista.map(e => '<button class="inst" data-inst="' + esc(e.id) + '">' + seloEscola(e.id) + '<span><strong>' + esc(escolaCurta(e.id)) + '</strong><small>' + esc(e.tipo === 'creche' ? 'Creche' : 'Escola') + '</small></span></button>').join('')
@@ -227,7 +227,7 @@ async function iniciar() {
     raiz.innerHTML = '<div class="carregando tela-cheia">Verificando acesso…</div>';
     try {
       let perfil = await dados.carregarOuCriarPerfil(u);
-      if (!['especialista', 'secretaria', 'direcao', 'pedagogico', 'superadmin'].includes(perfil.perfil) || !perfil.ativo || perfil.excluido)
+      if (!['especialista', 'secretaria', 'direcao', 'secretaria_escolar', 'pedagogico', 'superadmin'].includes(perfil.perfil) || !perfil.ativo || perfil.excluido)
         return telaLogin(perfil.perfil === 'pendente' ? 'Seu acesso foi solicitado e aguarda liberação da administração.<br><small>Conta: ' + esc(u.email) + '</small>' : 'Seu acesso está desativado. Procure a Secretaria de Educação.', 'aviso');
       if (perfil.ativo) perfil = await dados.sincronizarEmail(perfil, u).catch(() => perfil);
       S.perfil = perfil;

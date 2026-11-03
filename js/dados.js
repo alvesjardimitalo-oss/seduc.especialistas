@@ -207,7 +207,7 @@ export async function salvarEscola(id, d) {
 
 // ---------- estudantes ----------
 export async function listarEstudantes(perfil) {
-  if (!['direcao', 'pedagogico'].includes(perfil.perfil)) return lista(await getDocs(collection(db, 'estudantes')));
+  if (!['direcao', 'secretaria_escolar', 'pedagogico'].includes(perfil.perfil)) return lista(await getDocs(collection(db, 'estudantes')));
   const out = [];
   for (const p of pedacos(perfil.escolas || [])) out.push(...lista(await getDocs(query(collection(db, 'estudantes'), where('escola_id', 'in', p)))));
   return out;

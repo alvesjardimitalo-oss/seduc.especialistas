@@ -11,7 +11,7 @@ export async function carregarPedidos(forcar = false) {
   S.pedidos = await dados.listarPedidos({ escolas: escopoEscolas() || undefined });
   return S.pedidos;
 }
-export const podePedir = () => pode.registrar() || pode.gestao() || ['direcao', 'pedagogico'].includes(S.perfil.perfil);
+export const podePedir = () => pode.registrar() || pode.gestao() || ['direcao', 'secretaria_escolar', 'pedagogico'].includes(S.perfil.perfil);
 
 let filtro = { especialidade: '', mostrar: 'aguardando' };
 
@@ -25,9 +25,9 @@ export async function render(main, vigente) {
   const lista = filtro.mostrar === 'aguardando'
     ? ordenarFila(pedidos.filter(p => daEscola(p) && (!filtro.especialidade || p.especialidade === filtro.especialidade)))
     : pedidos.filter(p => daEscola(p) && p.situacao !== 'aguardando' && (!filtro.especialidade || p.especialidade === filtro.especialidade)).sort((a, b) => ms(b.atualizado_em) - ms(a.atualizado_em)).slice(0, 100);
-  const veMotivo = pode.clinico() || pode.gestao() || ['direcao', 'pedagogico'].includes(S.perfil.perfil);
+  const veMotivo = pode.clinico() || pode.gestao() || ['direcao', 'secretaria_escolar', 'pedagogico'].includes(S.perfil.perfil);
   const minhaEsp = p => S.perfil.perfil === 'especialista' && p.especialidade === S.perfil.especialidade;
-  const podeAgendar = p => minhaEsp(p) || pode.gestao() || S.perfil.perfil === 'direcao';
+  const podeAgendar = p => minhaEsp(p) || pode.gestao() || ['direcao', 'secretaria_escolar'].includes(S.perfil.perfil);
 
   const metrica = (rot, v, cor, dica = '') => '<div class="metrica m-' + cor + '"' + (dica ? ' title="' + esc(dica) + '"' : '') + '><span>' + rot + '</span><b>' + v + '</b></div>';
   let h = '<header class="pagina-topo"><div><h1>Fila de espera</h1><p>Pedidos de atendimento feitos pelas escolas. A equipe agenda por prioridade e ordem de chegada.</p></div>'

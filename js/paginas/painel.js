@@ -50,7 +50,7 @@ export async function render(main, vigente) {
     + (porDia.get(hoje)?.length ? '<div class="fila-dia">' + filaDoDia(porDia.get(hoje)).map(itemFila).join('') + '</div>'
       : '<p class="nota">Nenhuma consulta agendada para hoje.' + (pode.registrar() ? ' Atendeu alguém sem agendamento? Use + → Registrar atendimento.' : '') + '</p>') + '</div>';
   // Lista de atendimento do dia (como no PEC): "Chegou" marca a chegada e a fila segue a ordem de chegada.
-  const podeChegada = c => c.tipo_item !== 'atendimento' && c.status === 'agendado' && ((eu.perfil === 'especialista' && c.profissional_uid === S.user.uid) || pode.gestao() || (eu.perfil === 'direcao' && (eu.escolas || []).includes(c.escola_id)));
+  const podeChegada = c => c.tipo_item !== 'atendimento' && c.status === 'agendado' && ((eu.perfil === 'especialista' && c.profissional_uid === S.user.uid) || pode.gestao() || (['direcao', 'secretaria_escolar'].includes(eu.perfil) && (eu.escolas || []).includes(c.escola_id)));
   const itemFila = (c, i) => {
     const chegou = c.status === 'agendado' && c.chegada_em, propria = eu.perfil === 'especialista' && c.profissional_uid === S.user.uid;
     return '<div class="item-fila' + (chegou ? ' chegou' : '') + ' s-' + esc(c.status) + '">' + (chegou ? '<span class="posicao">' + (i + 1) + 'º</span>' : '')
@@ -108,7 +108,7 @@ export async function render(main, vigente) {
 
   // Lembretes para amanhã (WhatsApp, sem dado clínico)
   const amanha = somarDias(hoje, 1);
-  const deAmanha = (porDia.get(amanha) || []).filter(c => c.tipo_item !== 'atendimento' && c.status === 'agendado' && (pode.gestao() || eu.perfil === 'direcao' || c.profissional_uid === S.user.uid));
+  const deAmanha = (porDia.get(amanha) || []).filter(c => c.tipo_item !== 'atendimento' && c.status === 'agendado' && (pode.gestao() || ['direcao', 'secretaria_escolar'].includes(eu.perfil) || c.profissional_uid === S.user.uid));
   if (deAmanha.length) h += '<section class="cartao"><header class="cartao-topo"><h2>Lembretes para amanhã (' + deAmanha.length + ')</h2></header><ul class="lista-simples">'
     + deAmanha.map(c => '<li class="lembrete"><span><strong>' + esc(horaMunicipal(c.inicio)) + ' · ' + esc(estudante(c.estudante_id)?.nome || 'Aluno') + '</strong><small>' + esc(escolaCurta(c.escola_id)) + ' · ' + esc(c.profissional_nome) + '</small></span><button class="btn sec pequeno" data-lembrete="' + esc(c.id) + '">WhatsApp</button></li>').join('') + '</ul></section>';
 
