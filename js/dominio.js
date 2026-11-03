@@ -19,6 +19,18 @@ export const PERFIS = Object.freeze({
   pendente: 'Aguardando liberação'
 });
 
+// Cargos das contas ligadas à escola (aparecem no topo e no registro de impressão dos documentos).
+export const CARGOS = Object.freeze({
+  direcao: ['Diretor(a)', 'Vice-diretor(a)', 'Secretário(a) escolar'],
+  pedagogico: ['Supervisor(a) pedagógico(a)', 'Coordenador(a) pedagógico(a)']
+});
+/** Cargo/função de quem usa o sistema, para assinatura e registro de impressão. */
+export function cargoDe(u = {}) {
+  if (u.cargo) return u.cargo;
+  if (u.perfil === 'especialista') return (ESPECIALIDADES[u.especialidade] || 'Especialista') + (u.registro_profissional ? ' (' + u.registro_profissional + ')' : '');
+  return PERFIS[u.perfil] || '';
+}
+
 export const TIPOS_ATENDIMENTO = Object.freeze({
   avaliacao: 'Avaliação inicial',
   sessao: 'Sessão individual',

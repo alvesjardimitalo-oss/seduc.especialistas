@@ -236,13 +236,15 @@ test('falta só depois do horário; realizado só com o registro da profissional
 });
 
 // ---------- relatórios ----------
-test('relatórios descritivos são da equipe e imutáveis', async () => {
+test('relatórios descritivos: emitidos pela equipe, imutáveis; direção da escola só lê', async () => {
   const r = { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', registro_profissional: 'CRFa 6-0000', tipo: 'relatorio', titulo: 'Relatório', destinatario: 'Família', periodo_de: '2026-01-01', periodo_ate: '2026-06-30', texto: 'Texto', criado_em: serverTimestamp() };
   await assertSucceeds(setDoc(doc(db('fono'), 'relatorios', 'r1'), r));
   await assertFails(setDoc(doc(db('fono'), 'relatorios', 'r2'), { ...r, especialidade: 'neuropsicologia' }));
   await assertFails(updateDoc(doc(db('fono'), 'relatorios', 'r1'), { texto: 'Mudado' }));
   await assertSucceeds(getDoc(doc(db('psico'), 'relatorios', 'r1')));
-  await assertFails(getDoc(doc(db('dirA'), 'relatorios', 'r1')));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'relatorios', 'r1')));
+  await assertFails(setDoc(doc(db('dirA'), 'relatorios', 'r3'), { ...r, profissional_uid: 'dirA' }));
+  await assertFails(updateDoc(doc(db('dirA'), 'relatorios', 'r1'), { texto: 'Mudado' }));
 });
 
 // ---------- exclusão de usuários ----------
@@ -580,4 +582,20 @@ test('equipe pedagógica: cadastra aluno e pede atendimento só na própria esco
   await assertFails(mudar('dirA', 'dirA', { escolas: [ESC_A, ESC_B] }));
   // a gestão cria o acesso da equipe pedagógica
   await assertSucceeds(setDoc(doc(db('sec'), 'convites', 'coord@teste.br'), { email: 'coord@teste.br', nome: 'Coordenação', perfil: 'pedagogico', especialidade: '', escolas: [ESC_A], ativo: true, criado_por: 'sec', criado_em: serverTimestamp() }));
+});
+
+test('documentos emitidos: direção da escola lê e a impressão registra nome e cargo', async () => {
+  const rel = (id, escola, aluno) => setDoc(doc(db('fono'), 'relatorios', id), { estudante_id: aluno, escola_id: escola, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'parecer', titulo: 'Parecer', texto: 'Texto', criado_em: serverTimestamp() });
+  await assertSucceeds(rel('r1', ESC_A, 'alunoA')); await assertSucceeds(rel('r2', ESC_B, 'alunoB'));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'relatorios', 'r1')));
+  await assertFails(getDoc(doc(db('dirA'), 'relatorios', 'r2')));
+  await assertSucceeds(getDocs(query(collection(db('dirA'), 'relatorios'), where('estudante_id', '==', 'alunoA'), where('escola_id', '==', ESC_A))));
+  await assertFails(getDocs(query(collection(db('dirA'), 'relatorios'), where('estudante_id', '==', 'alunoA'))));
+  await assertFails(getDoc(doc(db('pedA'), 'relatorios', 'r1')));
+  await assertFails(getDoc(doc(db('sec'), 'relatorios', 'r1')));
+  const imp = extra => setDoc(doc(collection(db('dirA'), 'acessos')), { uid: 'dirA', nome: 'Direção A', perfil: 'direcao', cargo: 'Vice-diretor(a)', estudante_id: 'alunoA', escola_id: ESC_A, acao: 'relatorio', documento: 'r1', em: serverTimestamp(), ...extra });
+  await assertSucceeds(imp()); await assertFails(imp({ cargo: 'x'.repeat(81) }));
+  // cargo na conta: gestão define; usuário não altera o próprio cargo
+  await assertSucceeds(updateDoc(doc(db('sec'), 'usuarios', 'dirA'), { cargo: 'Diretor(a)', atualizado_em: serverTimestamp(), atualizado_por: 'sec' }));
+  await assertFails(updateDoc(doc(db('dirA'), 'usuarios', 'dirA'), { cargo: 'Secretário(a) escolar', atualizado_em: serverTimestamp(), atualizado_por: 'dirA' }));
 });

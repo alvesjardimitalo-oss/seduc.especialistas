@@ -29,7 +29,8 @@ const seed = {
   'usuarios/fono': { nome: 'Fernanda Fono', email: 'fono@x.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', registro_profissional: 'CRFa 6-12345', jornada, slots },
   'usuarios/psico': { nome: 'Paula Psicopedagoga', email: 'psico@x.br', perfil: 'especialista', ativo: true, especialidade: 'psicopedagogia', jornada: [], slots: [] },
   'usuarios/admin': { nome: 'Ítalo Admin', email: 'admin@x.br', perfil: 'superadmin', ativo: true },
-  'usuarios/dir': { nome: 'Diretora Monteiro', email: 'dir@x.br', perfil: 'direcao', ativo: true, escolas: ['monteiro-lobato'] },
+  'usuarios/dir': { nome: 'Diretora Monteiro', email: 'dir@x.br', perfil: 'direcao', cargo: 'Vice-diretor(a)', ativo: true, escolas: ['monteiro-lobato'] },
+  'relatorios/r1': { estudante_id: 'a1', escola_id: 'monteiro-lobato', profissional_uid: 'psico', profissional_nome: 'Paula Psicopedagoga', especialidade: 'psicopedagogia', tipo: 'devolutiva', titulo: 'Devolutiva à escola', destinatario: 'Direção', texto: 'Texto da devolutiva para a escola.', criado_em: Date.now() - 5 * dia },
   'usuarios/ped': { nome: 'Supervisora Monteiro', email: 'ped@x.br', perfil: 'pedagogico', ativo: true, escolas: ['monteiro-lobato'] },
   'usuarios/pend': { nome: 'Nova Pessoa', email: 'nova@x.br', perfil: 'pendente', ativo: false },
   'usuarios/pend2': { nome: 'Desconhecido', email: 'desconhecido@x.br', perfil: 'pendente', ativo: false },
@@ -287,6 +288,14 @@ try {
   await dir.goto(url + '#/painel'); await dir.waitForSelector('#busca');
   assert.match(await dir.textContent('#conteudo'), /Orientações recentes para a escola[\s\S]*letra bastão/);
   await foto(dir, '10-prontuario-direcao');
+  // direção (vice-diretora) imprime documento emitido: rodapé com nome, cargo e registro da impressão
+  await dir.goto(url + '#/aluno/a1/relatorios'); await dir.waitForSelector('[data-imprimir-rel=r1]', { state: 'attached' });
+  await dir.evaluate(() => { window.open = () => ({ document: { write: h => { window.__impresso = h; }, close() {} } }); });
+  await dir.locator('.card-atendimento summary').first().click(); await dir.click('[data-imprimir-rel=r1]');
+  const impresso = await dir.evaluate(() => window.__impresso);
+  assert.match(impresso, /Impresso por:<\/b> Diretora Monteiro — Vice-diretor\(a\)/); assert.match(impresso, /Registro de impressão:<\/b> [A-Z0-9]{6,}/);
+  await dir.waitForFunction(() => [...window.__banco].some(([k, v]) => k.startsWith('acessos/') && v.acao === 'relatorio' && v.cargo === 'Vice-diretor(a)' && v.documento === 'r1'));
+  assert.match(await dir.textContent('.topo-usuario'), /Vice-diretor/);
   // fila de espera: a direção pede atendimento
   await dir.goto(url + '#/fila'); await dir.waitForSelector('#novo-pedido'); await dir.click('#novo-pedido');
   await dir.selectOption('#modal [data-lista-aluno]', 'a1'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
@@ -300,7 +309,7 @@ try {
   await dir.goto(url + '#/aluno/a1'); await dir.waitForSelector('.faixa-fila');
   // direção cria o acesso da equipe pedagógica (e-mail para criar a senha)
   await dir.goto(url + '#/equipe'); await dir.waitForSelector('#novo-pedagogico'); await dir.click('#novo-pedagogico');
-  await dir.fill('#modal [name=nome]', 'Coordenadora Pedagógica'); await dir.fill('#modal [name=email]', 'Coord@x.br');
+  await dir.fill('#modal [name=nome]', 'Coordenadora Pedagógica'); await dir.fill('#modal [name=email]', 'Coord@x.br'); await dir.selectOption('#modal [name=cargo]', 'Coordenador(a) pedagógico(a)');
   await dir.click('#modal [type=submit]'); await dir.waitForSelector('.pessoa >> text=Coordenadora Pedagógica');
   assert.deepEqual(await dir.evaluate(() => window.__emails), ['coord@x.br']);
   assert.deepEqual(await dir.evaluate(() => { const u = window.__banco.get('usuarios/novo_coord'); return [u.perfil, u.escolas]; }), ['pedagogico', ['monteiro-lobato']]);

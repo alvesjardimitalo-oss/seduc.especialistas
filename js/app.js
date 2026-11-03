@@ -2,7 +2,7 @@ import { firebaseConfig } from './config.js';
 import * as dados from './dados.js';
 import { S, pode, carregarBase, escolasDaPessoa, escolaCurta, nomeEscola, seloEscola } from './estado.js';
 import { eventos } from './formularios.js';
-import { PERFIS, ESPECIALIDADES, LOGO_SEDUC } from './dominio.js';
+import { PERFIS, ESPECIALIDADES, LOGO_SEDUC, cargoDe } from './dominio.js';
 import { esc, iniciais, erro, fecharModal, aviso } from './ui.js';
 import * as painel from './paginas/painel.js';
 import * as alunos from './paginas/alunos.js';
@@ -126,7 +126,7 @@ function menu() {
 
 function moldura() {
   const atual = S.rota.pagina === 'aluno' ? 'alunos' : S.rota.pagina;
-  const papel = S.perfil.perfil === 'especialista' ? ESPECIALIDADES[S.perfil.especialidade] || 'Especialista' : PERFIS[S.perfil.perfil];
+  const papel = S.perfil.perfil === 'especialista' ? ESPECIALIDADES[S.perfil.especialidade] || 'Especialista' : S.perfil.cargo || PERFIS[S.perfil.perfil];
   raiz.innerHTML = '<div class="casca">'
     + '<aside class="lateral"><a class="marca" href="#/painel"><span class="marca-logo"><img src="' + LOGO_SEDUC + '" alt="Secretaria Municipal de Educação"></span><div><strong>SEDUC</strong><small>Especialistas</small></div></a>'
     + '<nav aria-label="Principal">' + menu().map(k => '<a href="#/' + k + '" class="nav' + (atual === k ? ' ativo' : '') + '"' + (atual === k ? ' aria-current="page"' : '') + '>' + svg(PAGINAS[k].icone) + '<span>' + PAGINAS[k].titulo + '</span></a>').join('') + '</nav>'
