@@ -51,8 +51,8 @@ service cloud.firestore {
     function usuarioValido(d) {
       return d.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'excluido', 'gerenciar', 'escolas', 'especialidade',
           'registro_profissional', 'telefone', 'jornada', 'slots', 'criado_em', 'atualizado_em', 'atualizado_por',
-          'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em'])
-        && txt(d.get('motivo_exclusao', ''), 500) && txt(d.get('endereco', ''), 300) && txt(d.get('termo_lgpd', ''), 40)
+          'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em', 'cargo'])
+        && txt(d.get('cargo', ''), 80) && txt(d.get('motivo_exclusao', ''), 500) && txt(d.get('endereco', ''), 300) && txt(d.get('termo_lgpd', ''), 40)
         && txtObr(d.nome, 180) && txt(d.get('email', ''), 200)
         && d.perfil in ['pendente', 'especialista', 'secretaria', 'direcao', 'pedagogico', 'superadmin']
         && d.ativo is bool && d.get('gerenciar', false) is bool && d.get('excluido', false) is bool
@@ -75,7 +75,7 @@ service cloud.firestore {
             && txtObr(request.resource.data.nome, 180)
             && request.resource.data.perfil == 'pendente' && request.resource.data.ativo == false)
           ||
-          (request.resource.data.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'especialidade', 'escolas', 'criado_em'])
+          (request.resource.data.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'especialidade', 'escolas', 'cargo', 'criado_em'])
             && request.auth.token.email_verified == true
             && exists(doc('convites', request.auth.token.email.lower()))
             && get(doc('convites', request.auth.token.email.lower())).data.ativo == true
@@ -83,6 +83,7 @@ service cloud.firestore {
             && request.resource.data.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
             && request.resource.data.especialidade == get(doc('convites', request.auth.token.email.lower())).data.get('especialidade', '')
             && request.resource.data.escolas == get(doc('convites', request.auth.token.email.lower())).data.get('escolas', [])
+            && request.resource.data.get('cargo', '') == get(doc('convites', request.auth.token.email.lower())).data.get('cargo', '')
             && request.resource.data.ativo == true
             && usuarioValido(request.resource.data))
         )
@@ -140,7 +141,8 @@ service cloud.firestore {
       allow get: if logado() && (email == request.auth.token.email.lower() || gerencia());
       allow list: if gerencia();
       allow create, update: if gerencia()
-        && request.resource.data.keys().hasOnly(['email', 'nome', 'perfil', 'especialidade', 'escolas', 'ativo', 'criado_por', 'criado_em'])
+        && request.resource.data.keys().hasOnly(['email', 'nome', 'perfil', 'especialidade', 'escolas', 'cargo', 'ativo', 'criado_por', 'criado_em'])
+        && txt(request.resource.data.get('cargo', ''), 80)
         && request.resource.data.email == email && email == email.lower()
         && txtObr(request.resource.data.nome, 180)
         && request.resource.data.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
@@ -444,7 +446,8 @@ service cloud.firestore {
 
     // ---------- relatórios descritivos ----------
     match /relatorios/{id} {
-      allow get, list: if clinico();
+      // Equipe lê todos; a direção da escola (diretor, vice, secretaria escolar) lê e imprime os da própria escola.
+      allow get, list: if clinico() || direcaoDe(resource.data.escola_id);
       allow create: if equipe()
         && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
             'registro_profissional', 'tipo', 'titulo', 'destinatario', 'periodo_de', 'periodo_ate', 'texto', 'criado_em'])
@@ -550,7 +553,8 @@ service cloud.firestore {
     match /acessos/{id} {
       allow get, list: if admin();
       allow create: if ativo()
-        && request.resource.data.keys().hasOnly(['uid', 'nome', 'perfil', 'estudante_id', 'escola_id', 'acao', 'em'])
+        && request.resource.data.keys().hasOnly(['uid', 'nome', 'perfil', 'cargo', 'estudante_id', 'escola_id', 'acao', 'documento', 'em'])
+        && txt(request.resource.data.get('cargo', ''), 80) && txt(request.resource.data.get('documento', ''), 100)
         && request.resource.data.uid == request.auth.uid && request.resource.data.perfil == eu().perfil
         && txtObr(request.resource.data.nome, 180) && txtObr(request.resource.data.estudante_id, 100) && txt(request.resource.data.escola_id, 100)
         && request.resource.data.acao in ['prontuario', 'impressao', 'ficha_escola', 'relatorio']

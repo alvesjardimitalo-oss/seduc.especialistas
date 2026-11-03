@@ -7,7 +7,7 @@ import {
   getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence,
   collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp
 } from './firebase.js';
-import { MEIA_HORA, ms, gerarCodigo, diaMunicipal, idFrequencia, idPlano } from './dominio.js';
+import { MEIA_HORA, ms, gerarCodigo, diaMunicipal, idFrequencia, idPlano, cargoDe } from './dominio.js';
 import { serializavel, COLECOES } from './backup.js';
 
 let auth, db, configuracao, appPrincipal;
@@ -125,7 +125,7 @@ export async function trocarEmailDaConta(usuario, novoEmail) {
   if (novo === String(usuario.email).toLowerCase()) throw Error('O e-mail novo é igual ao atual.');
   if (await registrosDaConta(usuario.id)) throw Error('Esta conta já tem registros: a troca precisa ser feita pela própria profissional, em "Minha conta".');
   const perfil = {};
-  for (const k of ['nome', 'perfil', 'especialidade', 'escolas', 'registro_profissional', 'telefone', 'endereco', 'jornada', 'slots'])
+  for (const k of ['nome', 'perfil', 'especialidade', 'escolas', 'registro_profissional', 'telefone', 'endereco', 'jornada', 'slots', 'cargo'])
     if (usuario[k] !== undefined) perfil[k] = usuario[k];
   const uid = await criarContaComSenha(novo, perfil);
   await salvarUsuario(usuario.id, { ativo: false, excluido: true, motivo_exclusao: 'E-mail de login trocado para ' + novo, excluido_em: serverTimestamp() }, usuario);
@@ -149,7 +149,7 @@ export async function carregarOuCriarPerfil(u) {
   }
   const base = { nome: u.displayName || convite?.nome || u.email, email: u.email, criado_em: serverTimestamp() };
   const novo = convite
-    ? { ...base, perfil: convite.perfil, ativo: true, especialidade: convite.especialidade || '', escolas: convite.escolas || [] }
+    ? { ...base, perfil: convite.perfil, ativo: true, especialidade: convite.especialidade || '', escolas: convite.escolas || [], ...(convite.cargo ? { cargo: convite.cargo } : {}) }
     : { ...base, perfil: 'pendente', ativo: false };
   await writeBatch(db).set(ref, novo).commit();
   return { id: u.uid, ...novo };
@@ -160,7 +160,7 @@ export const listarUsuarios = async () => lista(await getDocs(collection(db, 'us
 // Campos aceitos pelas regras. Contas criadas na versão antiga podem ter outros campos:
 // a gravação reescreve o documento só com estes, preservando e-mail e data de criação.
 const CAMPOS_USUARIO = ['nome', 'email', 'perfil', 'ativo', 'excluido', 'gerenciar', 'escolas', 'especialidade', 'registro_profissional',
-  'telefone', 'jornada', 'slots', 'criado_em', 'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em'];
+  'telefone', 'jornada', 'slots', 'criado_em', 'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em', 'cargo'];
 export async function salvarUsuario(uid, dados, atual = {}) {
   const base = {};
   for (const k of CAMPOS_USUARIO) if (atual[k] !== undefined) base[k] = atual[k];
@@ -192,7 +192,7 @@ export const listarConvites = async () => lista(await getDocs(collection(db, 'co
 export async function salvarConvite(d) {
   const email = d.email.trim().toLowerCase();
   await writeBatch(db).set(doc(db, 'convites', email), {
-    email, nome: d.nome, perfil: d.perfil, especialidade: d.especialidade || '', escolas: d.escolas || [],
+    email, nome: d.nome, perfil: d.perfil, especialidade: d.especialidade || '', escolas: d.escolas || [], cargo: d.cargo || '',
     ativo: true, criado_por: uidAtual(), criado_em: serverTimestamp()
   }).commit();
 }
@@ -467,6 +467,17 @@ export async function registrarAcesso(perfil, estudante, acao = 'prontuario') {
     await enviar(writeBatch(db).set(doc(collection(db, 'acessos')), { uid: uidAtual(), nome: perfil.nome, perfil: perfil.perfil, estudante_id: estudante.id, escola_id: estudante.escola_id || '', acao, em: serverTimestamp() }), 'Registro de acesso');
   } catch (e) { ultimosAcessos.delete(chave); console.warn('acesso não registrado', e); }
 }
+/**
+ * Registro de impressão de documento: grava quem imprimiu (nome e cargo) e devolve o código
+ * do registro, que sai no rodapé. Não espera a gravação (a janela de impressão precisa abrir no clique).
+ */
+export function registrarImpressao(perfil, estudante, acao, documento = '') {
+  const ref = doc(collection(db, 'acessos'));
+  enviar(writeBatch(db).set(ref, { uid: uidAtual(), nome: perfil.nome, perfil: perfil.perfil, cargo: cargoDe(perfil).slice(0, 80), estudante_id: estudante.id, escola_id: estudante.escola_id || '', acao, documento: String(documento).slice(0, 100), em: serverTimestamp() }), 'Registro de impressão')
+    .catch(e => console.warn('impressão não registrada', e));
+  return ref.id.slice(0, 10).toUpperCase();
+}
+export const listarRelatoriosDaEscola = async (estudanteId, escolaId) => lista(await getDocs(query(collection(db, 'relatorios'), where('estudante_id', '==', estudanteId), where('escola_id', '==', escolaId))));
 export async function listarAcessos({ estudanteId, uid, de, ate } = {}) {
   const c = collection(db, 'acessos');
   if (estudanteId) return lista(await getDocs(query(c, where('estudante_id', '==', estudanteId))));

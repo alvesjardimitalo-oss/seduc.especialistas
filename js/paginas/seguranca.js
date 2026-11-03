@@ -5,7 +5,7 @@ import { PERFIS, diaMunicipal, somarDias, instante, formatarDataHora, formatarDa
 import { esc, vazio, aviso, erro, $ } from '../ui.js';
 import { criptografar, abrir, validarSenha } from '../backup.js';
 
-const ACOES = { prontuario: 'Abriu o prontuário', impressao: 'Imprimiu o prontuário', ficha_escola: 'Gerou ficha para a escola', relatorio: 'Imprimiu relatório' };
+const ACOES = { prontuario: 'Abriu o prontuário', impressao: 'Imprimiu o prontuário', ficha_escola: 'Imprimiu a ficha para a escola', relatorio: 'Imprimiu documento (relatório/parecer)' };
 const f = { de: '', ate: '', busca: '' };
 
 export async function render(main, vigente) {
@@ -22,8 +22,8 @@ export async function render(main, vigente) {
     + '<form class="filtros-linha" id="filtros"><label class="campo"><span>De</span><input type="date" name="de" value="' + esc(f.de) + '"></label><label class="campo"><span>Até</span><input type="date" name="ate" value="' + esc(f.ate) + '"></label>'
     + '<label class="campo busca-grande"><span>Pessoa ou aluno</span><input type="search" name="busca" value="' + esc(f.busca) + '" placeholder="Nome"></label></form>'
     + '<p class="nota">' + lista.length + ' acesso(s) · ' + pessoas + ' pessoa(s) · ' + alunos + ' aluno(s). Repetições do mesmo prontuário em 10 minutos contam uma vez.</p>'
-    + (lista.length ? '<table class="tabela"><thead><tr><th>Quando</th><th>Quem</th><th>Perfil</th><th>Aluno</th><th>Instituição</th><th>Ação</th></tr></thead><tbody>'
-      + lista.slice(0, 500).map(a => '<tr><td>' + esc(formatarDataHora(a.em)) + '</td><td>' + esc(a.nome) + '</td><td>' + esc(PERFIS[a.perfil] || a.perfil) + '</td><td><a href="#/aluno/' + esc(a.estudante_id) + '">' + esc(estudante(a.estudante_id)?.nome || a.estudante_id) + '</a></td><td>' + esc(a.escola_id ? escolaCurta(a.escola_id) : '—') + '</td><td>' + esc(ACOES[a.acao] || a.acao) + '</td></tr>').join('')
+    + (lista.length ? '<table class="tabela"><thead><tr><th>Quando</th><th>Quem</th><th>Cargo</th><th>Aluno</th><th>Instituição</th><th>Ação</th></tr></thead><tbody>'
+      + lista.slice(0, 500).map(a => '<tr><td>' + esc(formatarDataHora(a.em)) + '</td><td>' + esc(a.nome) + '</td><td>' + esc(a.cargo || PERFIS[a.perfil] || a.perfil) + '</td><td><a href="#/aluno/' + esc(a.estudante_id) + '">' + esc(estudante(a.estudante_id)?.nome || a.estudante_id) + '</a></td><td>' + esc(a.escola_id ? escolaCurta(a.escola_id) : '—') + '</td><td>' + esc(ACOES[a.acao] || a.acao) + (a.acao !== 'prontuario' ? '<br><small class="nota">Registro ' + esc(a.id.slice(0, 10).toUpperCase()) + '</small>' : '') + '</td></tr>').join('')
       + '</tbody></table>' : vazio('Nenhum acesso no período.'))
     + '</section>'
     + '<section class="cartao"><h2>Cópia de segurança</h2>'
@@ -39,7 +39,7 @@ export async function render(main, vigente) {
 
   let t;
   $('#filtros', main).oninput = ev => { clearTimeout(t); t = setTimeout(() => { Object.assign(f, Object.fromEntries(new FormData(ev.currentTarget))); render(main, vigente); }, ev.target.name === 'busca' ? 300 : 0); };
-  $('#csv-acessos', main).onclick = () => baixar(csv([['Quando', 'Quem', 'Perfil', 'Código do aluno', 'Instituição', 'Ação']].concat(lista.map(a => [formatarDataHora(a.em), a.nome, PERFIS[a.perfil] || a.perfil, a.estudante_id.slice(-6), a.escola_id ? escolaCurta(a.escola_id) : '', ACOES[a.acao] || a.acao]))), 'acessos_' + f.de + '_' + f.ate + '.csv', 'text/csv;charset=utf-8');
+  $('#csv-acessos', main).onclick = () => baixar(csv([['Quando', 'Quem', 'Cargo', 'Código do aluno', 'Instituição', 'Ação']].concat(lista.map(a => [formatarDataHora(a.em), a.nome, a.cargo || PERFIS[a.perfil] || a.perfil, a.estudante_id.slice(-6), a.escola_id ? escolaCurta(a.escola_id) : '', ACOES[a.acao] || a.acao]))), 'acessos_' + f.de + '_' + f.ate + '.csv', 'text/csv;charset=utf-8');
 
   $('#form-backup', main).onsubmit = async ev => {
     ev.preventDefault();
@@ -80,6 +80,6 @@ export async function quemAcessou(e) {
   try {
     const lista = (await dados.listarAcessos({ estudanteId: e.id })).sort((a, b) => ms(b.em) - ms(a.em));
     modal({ titulo: 'Quem acessou — ' + e.nome, somenteLeitura: true, largo: true,
-      corpo: lista.length ? '<table class="tabela"><thead><tr><th>Quando</th><th>Quem</th><th>Perfil</th><th>Ação</th></tr></thead><tbody>' + lista.slice(0, 300).map(a => '<tr><td>' + esc(formatarDataHora(a.em)) + '</td><td>' + esc(a.nome) + '</td><td>' + esc(PERFIS[a.perfil] || a.perfil) + '</td><td>' + esc(ACOES[a.acao] || a.acao) + '</td></tr>').join('') + '</tbody></table>' : vazio('Nenhum acesso registrado.', 'Os acessos passaram a ser registrados a partir desta versão do sistema.') });
+      corpo: lista.length ? '<table class="tabela"><thead><tr><th>Quando</th><th>Quem</th><th>Cargo</th><th>Ação</th></tr></thead><tbody>' + lista.slice(0, 300).map(a => '<tr><td>' + esc(formatarDataHora(a.em)) + '</td><td>' + esc(a.nome) + '</td><td>' + esc(a.cargo || PERFIS[a.perfil] || a.perfil) + '</td><td>' + esc(ACOES[a.acao] || a.acao) + '</td></tr>').join('') + '</tbody></table>' : vazio('Nenhum acesso registrado.', 'Os acessos passaram a ser registrados a partir desta versão do sistema.') });
   } catch (err) { erro(err); }
 }

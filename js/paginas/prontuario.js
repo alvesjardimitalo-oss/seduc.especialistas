@@ -11,7 +11,7 @@ import { carregarPedidos, podePedir } from './fila.js';
 import { quemAcessou } from './seguranca.js';
 import { esc, iniciais, vazio, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from '../ui.js';
 import { chipsAcompanhamento } from './alunos.js';
-import { imprimirProntuario, imprimirRelatorio, imprimirFichaEscola } from '../impressao.js';
+import { imprimirProntuario, imprimirRelatorio, imprimirFichaEscola, definirRegistro } from '../impressao.js';
 
 const ABAS = [['prontuario', 'Prontuário'], ['agenda', 'Agenda'], ['relatorios', 'Relatórios'], ['ficha', 'Ficha cadastral']];
 let filtroEsp = '', mostrarAnulados = false;
@@ -20,7 +20,7 @@ export async function render(main, vigente) {
   const id = S.rota.id, e = estudante(id);
   if (!e) { main.innerHTML = '<div class="alerta-caixa erro">Aluno não encontrado ou fora do seu acesso.</div><a href="#/alunos" class="btn sec">← Voltar</a>'; return; }
   const aba = ABAS.some(([k]) => k === S.rota.aba) ? S.rota.aba : 'prontuario';
-  const clinico = pode.clinico();
+  const clinico = pode.clinico(), direcao = S.perfil.perfil === 'direcao';
   const veContato = clinico || pode.gerenciar() || ['direcao', 'pedagogico'].includes(S.perfil.perfil);
   dados.registrarAcesso(S.perfil, e, 'prontuario');
   const [atendimentos, registros, agenda, privado, saude, relatorios, condicoes, planos, pedidos] = await Promise.all([
@@ -29,7 +29,7 @@ export async function render(main, vigente) {
     dados.listarAgendamentos({ estudanteId: id }),
     veContato ? dados.lerDoc('estudantes_privado', id).then(x => x || {}).catch(() => null) : null,
     clinico ? dados.lerDoc('estudantes_clinico', id).catch(() => null) : null,
-    clinico ? dados.listarRelatorios(id) : [],
+    clinico ? dados.listarRelatorios(id) : direcao ? dados.listarRelatoriosDaEscola(id, e.escola_id).catch(() => []) : [],
     clinico ? dados.listarCondicoes(id).catch(() => []) : [],
     clinico ? dados.listarPlanos(id).catch(() => []) : [],
     carregarPedidos().then(l => l.filter(p => p.estudante_id === id)).catch(() => [])
@@ -55,7 +55,7 @@ export async function render(main, vigente) {
     + '</div></header>'
     + pedidos.filter(p => p.situacao === 'aguardando').map(p => '<div class="faixa-proximo faixa-fila">Na fila de espera de <strong>' + esc(ESPECIALIDADES[p.especialidade]) + '</strong> desde ' + esc(formatarData(p.criado_em)) + ' (' + diasDeEspera(p) + ' dia(s))' + (p.prioridade === 'alta' ? ' · prioridade alta' : '') + ' · <a href="#/fila">ver fila</a></div>').join('')
     + (proximo ? '<div class="faixa-proximo">Próximo atendimento: <strong>' + esc(formatarDataHora(proximo.inicio)) + '</strong> com ' + esc(proximo.profissional_nome) + ' (' + esc(ESPECIALIDADES[proximo.especialidade]) + ')</div>' : '')
-    + '<nav class="abas" role="tablist">' + ABAS.filter(([k]) => k !== 'relatorios' || clinico).map(([k, t]) => '<a role="tab" href="#/aluno/' + esc(id) + '/' + k + '" aria-selected="' + (aba === k) + '" class="' + (aba === k ? 'ativa' : '') + '">' + t
+    + '<nav class="abas" role="tablist">' + ABAS.filter(([k]) => k !== 'relatorios' || clinico || direcao).map(([k, t]) => '<a role="tab" href="#/aluno/' + esc(id) + '/' + k + '" aria-selected="' + (aba === k) + '" class="' + (aba === k ? 'ativa' : '') + '">' + t
       + (k === 'prontuario' ? ' <span class="contagem">' + atendimentos.filter(a => a.situacao !== 'anulado').length + '</span>' : '')
       + (k === 'relatorios' ? ' <span class="contagem">' + relatorios.length + '</span>' : '') + '</a>').join('') + '</nav>';
 
@@ -92,7 +92,7 @@ export async function render(main, vigente) {
   $$('[data-anular]', main).forEach(b => b.onclick = () => anularAtendimento(atendimentos.find(x => x.id === b.dataset.anular)));
   $$('[data-versoes]', main).forEach(b => b.onclick = () => verVersoes(b.dataset.versoes));
   $$('[data-agendamento]', main).forEach(b => b.onclick = () => abrirAgendamento(agenda.find(x => x.id === b.dataset.agendamento)));
-  $$('[data-imprimir-rel]', main).forEach(b => b.onclick = () => { dados.registrarAcesso(S.perfil, e, 'relatorio'); imprimirRelatorio(relatorios.find(r => r.id === b.dataset.imprimirRel), e); });
+  $$('[data-imprimir-rel]', main).forEach(b => b.onclick = () => { const r = relatorios.find(x => x.id === b.dataset.imprimirRel); definirRegistro(dados.registrarImpressao(S.perfil, e, 'relatorio', r.id)); imprimirRelatorio(r, e); });
   $('[data-expandir-todos]', main)?.addEventListener('click', ev => { const abrir = ev.target.dataset.expandirTodos !== '1'; $$('.card-atendimento', main).forEach(d => d.open = abrir); ev.target.dataset.expandirTodos = abrir ? '1' : '0'; ev.target.textContent = abrir ? 'Recolher todos' : 'Expandir todos'; });
 }
 
@@ -196,7 +196,8 @@ const TIPOS_REL = { relatorio: 'Relatório de acompanhamento', parecer: 'Parecer
 function abaRelatorios(relatorios) {
   const lista = relatorios.slice().sort((a, b) => ms(b.criado_em) - ms(a.criado_em));
   return '<section class="cartao"><header class="cartao-topo"><h2>Documentos emitidos</h2>' + (pode.registrar() ? '<button class="btn" data-acao="relatorio">+ Emitir relatório</button>' : '') + '</header>'
-    + '<p class="nota">Relatórios, pareceres e devolutivas ficam guardados aqui com autoria e data. Documentos emitidos não são alterados: para complementar, emita um novo.</p>'
+    + '<p class="nota">Relatórios, pareceres e devolutivas ficam guardados aqui com autoria e data. Documentos emitidos não são alterados: para complementar, emita um novo.'
+    + ' Toda impressão fica registrada com o nome e o cargo de quem imprimiu, que também saem no rodapé do documento.</p>'
     + (lista.length ? lista.map(r => '<details class="card-atendimento esp-' + esc(r.especialidade) + '"><summary><span class="card-data"><b>' + esc(formatarData(r.criado_em).slice(0, 5)) + '</b><small>' + esc(formatarData(r.criado_em).slice(6)) + '</small></span><span class="card-info"><span class="card-linha1"><strong>' + esc(r.titulo) + '</strong><span class="tag-esp esp-' + esc(r.especialidade) + '">' + esc(TIPOS_REL[r.tipo]) + '</span></span><small>' + esc(r.profissional_nome) + ' · ' + esc(ESPECIALIDADES[r.especialidade]) + (r.destinatario ? ' · Para: ' + esc(r.destinatario) : '') + '</small></span><span class="seta">⌄</span></summary><div class="card-corpo"><div class="secao"><p>' + esc(r.texto) + '</p></div><div class="acoes-linha pequeno"><button type="button" class="btn sec pequeno" data-imprimir-rel="' + esc(r.id) + '">Imprimir / salvar PDF</button></div></div></details>').join('')
       : vazio('Nenhum documento emitido.'))
     + '</section>';
@@ -260,7 +261,7 @@ function opcoesImpressao(e, atendimentos, reg, privado, saude, planos = []) {
     corpo: '<div class="grade">' + opcoes('especialidade', 'Especialidade', [['', 'Todas'], ...Object.entries(ESPECIALIDADES)]) + campo('de', 'De', { tipo: 'date' }) + campo('ate', 'Até', { tipo: 'date', valor: hoje }) + '</div><p class="nota">O documento abre em nova janela para imprimir ou salvar em PDF. Contém dados sensíveis: entregue somente a quem tem direito.</p>',
     aoSalvar: async d => {
       const lista = linhaDoTempo(atendimentos, { especialidade: d.especialidade, incluirAnulados: false }).filter(a => noPeriodo(a.data, d.de, d.ate)).reverse();
-      dados.registrarAcesso(S.perfil, e, 'impressao');
+      definirRegistro(dados.registrarImpressao(S.perfil, e, 'impressao'));
       imprimirProntuario({ estudante: e, privado, saude, atendimentos: lista, registros: reg, filtros: d, planos: planos.filter(p => !d.especialidade || p.especialidade === d.especialidade) });
     }
   });
@@ -271,7 +272,7 @@ function fichaEscola(e, atendimentos, agenda, saude, clinico) {
     titulo: 'Ficha para a professora', botao: 'Gerar ficha',
     corpo: '<p>Resumo de uma página para a professora e a escola: quem acompanha o aluno, as orientações para a sala de aula e os próximos atendimentos. <strong>Não inclui o registro clínico.</strong></p>'
       + (clinico && saude?.necessidade_informada ? '<label class="check"><input type="checkbox" name="condicao"> Incluir a condição informada (' + esc(saude.necessidade_informada) + ') — somente com autorização da família</label>' : ''),
-    aoSalvar: async d => (dados.registrarAcesso(S.perfil, e, 'ficha_escola'), imprimirFichaEscola({ estudante: e, atendimentos, agenda, condicao: d.condicao ? saude.necessidade_informada : '' }))
+    aoSalvar: async d => (definirRegistro(dados.registrarImpressao(S.perfil, e, 'ficha_escola')), imprimirFichaEscola({ estudante: e, atendimentos, agenda, condicao: d.condicao ? saude.necessidade_informada : '' }))
   });
 }
 

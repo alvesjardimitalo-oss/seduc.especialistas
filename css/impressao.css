@@ -22,5 +22,6 @@ h2 { font-size: 12pt; margin: 16px 0 6px; border-bottom: 1px solid #bbb; padding
 .assinaturas { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; margin-top: 42px; page-break-inside: avoid; }
 .assinatura { display: grid; text-align: center; min-width: 240px; } .assinatura span { border-top: 1px solid #000; margin-bottom: 4px; }
 .assinatura small { color: #333; }
+.doc-log { font-size: 9pt; color: #111; border: 1px solid #999; padding: 3px 6px; margin-bottom: 4px; }
 .doc-rodape { margin-top: 28px; font-size: 8.5pt; color: #555; border-top: 1px solid #ccc; padding-top: 6px; }
 .doc-nota { font-size: 9.5pt; color: #444; }

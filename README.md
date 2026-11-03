@@ -15,6 +15,8 @@ Cada consulta tem um **código único** (ex.: `C261030-7K3F`) e abre numa janela
 
 **Adaptações para a escola:** orientação para a professora/escola em cada consulta (a direção lê; o registro clínico não), calendário escolar (férias, recesso e feriados bloqueiam a agenda também no servidor), tipos de atendimento escolares (observação em sala, grupo, reunião com professora/família), painel com "Hoje na escola" e ficha de uma página para a professora.
 
+**Registro de impressão:** todo documento impresso (prontuário, relatório/parecer/devolutiva, ficha para a escola) sai com o rodapé *Impresso por: nome — cargo · data e hora · código do registro*, e a impressão fica gravada em *Segurança*.
+
 **Versão 2.2:** fila de espera com pedidos da escola, frequência das especialistas (horas previstas × cumpridas), registro de quem acessou cada prontuário, plano de metas com gráfico de evolução, funcionamento sem internet, cópia de segurança criptografada (manual e semanal), lembrete por WhatsApp sem dado clínico, feriados nacionais automáticos e painel da Secretaria com os últimos 12 meses. Detalhes em [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md).
 
 ## Como funciona
@@ -23,7 +25,7 @@ Cada consulta tem um **código único** (ex.: `C261030-7K3F`) e abre numa janela
 |---|---|
 | **Especialista** (fono, neuropsico, psicopedagoga) | Cadastra alunos, registra atendimentos no prontuário, agenda nos próprios horários, emite relatórios. Lê o prontuário completo de **todos** os alunos da rede, porque a equipe é única. Só corrige os próprios registros. |
 | **Secretaria de Educação** | Vê a agenda, os indicadores e os relatórios gerenciais. Com a opção *gerenciar*, também libera contas, define jornadas e cadastra escolas e alunos. **Não lê o texto clínico.** |
-| **Direção escolar** | Cadastra os alunos da própria escola com o motivo do encaminhamento, agenda nos horários livres da equipe e cria/desativa o acesso da equipe pedagógica da escola. Acompanha datas, faltas e a evolução. **Não lê o texto clínico.** |
+| **Direção escolar** (diretor, vice-diretor, secretaria escolar — cadastrados pela Secretaria/Administração com o cargo) | Cadastra os alunos da própria escola com o motivo do encaminhamento, vê consultas e agendamentos, agenda nos horários livres da equipe, **lê e imprime os documentos emitidos** (relatórios, pareceres, devolutivas) de qualquer especialidade e cria/desativa o acesso da equipe pedagógica da escola. Acompanha datas, faltas e a evolução. **Não lê o texto clínico.** |
 | **Equipe pedagógica da escola** (supervisão/coordenação) | Acesso criado pela direção da escola (a pessoa recebe e-mail para criar a senha). Cadastra alunos da própria escola e pede atendimento (fila de espera); vê agenda, faltas e as orientações para a escola. **Não agenda e não lê o texto clínico.** |
 | **Administração** | Faz tudo o que a Secretaria faz e ainda pode anular registros com justificativa. |
 

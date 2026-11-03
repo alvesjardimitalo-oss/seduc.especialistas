@@ -3,8 +3,8 @@
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta, especialistas, escolasDaPessoa } from '../estado.js';
 import {
-  ESPECIALIDADES, SITUACAO_FREQ, DIAS, diaMunicipal, diaDaSemana, somarDias, instante, horaMunicipal, formatarData, ms,
-  jornadaPrevista, resumoFrequencia, minutosTrabalhados, formatarHoras, faixaDoHorario, csv
+  ESPECIALIDADES, SITUACAO_FREQ, cargoDe, DIAS, diaMunicipal, diaDaSemana, somarDias, instante, horaMunicipal, formatarData, ms,
+  jornadaPrevista, resumoFrequencia, formatarDataHora, minutosTrabalhados, formatarHoras, faixaDoHorario, csv
 } from '../dominio.js';
 import { esc, vazio, modal, campo, area, opcoes, aviso, erro, imprimir, $, $$ } from '../ui.js';
 
@@ -122,7 +122,7 @@ async function frequenciaDaEquipe(main, vigente, { hoje, de, ate }) {
   $('#imprimir', main).onclick = () => imprimir('Frequência ' + mes, '<header class="doc-cab"><div class="doc-cab-txt"><strong>Prefeitura Municipal de Frei Inocêncio/MG</strong><span>Secretaria Municipal de Educação · Atendimento Educacional Especializado</span></div><h1>Frequência da equipe — ' + esc(dataBR(de).slice(3)) + '</h1></header>'
     + '<table class="doc-tab"><thead><tr><th>Profissional</th><th>Previstos</th><th>Presenças</th><th>Faltas</th><th>Justif.</th><th>Sem reg.</th><th>Horas prev.</th><th>Horas cumpr.</th></tr></thead><tbody>'
     + linhas.map(x => '<tr><td>' + esc(x.u.nome) + '</td><td class="num">' + x.r.diasPrevistos + '</td><td class="num">' + x.r.presencas + '</td><td class="num">' + x.r.faltas + '</td><td class="num">' + x.r.justificadas + '</td><td class="num">' + x.r.semRegistro.length + '</td><td class="num">' + formatarHoras(x.r.minutosPrevistos) + '</td><td class="num">' + formatarHoras(x.r.minutosCumpridos) + '</td></tr>').join('')
-    + '</tbody></table><div class="assinaturas"><div class="assinatura"><span></span><strong>Secretaria Municipal de Educação</strong></div></div><footer class="doc-rodape">Gerado em ' + esc(formatarData(Date.now())) + ' por ' + esc(S.perfil.nome) + ' · SEDUC Especialistas.</footer>');
+    + '</tbody></table><div class="assinaturas"><div class="assinatura"><span></span><strong>Secretaria Municipal de Educação</strong></div></div><footer class="doc-rodape"><div class="doc-log"><b>Impresso por:</b> ' + esc(S.perfil.nome) + ' — ' + esc(cargoDe(S.perfil)) + ' · <b>em</b> ' + esc(formatarDataHora(Date.now())) + '</div>SEDUC Especialistas.</footer>');
 }
 
 function detalhe(x, { hoje, de, ate }, main, vigente) {

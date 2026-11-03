@@ -1,6 +1,6 @@
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta } from '../estado.js';
-import { ESPECIALIDADES, PERFIS, DIAS, prepararJornada, resumoJornada, formatarData } from '../dominio.js';
+import { ESPECIALIDADES, PERFIS, CARGOS, DIAS, prepararJornada, resumoJornada, formatarData } from '../dominio.js';
 import { esc, iniciais, vazio, modal, campo, area, opcoes, aviso, erro, $, $$ } from '../ui.js';
 
 let mostrarExcluidos = false;
@@ -29,7 +29,7 @@ export async function render(main, vigente) {
   }
   if (gerencia && pendentes.length) h += '<section class="cartao destaque"><h2>Aguardando liberação (' + pendentes.length + ')</h2><p class="nota">Pessoas que entraram com Google e ainda não têm acesso. Confira o e-mail antes de liberar.</p>' + pendentes.map(linha).join('') + '</section>';
   h += '<section class="cartao"><h2>Especialistas</h2>' + (esp.length ? esp.map(linha).join('') : vazio('Nenhuma especialista cadastrada.', gerencia ? 'Autorize o e-mail Google de cada profissional.' : '')) + '</section>';
-  if (gerencia || S.perfil.perfil === 'secretaria') h += '<section class="cartao"><h2>Gestão e direções</h2>' + (outros.length ? outros.map(linha).join('') : vazio('Nenhuma conta.')) + '</section>';
+  if (gerencia || S.perfil.perfil === 'secretaria') h += '<section class="cartao"><h2>Gestão e escolas (direção, vice-direção, secretaria escolar e equipe pedagógica)</h2>' + (outros.length ? outros.map(linha).join('') : vazio('Nenhuma conta.')) + '</section>';
   if (gerencia) h += '<section class="cartao"><h2>Autorizações por e-mail</h2><p class="nota">A pessoa entra com a conta Google deste e-mail e o acesso é liberado automaticamente.</p>'
     + (convites.length ? '<table class="tabela"><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Situação</th><th></th></tr></thead><tbody>' + convites.map(c => {
       const usado = usuarios.some(u => String(u.email).toLowerCase() === c.email);
@@ -69,7 +69,7 @@ export async function render(main, vigente) {
   function linhaPedagogica(u) {
     const situacao = u.excluido ? '<span class="selo s-cancelado">Desativado</span>' : '';
     return '<div class="pessoa"><span class="avatar">' + esc(iniciais(u.nome)) + '</span><div class="pessoa-info"><strong>' + esc(u.nome) + ' ' + situacao + '</strong>'
-      + '<small>' + esc(u.email) + ' · ' + esc((u.escolas || []).map(escolaCurta).join(', ')) + '</small>'
+      + '<small>' + esc(u.cargo || 'Equipe pedagógica') + ' · ' + esc(u.email) + ' · ' + esc((u.escolas || []).map(escolaCurta).join(', ')) + '</small>'
       + (u.excluido && u.motivo_exclusao ? '<span class="nota">' + esc(u.motivo_exclusao) + '</span>' : '') + '</div><div class="acoes-linha">'
       + (u.excluido ? '<button class="btn sec pequeno" data-ped-reativar="' + esc(u.id) + '">Reativar</button>'
         : '<button class="btn sec pequeno" data-ped-link="' + esc(u.email) + '">Reenviar link de senha</button><button class="btn sec pequeno perigo" data-ped-desativar="' + esc(u.id) + '">Desativar</button>')
@@ -78,7 +78,8 @@ export async function render(main, vigente) {
   function novoPedagogico() {
     const form = modal({
       titulo: 'Acesso da equipe pedagógica', botao: 'Criar acesso',
-      corpo: '<div class="grade">' + campo('nome', 'Nome completo', { obrig: true, extra: 'maxlength="180"' }) + campo('email', 'E-mail', { tipo: 'email', obrig: true, extra: 'maxlength="200"' }) + '</div>'
+      corpo: '<div class="grade">' + campo('nome', 'Nome completo', { obrig: true, extra: 'maxlength="180"' }) + campo('email', 'E-mail', { tipo: 'email', obrig: true, extra: 'maxlength="200"' })
+        + opcoes('cargo', 'Cargo', CARGOS.pedagogico.map(c => [c, c]), { obrig: true, vazio: 'Selecione' }) + '</div>'
         + (minhas.length > 1 ? '<div class="campo largo"><span>Escola(s)</span><div class="checks">' + minhas.map(id => '<label class="check"><input type="checkbox" name="escolas" data-lista value="' + esc(id) + '" checked> ' + esc(escolaCurta(id)) + '</label>').join('') + '</div></div>'
           : '<p class="nota">Escola: <strong>' + esc(escolaCurta(minhas[0])) + '</strong></p>')
         + '<p class="nota">O sistema cria o login e envia ao e-mail um link para a pessoa <strong>criar a própria senha</strong> (confira a caixa de spam). Ninguém mais conhece a senha.</p>',
@@ -87,7 +88,7 @@ export async function render(main, vigente) {
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw Error('E-mail inválido.');
         const escolas = minhas.length > 1 ? (d.escolas || []) : minhas;
         if (!escolas.length) throw Error('Selecione a escola.');
-        await dados.criarContaComSenha(email, { nome: d.nome.trim(), perfil: 'pedagogico', especialidade: '', escolas });
+        await dados.criarContaComSenha(email, { nome: d.nome.trim(), perfil: 'pedagogico', cargo: d.cargo, especialidade: '', escolas });
         aviso('Acesso criado. ' + email + ' vai receber um e-mail para criar a senha.'); render(main, vigente);
       }
     });
@@ -99,7 +100,7 @@ export async function render(main, vigente) {
   });
 
   function linha(u) {
-    const papel = u.perfil === 'especialista' ? ESPECIALIDADES[u.especialidade] || 'Especialidade não definida' : PERFIS[u.perfil] || u.perfil;
+    const papel = u.perfil === 'especialista' ? ESPECIALIDADES[u.especialidade] || 'Especialidade não definida' : u.cargo || PERFIS[u.perfil] || u.perfil;
     const situacao = u.excluido ? '<span class="selo s-cancelado">Excluído</span>' : !u.ativo && u.perfil !== 'pendente' ? '<span class="selo s-cancelado">Desativado</span>' : '';
     const protegido = u.id === S.user.uid || (u.perfil === 'superadmin' && !pode.admin());
     let botoes = '';
@@ -119,8 +120,11 @@ export async function render(main, vigente) {
     const perfis = [['especialista', 'Especialista'], ['direcao', 'Direção escolar'], ['pedagogico', 'Equipe pedagógica da escola'], ...(pode.admin() ? [['secretaria', 'Secretaria de Educação'], ['superadmin', 'Administração']] : u.perfil === 'secretaria' ? [['secretaria', 'Secretaria de Educação']] : [])];
     return '<div class="grade">' + opcoes('perfil', 'Perfil de acesso', perfis, { valor: u.perfil === 'pendente' ? 'especialista' : u.perfil, obrig: true, extra: 'data-perfil' })
       + opcoes('especialidade', 'Especialidade', ESPECIALIDADES, { valor: u.especialidade || '', vazio: 'Selecione', extra: 'data-so="especialista"' })
+      + opcoes('cargo_direcao', 'Cargo na escola', CARGOS.direcao.map(c => [c, c]), { valor: u.perfil === 'direcao' ? u.cargo || '' : '', vazio: 'Selecione', extra: 'data-so="direcao"' })
+      + opcoes('cargo_pedagogico', 'Cargo na escola', CARGOS.pedagogico.map(c => [c, c]), { valor: u.perfil === 'pedagogico' ? u.cargo || '' : '', vazio: 'Selecione', extra: 'data-so="pedagogico"' })
       + '</div><div class="campo largo" data-so="direcao pedagogico especialista"><span>Instituições que atende <small>(especialista: deixe em branco se atende todas; direção e equipe pedagógica: a escola da pessoa)</small></span><div class="checks">' + S.escolas.map(e => '<label class="check"><input type="checkbox" name="escolas" data-lista value="' + esc(e.id) + '"' + ((u.escolas || []).includes(e.id) ? ' checked' : '') + '> ' + esc(escolaCurta(e.id)) + '</label>').join('') + '</div></div>';
   }
+  function cargoDoForm(d) { return d.perfil === 'direcao' ? d.cargo_direcao || '' : d.perfil === 'pedagogico' ? d.cargo_pedagogico || '' : ''; }
   function ligarPerfil(form) {
     const atualizar = () => { const p = form.perfil.value; $$('[data-so]', form).forEach(el => { const ok = el.dataset.so.split(' ').includes(p); (el.closest('label.campo') || el).hidden = !ok; if (el.tagName === 'SELECT') el.required = ok; }); };
     form.perfil.onchange = atualizar; atualizar();
@@ -145,7 +149,7 @@ export async function render(main, vigente) {
       aoSalvar: async (d, f) => {
         const faixas = $$('.jornada-linha', f).map(l => ({ dia: l.querySelector('[name=j_dia]').value, inicio: l.querySelector('[name=j_ini]').value, fim: l.querySelector('[name=j_fim]').value, escola_id: l.querySelector('[name=j_local]').value }));
         const novo = { nome: d.nome.trim(), perfil: d.perfil, registro_profissional: d.registro_profissional.trim(), telefone: d.telefone.trim(), endereco: d.endereco.trim(),
-          ativo: u.id === S.user.uid ? true : Boolean(d.ativo), excluido: false, escolas: ['direcao', 'pedagogico', 'especialista'].includes(d.perfil) ? (d.escolas || []) : [], especialidade: d.perfil === 'especialista' ? d.especialidade : '' };
+          cargo: cargoDoForm(d), ativo: u.id === S.user.uid ? true : Boolean(d.ativo), excluido: false, escolas: ['direcao', 'pedagogico', 'especialista'].includes(d.perfil) ? (d.escolas || []) : [], especialidade: d.perfil === 'especialista' ? d.especialidade : '' };
         if (pode.admin() && u.id !== S.user.uid) novo.gerenciar = d.perfil === 'secretaria' && Boolean(d.gerenciar);
         if (d.perfil === 'especialista') {
           if (!d.especialidade) throw Error('Selecione a especialidade.');
@@ -242,7 +246,7 @@ export async function render(main, vigente) {
         if (d.perfil === 'especialista' && !d.especialidade) throw Error('Selecione a especialidade.');
         if (['direcao', 'pedagogico'].includes(d.perfil) && !(d.escolas || []).length) throw Error('Selecione a(s) escola(s).');
         if (d.perfil === 'superadmin') throw Error('Administradores são definidos apenas na conta já existente.');
-        const perfil = { nome: d.nome.trim(), perfil: d.perfil, especialidade: d.perfil === 'especialista' ? d.especialidade : '', escolas: ['direcao', 'pedagogico', 'especialista'].includes(d.perfil) ? (d.escolas || []) : [] };
+        const perfil = { nome: d.nome.trim(), perfil: d.perfil, cargo: cargoDoForm(d), especialidade: d.perfil === 'especialista' ? d.especialidade : '', escolas: ['direcao', 'pedagogico', 'especialista'].includes(d.perfil) ? (d.escolas || []) : [] };
         if (d.modo === 'senha') {
           await dados.criarContaComSenha(d.email, { ...perfil, ...(d.perfil === 'especialista' ? { jornada: [], slots: [] } : {}) });
           aviso('Acesso criado. ' + d.email.trim() + ' vai receber um e-mail para definir a senha. Lembre de cadastrar a jornada.');

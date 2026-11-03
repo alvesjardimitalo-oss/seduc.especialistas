@@ -1,6 +1,6 @@
 // Documentos para impressão / PDF (gerados no navegador, sem envio a terceiros).
 import { S, nomeEscola, escolaCurta } from './estado.js';
-import { LOGO_SEDUC, logoEscola, ESCALA_META, SITUACAO_META, seriesDasMetas, ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms, secoesRegistro } from './dominio.js';
+import { LOGO_SEDUC, logoEscola, cargoDe, ESCALA_META, SITUACAO_META, seriesDasMetas, ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms, secoesRegistro } from './dominio.js';
 import { esc, imprimir } from './ui.js';
 
 const urlAbs = c => new URL(c, location.href).href;
@@ -12,7 +12,16 @@ const cabecalho = (titulo, escolaId = '') => {
     + (logo ? '<img class="doc-logo" src="' + urlAbs(logo) + '" alt="Logotipo da escola">' : '<span class="doc-logo"></span>') + '</div><h1>' + esc(titulo) + '</h1></header>';
 };
 const dataBR = d => d ? formatarData(d + 'T12:00:00-03:00') : '';
-const rodape = () => '<footer class="doc-rodape">Documento gerado em ' + esc(formatarDataHora(Date.now())) + ' por ' + esc(S.perfil.nome) + ' · SEDUC Especialistas. Contém dados pessoais sensíveis de criança (LGPD, arts. 11 e 14): uso restrito à finalidade do atendimento.</footer>';
+// Código do registro de impressão (gravado em "acessos"), definido logo antes de imprimir.
+let registro = '';
+export const definirRegistro = cod => { registro = cod || ''; };
+const rodape = () => {
+  const r = '<footer class="doc-rodape"><div class="doc-log"><b>Impresso por:</b> ' + esc(S.perfil.nome) + ' — ' + esc(cargoDe(S.perfil)) + ' · <b>em</b> ' + esc(formatarDataHora(Date.now()))
+    + (registro ? ' · <b>Registro de impressão:</b> ' + esc(registro) : '') + '</div>'
+    + 'SEDUC Especialistas — Secretaria Municipal de Educação de Frei Inocêncio/MG. Contém dados pessoais sensíveis de criança (LGPD, arts. 11 e 14): uso restrito à finalidade do atendimento; não reproduza nem compartilhe.</footer>';
+  registro = '';
+  return r;
+};
 const assinatura = (nome, esp, reg) => '<div class="assinatura"><span></span><strong>' + esc(nome) + '</strong><small>' + esc(ESPECIALIDADES[esp] || '') + (reg ? ' · ' + esc(reg) : '') + '</small></div>';
 
 function identificacao(e) {
