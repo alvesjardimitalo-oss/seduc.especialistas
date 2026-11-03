@@ -1,9 +1,16 @@
 // Documentos para impressão / PDF (gerados no navegador, sem envio a terceiros).
 import { S, nomeEscola, escolaCurta } from './estado.js';
-import { ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms, secoesRegistro } from './dominio.js';
+import { LOGO_SEDUC, logoEscola, ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms, secoesRegistro } from './dominio.js';
 import { esc, imprimir } from './ui.js';
 
-const cabecalho = titulo => '<header class="doc-cab"><div><strong>Prefeitura Municipal de Frei Inocêncio/MG</strong><span>Secretaria Municipal de Educação · Atendimento Educacional Especializado</span></div><h1>' + esc(titulo) + '</h1></header>';
+const urlAbs = c => new URL(c, location.href).href;
+/** Cabeçalho oficial: logotipo da SEDUC à esquerda e, se houver, o da escola à direita. */
+const cabecalho = (titulo, escolaId = '') => {
+  const logo = escolaId ? logoEscola(S.escolas.find(x => x.id === escolaId)) : '';
+  return '<header class="doc-cab"><div class="doc-cab-linha"><img class="doc-logo" src="' + urlAbs(LOGO_SEDUC) + '" alt="SEDUC Frei Inocêncio">'
+    + '<div class="doc-cab-txt"><strong>Prefeitura Municipal de Frei Inocêncio/MG</strong><span>Secretaria Municipal de Educação · Atendimento Educacional Especializado</span>' + (escolaId ? '<span class="doc-cab-escola">' + esc(nomeEscola(escolaId)) + '</span>' : '') + '</div>'
+    + (logo ? '<img class="doc-logo" src="' + urlAbs(logo) + '" alt="Logotipo da escola">' : '<span class="doc-logo"></span>') + '</div><h1>' + esc(titulo) + '</h1></header>';
+};
 const dataBR = d => d ? formatarData(d + 'T12:00:00-03:00') : '';
 const rodape = () => '<footer class="doc-rodape">Documento gerado em ' + esc(formatarDataHora(Date.now())) + ' por ' + esc(S.perfil.nome) + ' · SEDUC Especialistas. Contém dados pessoais sensíveis de criança (LGPD, arts. 11 e 14): uso restrito à finalidade do atendimento.</footer>';
 const assinatura = (nome, esp, reg) => '<div class="assinatura"><span></span><strong>' + esc(nome) + '</strong><small>' + esc(ESPECIALIDADES[esp] || '') + (reg ? ' · ' + esc(reg) : '') + '</small></div>';
@@ -18,7 +25,7 @@ function identificacao(e) {
 export function imprimirProntuario({ estudante: e, privado, saude, atendimentos, registros, filtros }) {
   const profs = new Map();
   for (const a of atendimentos) profs.set(a.profissional_uid, a);
-  let h = cabecalho('Prontuário de acompanhamento especializado') + identificacao(e)
+  let h = cabecalho('Prontuário de acompanhamento especializado', e.escola_id) + identificacao(e)
     + (privado?.mae || privado?.pai || privado?.cpf ? '<table class="doc-id"><tr><th>Filiação</th><td>' + esc([privado.mae, privado.pai].filter(Boolean).join(' e ') || '—') + '</td><th>CPF</th><td>' + esc(privado.cpf ? privado.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '—') + '</td></tr></table>' : '')
     + '<p class="doc-filtro">' + (filtros.especialidade ? ESPECIALIDADES[filtros.especialidade] : 'Todas as especialidades') + ' · ' + (filtros.de ? 'de ' + dataBR(filtros.de) + ' ' : '') + (filtros.ate ? 'até ' + dataBR(filtros.ate) : '') + ' · ' + atendimentos.length + ' registro(s)</p>';
   if (privado?.motivo_encaminhamento) h += '<h2>Motivo do encaminhamento</h2><p class="pre">' + esc(privado.motivo_encaminhamento) + '</p>';
@@ -35,7 +42,7 @@ export function imprimirProntuario({ estudante: e, privado, saude, atendimentos,
 
 const TIPOS_REL = { relatorio: 'Relatório de acompanhamento', parecer: 'Parecer', devolutiva: 'Devolutiva', encaminhamento: 'Encaminhamento' };
 export function imprimirRelatorio(r, e) {
-  const h = cabecalho(r.titulo || TIPOS_REL[r.tipo]) + identificacao(e)
+  const h = cabecalho(r.titulo || TIPOS_REL[r.tipo], e.escola_id) + identificacao(e)
     + '<p class="doc-filtro">' + esc(TIPOS_REL[r.tipo]) + ' · ' + esc(ESPECIALIDADES[r.especialidade]) + (r.periodo_de || r.periodo_ate ? ' · Período: ' + esc(dataBR(r.periodo_de)) + ' a ' + esc(dataBR(r.periodo_ate)) : '') + (r.destinatario ? ' · Destinatário: ' + esc(r.destinatario) : '') + '</p>'
     + '<div class="pre doc-texto">' + esc(r.texto) + '</div>'
     + '<p class="doc-local">Frei Inocêncio/MG, ' + esc(formatarData(r.criado_em)) + '.</p>'
@@ -45,7 +52,7 @@ export function imprimirRelatorio(r, e) {
 
 export function imprimirGerencial(r, filtros, nomes) {
   const linha = (k, v) => '<tr><td>' + esc(k) + '</td><td class="num">' + v + '</td></tr>';
-  let h = cabecalho('Relatório de atendimentos realizados')
+  let h = cabecalho('Relatório de atendimentos realizados', filtros.escola || '')
     + '<p class="doc-filtro">Período: ' + esc(dataBR(filtros.de) || 'início') + ' a ' + esc(dataBR(filtros.ate) || 'hoje')
     + (filtros.escola ? ' · ' + esc(escolaCurta(filtros.escola)) : ' · Todas as escolas') + (filtros.especialidade ? ' · ' + esc(ESPECIALIDADES[filtros.especialidade]) : '') + (filtros.profissional ? ' · ' + esc(nomes.profissional) : '') + '</p>'
     + '<table class="doc-tab"><tbody>' + linha('Atendimentos realizados', r.atendimentos) + linha('Alunos atendidos (distintos)', r.alunos) + linha('Horas de atendimento', String(r.horas).replace('.', ',')) + linha('Altas', r.altas) + '</tbody></table>'
@@ -65,7 +72,7 @@ export function imprimirFichaEscola({ estudante: e, atendimentos, agenda, condic
   for (const a of validos) if (!porEsp.has(a.especialidade)) porEsp.set(a.especialidade, a);
   const orient = validos.filter(a => a.orientacao_escola).slice(0, 6);
   const proximos = agenda.filter(a => a.status === 'agendado' && ms(a.inicio) > Date.now()).sort((a, b) => ms(a.inicio) - ms(b.inicio)).slice(0, 5);
-  let h = cabecalho('Ficha de acompanhamento para a escola') + identificacao(e)
+  let h = cabecalho('Ficha de acompanhamento para a escola', e.escola_id) + identificacao(e)
     + (condicao ? '<p><b>Condição informada:</b> ' + esc(condicao) + '</p>' : '')
     + '<h2>Quem acompanha</h2>' + (porEsp.size ? '<table class="doc-tab"><thead><tr><th>Especialidade</th><th>Profissional</th><th>Último atendimento</th><th>Situação</th></tr></thead><tbody>'
       + [...porEsp.values()].map(a => '<tr><td>' + esc(ESPECIALIDADES[a.especialidade]) + '</td><td>' + esc(a.profissional_nome) + '</td><td>' + esc(formatarData(a.data)) + '</td><td>' + (a.tipo === 'alta' ? 'Alta' : 'Em acompanhamento') + '</td></tr>').join('') + '</tbody></table>' : '<p>Aguardando o primeiro atendimento.</p>')

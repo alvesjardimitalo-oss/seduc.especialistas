@@ -1,8 +1,8 @@
 import { firebaseConfig } from './config.js';
 import * as dados from './dados.js';
-import { S, pode, carregarBase, escolasDaPessoa, escolaCurta, nomeEscola } from './estado.js';
+import { S, pode, carregarBase, escolasDaPessoa, escolaCurta, nomeEscola, seloEscola } from './estado.js';
 import { eventos } from './formularios.js';
-import { PERFIS, ESPECIALIDADES } from './dominio.js';
+import { PERFIS, ESPECIALIDADES, LOGO_SEDUC } from './dominio.js';
 import { esc, iniciais, erro, fecharModal, aviso } from './ui.js';
 import * as painel from './paginas/painel.js';
 import * as alunos from './paginas/alunos.js';
@@ -26,7 +26,7 @@ const svg = d => '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" st
 
 function telaLogin(msg = '', tipo = 'info') {
   raiz.innerHTML = '<main class="login"><section class="login-cartao">'
-    + '<div class="marca"><span class="marca-simbolo">✳</span><div><strong>SEDUC Especialistas</strong><small>Prontuário do atendimento especializado</small></div></div>'
+    + '<div class="marca marca-login"><img class="logo-seduc" src="' + LOGO_SEDUC + '" alt="Secretaria Municipal de Educação de Frei Inocêncio/MG"><div><strong>SEDUC Especialistas</strong><small>Prontuário do atendimento especializado</small></div></div>'
     + '<p class="nota">Rede Municipal de Ensino de Frei Inocêncio/MG — Fonoaudiologia, Neuropsicologia e Psicopedagogia.</p>'
     + (msg ? '<div class="alerta-caixa ' + tipo + '" role="status">' + msg + '</div>' : '')
     + (S.user ? '<button class="btn sec" id="sair">Sair desta conta</button>'
@@ -94,8 +94,8 @@ function telaInstituicao() {
     const todas = S.perfil.perfil !== 'direcao' || lista.length > 1;
     raiz.innerHTML = '<main class="login"><section class="login-cartao instituicoes"><h1>Onde você está atendendo?</h1>'
       + '<p class="nota">Escolha a instituição para ver a agenda e os alunos de lá. Você pode trocar a qualquer momento no topo da tela.</p>'
-      + '<div class="lista-inst">' + lista.map(e => '<button class="inst" data-inst="' + esc(e.id) + '"><strong>' + esc(escolaCurta(e.id)) + '</strong><small>' + esc(e.tipo === 'creche' ? 'Creche' : 'Escola') + '</small></button>').join('')
-      + (todas ? '<button class="inst todas" data-inst=""><strong>Todas as instituições</strong><small>Visão geral da rede</small></button>' : '') + '</div></section></main>';
+      + '<div class="lista-inst">' + lista.map(e => '<button class="inst" data-inst="' + esc(e.id) + '">' + seloEscola(e.id) + '<span><strong>' + esc(escolaCurta(e.id)) + '</strong><small>' + esc(e.tipo === 'creche' ? 'Creche' : 'Escola') + '</small></span></button>').join('')
+      + (todas ? '<button class="inst todas" data-inst=""><span class="selo-escola"><img src="' + LOGO_SEDUC + '" alt=""></span><span><strong>Todas as instituições</strong><small>Visão geral da rede</small></span></button>' : '') + '</div></section></main>';
     raiz.querySelectorAll('[data-inst]').forEach(b => b.onclick = () => { S.instituicao = b.dataset.inst; try { sessionStorage.setItem('inst:' + S.user.uid, S.instituicao); } catch {} resolve(); });
   });
 }
@@ -119,11 +119,11 @@ function moldura() {
   const atual = S.rota.pagina === 'aluno' ? 'alunos' : S.rota.pagina;
   const papel = S.perfil.perfil === 'especialista' ? ESPECIALIDADES[S.perfil.especialidade] || 'Especialista' : PERFIS[S.perfil.perfil];
   raiz.innerHTML = '<div class="casca">'
-    + '<aside class="lateral"><a class="marca" href="#/painel"><span class="marca-simbolo">✳</span><div><strong>SEDUC</strong><small>Especialistas</small></div></a>'
+    + '<aside class="lateral"><a class="marca" href="#/painel"><span class="marca-logo"><img src="' + LOGO_SEDUC + '" alt="Secretaria Municipal de Educação"></span><div><strong>SEDUC</strong><small>Especialistas</small></div></a>'
     + '<nav aria-label="Principal">' + menu().map(k => '<a href="#/' + k + '" class="nav' + (atual === k ? ' ativo' : '') + '"' + (atual === k ? ' aria-current="page"' : '') + '>' + svg(PAGINAS[k].icone) + '<span>' + PAGINAS[k].titulo + '</span></a>').join('') + '</nav>'
     + '<div class="lateral-rodape">Rede Municipal de Ensino<br>Frei Inocêncio/MG<br><button class="link claro" id="ver-lgpd">Privacidade (LGPD)</button></div></aside>'
     + '<div class="area"><header class="topo"><button class="icone-btn menu-movel" id="abrir-menu" aria-label="Abrir menu">☰</button>'
-    + '<button class="inst-atual" id="trocar-inst" title="Trocar instituição"><small>Instituição</small><strong>' + esc(S.instituicao ? escolaCurta(S.instituicao) : 'Todas as instituições') + '</strong><span aria-hidden="true">⇄</span></button>'
+    + '<button class="inst-atual" id="trocar-inst" title="Trocar instituição">' + (S.instituicao ? seloEscola(S.instituicao, 'mini') : '<span class="selo-escola mini"><img src="' + LOGO_SEDUC + '" alt=""></span>') + '<small>Instituição</small><strong>' + esc(S.instituicao ? escolaCurta(S.instituicao) : 'Todas as instituições') + '</strong><span aria-hidden="true">⇄</span></button>'
     + '<div class="topo-usuario"><button class="minha-conta" id="minha-conta" title="Minha conta: e-mail e senha"><span class="avatar">' + esc(iniciais(S.perfil.nome)) + '</span><div><strong>' + esc(S.perfil.nome) + '</strong><small>' + esc(papel) + '</small></div></button>'
     + '<button class="btn sec pequeno" id="sair">Sair</button></div></header>'
     + '<main id="conteudo" class="conteudo" tabindex="-1"></main></div></div>';
