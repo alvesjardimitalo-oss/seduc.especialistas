@@ -4,19 +4,44 @@ import {
   initializeApp, deleteApp, getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
   signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword,
   EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup, verifyBeforeUpdateEmail,
-  getFirestore, collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence,
+  collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp
 } from './firebase.js';
-import { MEIA_HORA, ms, gerarCodigo } from './dominio.js';
+import { MEIA_HORA, ms, gerarCodigo, diaMunicipal, idFrequencia, idPlano } from './dominio.js';
+import { serializavel, COLECOES } from './backup.js';
 
-let auth, db, configuracao;
+let auth, db, configuracao, appPrincipal;
 const lista = snap => snap.docs.map(d => ({ id: d.id, ...d.data() }));
 const pedacos = (arr, n = 10) => { const r = []; for (let i = 0; i < arr.length; i += n) r.push(arr.slice(i, i + n)); return r; };
 const ts = d => Timestamp.fromDate(d instanceof Date ? d : new Date(ms(d)));
 
 export function iniciar(config) {
   configuracao = config;
-  const app = initializeApp(config);
-  auth = getAuth(app); db = getFirestore(app);
+  appPrincipal = initializeApp(config);
+  auth = getAuth(appPrincipal);
+  db = abrirBanco();
+}
+// Modo sem internet: os dados lidos ficam guardados no aparelho e os registros feitos sem
+// conexão são enviados sozinhos quando a internet volta. Ao sair, o cache é apagado.
+function abrirBanco() {
+  try { return initializeFirestore(appPrincipal, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+  catch { return getFirestore(appPrincipal); }
+}
+
+// ---------- gravações sem internet ----------
+// Sem conexão, o Firestore guarda a gravação no aparelho e só confirma quando a internet volta.
+// A tela não fica esperando: a gravação entra na lista de pendentes, mostrada no topo.
+export const pendentes = new Map();
+let seqPendente = 0;
+const avisarPendentes = () => window.dispatchEvent(new CustomEvent('seduc:pendentes', { detail: pendentes.size }));
+export const semInternet = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+async function enviar(lote, descricao) {
+  if (!semInternet()) return lote.commit();
+  const id = ++seqPendente;
+  pendentes.set(id, descricao); avisarPendentes();
+  lote.commit().then(() => { pendentes.delete(id); avisarPendentes(); window.dispatchEvent(new CustomEvent('seduc:sincronizado', { detail: descricao })); },
+    e => { pendentes.delete(id); avisarPendentes(); window.dispatchEvent(new CustomEvent('seduc:falha-sincronizar', { detail: { descricao, erro: e } })); });
+  return { pendente: true };
 }
 export const entrar = () => signInWithPopup(auth, new GoogleAuthProvider());
 export const entrarComSenha = (email, senha) => signInWithEmailAndPassword(auth, email.trim(), senha);
@@ -48,7 +73,13 @@ export async function criarContaComSenha(email, perfil) {
 export async function aceitarTermo(uid, versao) {
   await writeBatch(db).update(doc(db, 'usuarios', uid), { termo_lgpd: versao, termo_lgpd_em: serverTimestamp() }).commit();
 }
-export const sair = () => signOut(auth);
+/** Sai e apaga do aparelho a cópia local dos dados (computadores compartilhados nas escolas). */
+export async function sair() {
+  await signOut(auth);
+  // Depois de encerrar, o Firestore permite abrir uma instância nova (documentação de terminate()).
+  try { await terminate(db); await clearIndexedDbPersistence(db); } catch { /* outra aba aberta: limpa na próxima saída */ }
+  db = abrirBanco();
+}
 
 const emailValido = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
 const usaSenha = u => (u.providerData || []).some(p => p.providerId === 'password');
@@ -272,8 +303,8 @@ export async function registrarAtendimento({ meta, registro, agendamentoId = '',
   b.set(ref, { ...meta, data: ts(meta.data), agendamento_id: agendamentoId, codigo: cod, profissional_uid: uid, situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
   b.set(doc(db, 'atendimentos_registro', ref.id), { ...registro, estudante_id: meta.estudante_id, profissional_uid: uid, versao: 1 });
   if (agendamentoId) b.update(doc(db, 'agendamentos', agendamentoId), { status: 'realizado', atendimento_id: ref.id, alterado_por: uid, alterado_em: serverTimestamp() });
-  await b.commit();
-  return ref.id;
+  const r = await enviar(b, 'Atendimento de ' + (meta.data instanceof Date ? meta.data.toLocaleDateString('pt-BR') : 'hoje'));
+  return r?.pendente ? { id: ref.id, pendente: true } : ref.id;
 }
 
 async function comVersao(id, motivo, alterar) {
@@ -338,12 +369,12 @@ export async function cancelarAgendamento(ag, motivo) {
   await b.commit();
 }
 export async function marcarFalta(ag, motivo) {
-  await writeBatch(db).update(doc(db, 'agendamentos', ag.id), { status: 'falta', motivo: motivo || '', alterado_por: uidAtual(), alterado_em: serverTimestamp() }).commit();
+  await enviar(writeBatch(db).update(doc(db, 'agendamentos', ag.id), { status: 'falta', motivo: motivo || '', alterado_por: uidAtual(), alterado_em: serverTimestamp() }), 'Falta do aluno');
 }
 
 // ---------- lista do dia: chegada do aluno ----------
 export async function marcarChegada(ag, desfazer = false) {
-  await writeBatch(db).update(doc(db, 'agendamentos', ag.id), { chegada_em: desfazer ? null : serverTimestamp(), alterado_por: uidAtual(), alterado_em: serverTimestamp() }).commit();
+  await enviar(writeBatch(db).update(doc(db, 'agendamentos', ag.id), { chegada_em: desfazer ? null : serverTimestamp(), alterado_por: uidAtual(), alterado_em: serverTimestamp() }), 'Chegada do aluno');
 }
 
 // ---------- problemas e condições ----------
@@ -379,4 +410,88 @@ export async function emitirRelatorio(d) {
   const ref = doc(collection(db, 'relatorios'));
   await writeBatch(db).set(ref, { ...d, profissional_uid: uidAtual(), criado_em: serverTimestamp() }).commit();
   return ref.id;
+}
+
+// ---------- fila de espera: pedidos de atendimento da escola ----------
+export async function listarPedidos({ escolas, estudanteId } = {}) {
+  const c = collection(db, 'pedidos');
+  if (estudanteId) return lista(await getDocs(query(c, where('estudante_id', '==', estudanteId))));
+  if (escolas) { const out = []; for (const p of pedacos(escolas)) out.push(...lista(await getDocs(query(c, where('escola_id', 'in', p))))); return out; }
+  return lista(await getDocs(c));
+}
+export async function criarPedido(p, perfil) {
+  const ref = doc(collection(db, 'pedidos'));
+  await writeBatch(db).set(ref, { ...p, situacao: 'aguardando', solicitante_uid: uidAtual(), solicitante_nome: perfil.nome, criado_em: serverTimestamp() }).commit();
+  return ref.id;
+}
+const mudancaPedido = d => ({ ...d, atualizado_por: uidAtual(), atualizado_em: serverTimestamp() });
+export const pedidoAgendado = (id, agendamentoId) => writeBatch(db).update(doc(db, 'pedidos', id), mudancaPedido({ situacao: 'agendado', agendamento_id: agendamentoId })).commit();
+export const cancelarPedido = (id, motivo) => writeBatch(db).update(doc(db, 'pedidos', id), mudancaPedido({ situacao: 'cancelado', motivo_cancelamento: motivo })).commit();
+export const priorizarPedido = (id, prioridade) => writeBatch(db).update(doc(db, 'pedidos', id), mudancaPedido({ prioridade })).commit();
+
+// ---------- frequência das especialistas ----------
+export async function listarFrequencias({ uid, de, ate, escolas } = {}) {
+  const c = collection(db, 'frequencias'), periodo = [where('dia', '>=', de), where('dia', '<=', ate)];
+  if (uid) return lista(await getDocs(query(c, where('uid', '==', uid)))).filter(r => r.dia >= de && r.dia <= ate);
+  if (escolas) { const out = []; for (const p of pedacos(escolas)) out.push(...lista(await getDocs(query(c, where('escola_id', 'in', p))))); return out.filter(r => r.dia >= de && r.dia <= ate); }
+  return lista(await getDocs(query(c, ...periodo)));
+}
+export async function registrarEntrada(perfil, escolaId) {
+  const dia = diaMunicipal(Date.now());
+  await writeBatch(db).set(doc(db, 'frequencias', idFrequencia(uidAtual(), dia)), { uid: uidAtual(), nome: perfil.nome, dia, escola_id: escolaId || '', situacao: 'presente', entrada: serverTimestamp(), registrado_por: uidAtual(), criado_em: serverTimestamp() }).commit();
+}
+export async function registrarSaida(registro) {
+  await writeBatch(db).update(doc(db, 'frequencias', registro.id), { saida: serverTimestamp(), atualizado_em: serverTimestamp() }).commit();
+}
+/** Ausência informada pela própria profissional (falta ou atestado), com justificativa. */
+export async function informarAusencia(perfil, { dia, situacao, justificativa, escola_id = '' }) {
+  await writeBatch(db).set(doc(db, 'frequencias', idFrequencia(uidAtual(), dia)), { uid: uidAtual(), nome: perfil.nome, dia, escola_id, situacao, justificativa, registrado_por: uidAtual(), criado_em: serverTimestamp() }).commit();
+}
+/** Lançamento ou correção pela gestão (motivo obrigatório; fica registrado quem ajustou). */
+export async function ajustarFrequencia(usuario, dia, d, existente) {
+  const ref = doc(db, 'frequencias', idFrequencia(usuario.id, dia));
+  const campos = { situacao: d.situacao, escola_id: d.escola_id || '', justificativa: d.justificativa || '', ajuste_motivo: d.ajuste_motivo, atualizado_por: uidAtual(), atualizado_em: serverTimestamp() };
+  if (d.entrada) campos.entrada = ts(d.entrada); if (d.saida) campos.saida = ts(d.saida);
+  if (existente) await writeBatch(db).update(ref, campos).commit();
+  else await writeBatch(db).set(ref, { uid: usuario.id, nome: usuario.nome, dia, registrado_por: uidAtual(), criado_em: serverTimestamp(), ...campos }).commit();
+}
+
+// ---------- registro de acesso aos prontuários (LGPD) ----------
+const ultimosAcessos = new Map();
+/** Registra quem abriu/imprimiu o prontuário. Repetições em 10 minutos não geram novo registro. */
+export async function registrarAcesso(perfil, estudante, acao = 'prontuario') {
+  const chave = estudante.id + ':' + acao, agora = Date.now();
+  if (agora - (ultimosAcessos.get(chave) || 0) < 10 * 60000) return;
+  ultimosAcessos.set(chave, agora);
+  try {
+    await enviar(writeBatch(db).set(doc(collection(db, 'acessos')), { uid: uidAtual(), nome: perfil.nome, perfil: perfil.perfil, estudante_id: estudante.id, escola_id: estudante.escola_id || '', acao, em: serverTimestamp() }), 'Registro de acesso');
+  } catch (e) { ultimosAcessos.delete(chave); console.warn('acesso não registrado', e); }
+}
+export async function listarAcessos({ estudanteId, uid, de, ate } = {}) {
+  const c = collection(db, 'acessos');
+  if (estudanteId) return lista(await getDocs(query(c, where('estudante_id', '==', estudanteId))));
+  if (uid) return lista(await getDocs(query(c, where('uid', '==', uid))));
+  return lista(await getDocs(query(c, where('em', '>=', ts(de)), where('em', '<', ts(ate)))));
+}
+
+// ---------- plano de acompanhamento (metas) ----------
+export const listarPlanos = async estudanteId => lista(await getDocs(query(collection(db, 'planos'), where('estudante_id', '==', estudanteId))));
+export async function salvarPlano(estudanteId, perfil, metas, existente) {
+  const ref = doc(db, 'planos', idPlano(estudanteId, perfil.especialidade));
+  const base = { metas, atualizado_por: uidAtual(), atualizado_nome: perfil.nome, atualizado_em: serverTimestamp() };
+  if (existente) await writeBatch(db).update(ref, base).commit();
+  else await writeBatch(db).set(ref, { estudante_id: estudanteId, especialidade: perfil.especialidade, profissional_uid: uidAtual(), profissional_nome: perfil.nome, criado_em: serverTimestamp(), ...base }).commit();
+}
+
+// ---------- cópia de segurança (administração) ----------
+// A administração lê todas as coleções, exceto 'reservas' (travas de horário: só leitura por documento).
+const COLECOES_NAVEGADOR = COLECOES.filter(c => c !== 'reservas');
+export async function exportarTudo(aoProgredir = () => {}) {
+  const saida = {};
+  for (const [i, nome] of COLECOES_NAVEGADOR.entries()) {
+    const snap = await getDocs(collection(db, nome));
+    saida[nome] = snap.docs.map(d => ({ id: d.id, ...serializavel(d.data()) }));
+    aoProgredir(i + 1, COLECOES_NAVEGADOR.length, nome);
+  }
+  return saida;
 }

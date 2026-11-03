@@ -2,9 +2,10 @@
 // Cada consulta abre em janela ampliada (ver abrirConsulta em formularios.js).
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta, estudante, garantirAtendimentos, escopoEscolas, escolaAtual, especialistasDaEscola } from '../estado.js';
-import { formAtendimento, formAgendar, formAluno, abrirConsulta, eventos } from '../formularios.js';
+import { formAtendimento, formAgendar, formAluno, abrirConsulta, eventos, lembreteWhatsApp, formPedido } from '../formularios.js';
+import { carregarPedidos, podePedir } from './fila.js';
 import { aviso, erro } from '../ui.js';
-import { ESPECIALIDADES, STATUS_AGENDA, TIPOS_ATENDIMENTO, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel, bloqueioDoDia, filaDoDia } from '../dominio.js';
+import { ESPECIALIDADES, STATUS_AGENDA, TIPOS_ATENDIMENTO, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel, bloqueioDoDia, filaDoDia, resumoFila, jornadaPrevista } from '../dominio.js';
 import { esc, vazio, $, $$ } from '../ui.js';
 
 const filtros = { busca: '', dia: '', profissional: null, mostrarCancelados: false };
@@ -26,10 +27,12 @@ export async function render(main, vigente) {
   const de = filtros.dia || somarDias(hoje, -7), ate = filtros.dia || somarDias(hoje, 30);
   const escolas = escolaAtual() ? [escolaAtual()] : escopoEscolas() || undefined;
   const periodo = { de: instante(de, '00:00'), ate: instante(somarDias(ate, 1), '00:00') };
-  const [agendamentos, atendimentos, vencidos] = await Promise.all([
+  const [agendamentos, atendimentos, vencidos, pedidos, pontoHoje] = await Promise.all([
     filtros.profissional ? dados.listarAgendamentos({ profissional: filtros.profissional, ...periodo }) : dados.listarAgendamentos({ escolas, ...periodo }),
     garantirAtendimentos(),
-    especialista ? dados.listarAgendamentos({ profissional: S.user.uid, de: instante(somarDias(hoje, -30), '00:00'), ate: new Date() }) : Promise.resolve([])
+    especialista ? dados.listarAgendamentos({ profissional: S.user.uid, de: instante(somarDias(hoje, -30), '00:00'), ate: new Date() }) : Promise.resolve([]),
+    carregarPedidos(true).catch(() => []),
+    especialista ? dados.listarFrequencias({ uid: S.user.uid, de: hoje, ate: hoje }).catch(() => null) : Promise.resolve(null)
   ]);
   if (!vigente()) return;
   const noPeriodo = atendimentos.filter(a => { const d = diaMunicipal(a.data); return d >= de && d <= ate; });
@@ -69,7 +72,14 @@ export async function render(main, vigente) {
     + '<div class="menu-mais"><button class="btn mais" id="mais" aria-haspopup="true" aria-expanded="false" aria-label="Novo">+</button><div class="menu-mais-lista" hidden>'
     + (pode.agendar() ? '<button data-acao="agendar">Agendar consulta</button>' : '')
     + (pode.registrar() ? '<button data-acao="registrar">Registrar atendimento sem agendamento</button>' : '')
-    + (pode.cadastrarAluno() ? '<button data-acao="aluno">Cadastrar aluno</button>' : '') + '</div></div></header>';
+    + (pode.cadastrarAluno() ? '<button data-acao="aluno">Cadastrar aluno</button>' : '')
+    + (podePedir() ? '<button data-acao="pedido">Pedir atendimento (fila de espera)</button>' : '') + '</div></div></header>';
+
+  // Ponto: lembra a especialista de registrar a entrada nos dias de jornada.
+  if (especialista && pontoHoje && !pontoHoje.length && jornadaPrevista({ jornada: eu.jornada || [], de: hoje, ate: hoje, bloqueios: S.bloqueios }).length)
+    h += '<div class="alerta-caixa info">Você ainda não registrou a entrada hoje. <a class="btn pequeno" href="#/frequencia">Registrar entrada</a></div>';
+  else if (especialista && pontoHoje?.[0]?.situacao === 'presente' && !pontoHoje[0].saida && agora.getHours() >= 11)
+    h += '<div class="alerta-caixa info">Entrada registrada às ' + esc(horaMunicipal(pontoHoje[0].entrada)) + '. Lembre-se de registrar a saída. <a class="btn sec pequeno" href="#/frequencia">Frequência</a></div>';
 
   if (semRegistro.length) h += '<div class="alerta-caixa aviso"><strong>' + semRegistro.length + ' consulta(s) sem registro.</strong> Informe se o aluno compareceu: '
     + semRegistro.slice(0, 6).map(a => '<button class="link" data-consulta="' + esc(a.id) + '">' + esc(formatarData(a.inicio).slice(0, 5) + ' ' + (estudante(a.estudante_id)?.nome || 'Aluno')) + '</button>').join(' · ') + '</div>';
@@ -87,6 +97,20 @@ export async function render(main, vigente) {
 
   if (orientacoes.length) h += '<section class="cartao"><header class="cartao-topo"><h2>Orientações recentes para a escola</h2></header><ul class="lista-simples">'
     + orientacoes.map(a => '<li><a href="#/aluno/' + esc(a.estudante_id) + '"><strong>' + esc(estudante(a.estudante_id)?.nome || 'Aluno') + '</strong><small>' + esc(formatarData(a.data)) + ' · ' + esc(a.profissional_nome) + ' (' + esc(ESPECIALIDADES[a.especialidade]) + ')</small><span class="orientacao-txt">' + esc(a.orientacao_escola) + '</span></a></li>').join('') + '</ul></section>';
+
+  // Fila de espera (pedidos da escola)
+  const daEscola = p => !escolaAtual() || p.escola_id === escolaAtual();
+  const fila = resumoFila(pedidos, Date.now(), daEscola), minha = especialista ? fila.porEspecialidade[eu.especialidade] : null;
+  h += '<section class="cartao"><header class="cartao-topo"><h2>Fila de espera</h2><div class="acoes-linha">' + (podePedir() ? '<button class="btn sec pequeno" data-acao="pedido">+ Pedir atendimento</button>' : '') + '<a href="#/fila" class="link">Ver fila →</a></div></header>'
+    + (fila.aguardando ? '<p><strong>' + fila.aguardando + ' aluno(s) aguardando</strong>' + (fila.altas ? ', ' + fila.altas + ' com prioridade alta' : '') + ' · espera média de ' + fila.esperaMedia + ' dia(s), a maior de ' + fila.esperaMaxima + ' dia(s).</p>'
+      + (minha ? '<p class="nota">Em ' + esc(ESPECIALIDADES[eu.especialidade]) + ': ' + minha.aguardando + ' aguardando (o mais antigo há ' + minha.maisAntigo + ' dia(s)).</p>' : '')
+      : '<p class="nota">Nenhum pedido aguardando.' + (podePedir() ? ' A escola pode pedir atendimento para um aluno pelo botão acima.' : '') + '</p>') + '</section>';
+
+  // Lembretes para amanhã (WhatsApp, sem dado clínico)
+  const amanha = somarDias(hoje, 1);
+  const deAmanha = (porDia.get(amanha) || []).filter(c => c.tipo_item !== 'atendimento' && c.status === 'agendado' && (pode.gestao() || eu.perfil === 'direcao' || c.profissional_uid === S.user.uid));
+  if (deAmanha.length) h += '<section class="cartao"><header class="cartao-topo"><h2>Lembretes para amanhã (' + deAmanha.length + ')</h2></header><ul class="lista-simples">'
+    + deAmanha.map(c => '<li class="lembrete"><span><strong>' + esc(horaMunicipal(c.inicio)) + ' · ' + esc(estudante(c.estudante_id)?.nome || 'Aluno') + '</strong><small>' + esc(escolaCurta(c.escola_id)) + ' · ' + esc(c.profissional_nome) + '</small></span><button class="btn sec pequeno" data-lembrete="' + esc(c.id) + '">WhatsApp</button></li>').join('') + '</ul></section>';
 
   h += '<section class="cartao"><header class="cartao-topo"><h2>Aguardando primeiro atendimento (' + aguardando.length + ')</h2><a href="#/alunos" class="link">Ver alunos →</a></header>'
     + (aguardando.length ? '<ul class="lista-simples">' + aguardando.slice(0, 6).map(e => '<li><a href="#/aluno/' + esc(e.id) + '"><strong>' + esc(e.nome) + '</strong><small>' + esc(escolaCurta(e.escola_id)) + (e.turma ? ' · ' + esc(e.turma) : '') + '</small></a></li>').join('') + '</ul>' : vazio('Nenhum aluno aguardando.'))
@@ -111,5 +135,6 @@ export async function render(main, vigente) {
   form.onsubmit = e => e.preventDefault();
   const mais = $('#mais', main), lista2 = $('.menu-mais-lista', main);
   mais.onclick = () => { lista2.hidden = !lista2.hidden; mais.setAttribute('aria-expanded', String(!lista2.hidden)); };
-  $$('[data-acao]', main).forEach(b => b.onclick = () => { lista2.hidden = true; ({ registrar: () => formAtendimento(), agendar: () => formAgendar(), aluno: () => formAluno() })[b.dataset.acao](); });
+  $$('[data-acao]', main).forEach(b => b.onclick = () => { lista2.hidden = true; ({ registrar: () => formAtendimento(), agendar: () => formAgendar(), aluno: () => formAluno(), pedido: () => formPedido() })[b.dataset.acao](); });
+  $$('[data-lembrete]', main).forEach(b => b.onclick = () => lembreteWhatsApp(lista.find(a => a.id === b.dataset.lembrete)));
 }

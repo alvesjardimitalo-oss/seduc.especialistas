@@ -1,7 +1,9 @@
 // Módulo de relatórios: somente atendimentos realizados (sem conteúdo clínico).
 import * as dados from '../dados.js';
-import { S, escolaCurta, especialistasDaEscola, escolasVisiveis, escopoEscolas, escolaAtual, estudante } from '../estado.js';
-import { ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, diaMunicipal, somarDias, instante, resumoGerencial, csv, formatarDataHora, ms } from '../dominio.js';
+import { S, pode, escolaCurta, especialistasDaEscola, escolasVisiveis, escopoEscolas, escolaAtual, estudante } from '../estado.js';
+import { ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, diaMunicipal, somarDias, instante, resumoGerencial, csv, formatarDataHora, ms, ultimosMeses, serieMensal, rotuloMes, resumoFila } from '../dominio.js';
+import { colunasEmpilhadas, ligarGrafico } from '../grafico.js';
+import { carregarPedidos } from './fila.js';
 import { esc, vazio, aviso, $, $$ } from '../ui.js';
 import { imprimirGerencial } from '../impressao.js';
 
@@ -11,7 +13,13 @@ export async function render(main, vigente) {
   const hoje = diaMunicipal(Date.now());
   const f = S.filtrosRelatorio ||= { de: hoje.slice(0, 7) + '-01', ate: hoje, escola: escolaAtual(), especialidade: '', profissional: S.perfil.perfil === 'especialista' ? S.user.uid : '' };
   if (f.de && f.ate && f.de > f.ate) [f.de, f.ate] = [f.ate, f.de];
-  const atendimentos = await dados.listarAtendimentos({ de: f.de ? instante(f.de, '00:00') : undefined, ate: f.ate ? instante(somarDias(f.ate, 1), '00:00') : undefined, escolas: escopoEscolas() || undefined });
+  const painel = pode.gestao() || S.perfil.perfil === 'direcao';
+  const meses = ultimosMeses(12, hoje);
+  const [atendimentos, ano, pedidos] = await Promise.all([
+    dados.listarAtendimentos({ de: f.de ? instante(f.de, '00:00') : undefined, ate: f.ate ? instante(somarDias(f.ate, 1), '00:00') : undefined, escolas: escopoEscolas() || undefined }),
+    painel ? dados.listarAtendimentos({ de: instante(meses[0] + '-01', '00:00'), escolas: escopoEscolas() || undefined }) : [],
+    painel ? carregarPedidos().catch(() => []) : []
+  ]);
   if (!vigente()) return;
   const r = resumoGerencial({ atendimentos, filtros: f });
   const lista = atendimentos.filter(a => a.situacao !== 'anulado' && (!f.escola || a.escola_id === f.escola) && (!f.especialidade || a.especialidade === f.especialidade) && (!f.profissional || a.profissional_uid === f.profissional))
@@ -28,6 +36,7 @@ export async function render(main, vigente) {
     + sel('escola', 'Instituição', escolasVisiveis().map(e => [e.id, escolaCurta(e.id)]), 'Todas')
     + sel('especialidade', 'Especialidade', Object.entries(ESPECIALIDADES), 'Todas')
     + sel('profissional', 'Profissional', profs.map(u => [u.id, u.nome]), 'Toda a equipe') + '</form>'
+    + (painel ? painelSecretaria({ ano, meses, pedidos, f }) : '')
     + '<div class="metricas">' + card('Atendimentos realizados', r.atendimentos, 'azul') + card('Alunos atendidos', r.alunos, 'verde') + card('Horas de atendimento', horas(r.horas * 60), 'roxo') + card('Altas', r.altas, 'ambar') + '</div>'
     + '<div class="colunas">'
     + '<section class="cartao"><h2>Por instituição</h2>' + (Object.keys(r.porEscola).length ? '<table class="tabela"><thead><tr><th>Instituição</th><th>Alunos</th><th>Atend.</th>' + Object.keys(ESPECIALIDADES).map(k => '<th title="' + ESPECIALIDADES[k] + '">' + ESPECIALIDADES[k].slice(0, 5) + '.</th>').join('') + '</tr></thead><tbody>'
@@ -42,6 +51,7 @@ export async function render(main, vigente) {
       + '</tbody></table>' + (lista.length > LIMITE_TABELA ? '<p class="nota">Mostrando os ' + LIMITE_TABELA + ' mais recentes. A planilha traz todos.</p>' : '')
       : vazio('Nenhum atendimento realizado no período.')) + '</section>';
 
+  if (painel) ligarGrafico(main, dadosGrafico(ano, meses, f));
   $('#filtros', main).onchange = ev => { S.filtrosRelatorio = { ...f, ...Object.fromEntries(new FormData(ev.currentTarget)) }; render(main, vigente); };
   $('#imprimir', main).onclick = () => imprimirGerencial(r, f, { profissional: profs.find(u => u.id === f.profissional)?.nome });
   $('#csv', main).onclick = () => {
@@ -58,4 +68,25 @@ function barras(contagem, rotulos) {
   const max = Math.max(1, ...Object.values(contagem));
   const itens = Object.entries(contagem).sort((a, b) => b[1] - a[1]);
   return itens.length ? '<div class="barras">' + itens.map(([k, v]) => '<div class="barra"><span>' + esc(rotulos[k] || k) + '</span><i style="width:' + (v / max * 100) + '%"></i><b>' + v + '</b></div>').join('') + '</div>' : vazio('Sem dados.');
+}
+
+const CATEGORIAS = Object.entries(ESPECIALIDADES);
+function dadosGrafico(ano, meses, f) {
+  const filtrados = ano.filter(a => (!f.escola || a.escola_id === f.escola) && (!f.profissional || a.profissional_uid === f.profissional));
+  return { colunas: serieMensal(filtrados, meses).map(m => ({ rotulo: rotuloMes(m.mes), valores: m.porEspecialidade })), categorias: CATEGORIAS.filter(([k]) => !f.especialidade || k === f.especialidade) };
+}
+/** Painel da Secretaria: atendimentos dos últimos 12 meses e demanda reprimida (fila de espera). */
+function painelSecretaria({ ano, meses, pedidos, f }) {
+  const g = dadosGrafico(ano, meses, f);
+  const fila = resumoFila(pedidos, Date.now(), p => (!f.escola || p.escola_id === f.escola) && (!f.especialidade || p.especialidade === f.especialidade));
+  const porEscola = Object.entries(fila.porEscola).sort((a, b) => b[1].aguardando - a[1].aguardando);
+  return '<section class="cartao painel-secretaria"><header class="cartao-topo"><h2>Atendimentos por mês — últimos 12 meses' + (f.escola ? ' · ' + esc(escolaCurta(f.escola)) : '') + '</h2></header>'
+    + colunasEmpilhadas({ ...g, titulo: 'Atendimentos realizados por mês e especialidade' }) + '</section>'
+    + '<section class="cartao"><header class="cartao-topo"><h2>Demanda reprimida (fila de espera)</h2><a class="link" href="#/fila">Abrir fila →</a></header>'
+    + '<div class="metricas">' + '<div class="metrica m-azul"><span>Aguardando</span><b>' + fila.aguardando + '</b></div><div class="metrica m-ambar"><span>Espera média</span><b>' + fila.esperaMedia + ' d</b></div>'
+    + '<div class="metrica m-roxo"><span>Maior espera</span><b>' + fila.esperaMaxima + ' d</b></div><div class="metrica m-verde"><span>Tempo até agendar</span><b>' + (fila.agendados ? fila.tempoAteAgendar + ' d' : '—') + '</b></div></div>'
+    + (porEscola.length ? '<table class="tabela"><thead><tr><th>Instituição</th><th>Aguardando</th>' + CATEGORIAS.map(([, n]) => '<th>' + n + '</th>').join('') + '</tr></thead><tbody>'
+      + porEscola.map(([id, x]) => '<tr><td>' + esc(escolaCurta(id)) + '</td><td class="num"><b>' + x.aguardando + '</b></td>' + CATEGORIAS.map(([k]) => '<td class="num">' + (x.porEspecialidade[k] || 0) + '</td>').join('') + '</tr>').join('') + '</tbody></table>'
+      : '<p class="nota">Nenhum aluno aguardando. A demanda aparece aqui quando as escolas usam "Pedir atendimento".</p>')
+    + '</section>';
 }

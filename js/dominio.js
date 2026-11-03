@@ -446,3 +446,165 @@ export function diasDoBloqueio({ de, ate, motivo }) {
   const dias = []; for (let d = de; d <= fim; d = somarDias(d, 1)) { dias.push(d); if (dias.length > 92) throw Error('Período máximo de 92 dias por vez.'); }
   return dias;
 }
+
+// ---------- feriados nacionais (para o calendário escolar) ----------
+/** Domingo de Páscoa (algoritmo de Meeus/Jones/Butcher), 'AAAA-MM-DD'. */
+export function pascoa(ano) {
+  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+  return ano + '-' + pad(mes) + '-' + pad(dia);
+}
+/** Feriados nacionais e pontos facultativos usuais na rede, em dias úteis (seg–sex). */
+export function feriadosDoAno(ano) {
+  const p = pascoa(ano);
+  const lista = [
+    [ano + '-01-01', 'Confraternização Universal'], [somarDias(p, -48), 'Carnaval'], [somarDias(p, -47), 'Carnaval'],
+    [somarDias(p, -46), 'Quarta-feira de Cinzas (ponto facultativo)'], [somarDias(p, -2), 'Sexta-feira Santa'],
+    [ano + '-04-21', 'Tiradentes'], [ano + '-05-01', 'Dia do Trabalho'], [somarDias(p, 60), 'Corpus Christi'],
+    [ano + '-09-07', 'Independência do Brasil'], [ano + '-10-12', 'Nossa Senhora Aparecida'], [ano + '-10-15', 'Dia do Professor'],
+    [ano + '-11-02', 'Finados'], [ano + '-11-15', 'Proclamação da República'], [ano + '-11-20', 'Dia da Consciência Negra'],
+    [ano + '-12-25', 'Natal']
+  ];
+  return lista.filter(([d]) => { const w = diaDaSemana(d); return w >= 1 && w <= 5; }).map(([dia, motivo]) => ({ dia, motivo }));
+}
+
+// ---------- fila de espera (pedidos de atendimento da escola) ----------
+export const PRIORIDADES = Object.freeze({ normal: 'Normal', alta: 'Alta' });
+export const SITUACAO_PEDIDO = Object.freeze({ aguardando: 'Aguardando', agendado: 'Agendado', cancelado: 'Cancelado' });
+export function validarPedido(d) {
+  const motivo = String(d.motivo || '').trim();
+  if (!d.estudante_id) throw Error('Selecione o aluno.');
+  if (!ESPECIALIDADES[d.especialidade]) throw Error('Escolha a especialidade.');
+  if (motivo.length < 10) throw Error('Descreva o que a escola observou (pelo menos 10 caracteres).');
+  if (motivo.length > 1000) throw Error('O motivo aceita até 1.000 caracteres.');
+  return { estudante_id: d.estudante_id, especialidade: d.especialidade, motivo, prioridade: d.prioridade === 'alta' ? 'alta' : 'normal' };
+}
+const DIA_MS = 864e5;
+export const diasDeEspera = (p, agora = Date.now()) => Math.max(0, Math.floor((ms(p.situacao === 'aguardando' ? agora : p.atualizado_em) - ms(p.criado_em)) / DIA_MS));
+/** Fila ordenada: prioridade alta primeiro, depois quem espera há mais tempo. */
+export function ordenarFila(pedidos = []) {
+  return pedidos.filter(p => p.situacao === 'aguardando').sort((a, b) => (a.prioridade === 'alta' ? 0 : 1) - (b.prioridade === 'alta' ? 0 : 1) || ms(a.criado_em) - ms(b.criado_em));
+}
+/** Indicadores da demanda: aguardando, espera máxima e média, e tempo médio até o agendamento. */
+export function resumoFila(pedidos = [], agora = Date.now(), filtro = () => true) {
+  const base = pedidos.filter(filtro), espera = base.filter(p => p.situacao === 'aguardando'), atendidos = base.filter(p => p.situacao === 'agendado');
+  const media = l => l.length ? Math.round(l.reduce((s, p) => s + diasDeEspera(p, agora), 0) / l.length) : 0;
+  const porEspecialidade = {}, porEscola = {};
+  for (const p of espera) {
+    const e = porEspecialidade[p.especialidade] ||= { aguardando: 0, maisAntigo: 0 };
+    e.aguardando++; e.maisAntigo = Math.max(e.maisAntigo, diasDeEspera(p, agora));
+    const s = porEscola[p.escola_id] ||= { aguardando: 0, porEspecialidade: {} };
+    s.aguardando++; s.porEspecialidade[p.especialidade] = (s.porEspecialidade[p.especialidade] || 0) + 1;
+  }
+  return { aguardando: espera.length, altas: espera.filter(p => p.prioridade === 'alta').length, esperaMedia: media(espera), esperaMaxima: espera.reduce((m, p) => Math.max(m, diasDeEspera(p, agora)), 0), tempoAteAgendar: media(atendidos), agendados: atendidos.length, porEspecialidade, porEscola };
+}
+
+// ---------- frequência das especialistas ----------
+export const SITUACAO_FREQ = Object.freeze({ presente: 'Presente', falta: 'Falta', atestado: 'Atestado / licença', abonada: 'Ausência abonada' });
+export const idFrequencia = (uid, dia) => uid + '_' + dia;
+const minutosDaFaixa = f => (minutos(f.fim) ?? 0) - (minutos(f.inicio) ?? 0);
+/** Minutos previstos pela jornada em cada dia do período, descontando os dias sem atendimento. */
+export function jornadaPrevista({ jornada = [], de, ate, bloqueios = [] }) {
+  const dias = [];
+  if (!de || !ate || de > ate) return dias;
+  for (let d = de; d <= ate; d = somarDias(d, 1)) {
+    const w = diaDaSemana(d), faixas = jornada.filter(f => f.dia === w && !bloqueioDoDia(d, f.escola_id, bloqueios));
+    const min = faixas.reduce((s, f) => s + minutosDaFaixa(f), 0);
+    if (min > 0) dias.push({ dia: d, minutos: min, escolas: [...new Set(faixas.map(f => f.escola_id).filter(Boolean))] });
+  }
+  return dias;
+}
+/** Minutos trabalhados num registro de ponto (entrada → saída). */
+export const minutosTrabalhados = r => r?.situacao === 'presente' && r.entrada && r.saida ? Math.max(0, Math.round((ms(r.saida) - ms(r.entrada)) / 60000)) : 0;
+/** Consolida o mês (ou período) de uma profissional: previsto x cumprido, faltas e dias sem registro. */
+export function resumoFrequencia({ registros = [], jornada = [], de, ate, bloqueios = [], hoje = diaMunicipal(Date.now()) }) {
+  const previstos = jornadaPrevista({ jornada, de, ate, bloqueios }), porDia = new Map(registros.map(r => [r.dia, r]));
+  const r = { diasPrevistos: previstos.length, minutosPrevistos: 0, minutosCumpridos: 0, presencas: 0, faltas: 0, justificadas: 0, semRegistro: [], semSaida: [] };
+  for (const p of previstos) r.minutosPrevistos += p.minutos;
+  for (const x of registros) {
+    if (x.dia < de || x.dia > ate) continue;
+    if (x.situacao === 'presente') { r.presencas++; r.minutosCumpridos += minutosTrabalhados(x); if (!x.saida && x.dia < hoje) r.semSaida.push(x.dia); }
+    else if (x.situacao === 'falta') r.faltas++;
+    else r.justificadas++;
+  }
+  r.semRegistro = previstos.filter(p => p.dia < hoje && !porDia.has(p.dia)).map(p => p.dia);
+  return r;
+}
+export const formatarHoras = min => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h + 'h' + (m ? pad(m) : ''); };
+
+// ---------- plano de acompanhamento (metas) ----------
+export const ESCALA_META = Object.freeze({ 1: 'Não iniciou', 2: 'Iniciando', 3: 'Em desenvolvimento', 4: 'Quase lá', 5: 'Atingiu' });
+export const SITUACAO_META = Object.freeze({ ativa: 'Em andamento', atingida: 'Atingida', suspensa: 'Suspensa' });
+export const idPlano = (estudanteId, especialidade) => estudanteId + '_' + especialidade;
+export const MAX_METAS = 8;
+/** Valida a lista de metas do formulário; mantém o identificador das metas existentes. */
+export function validarMetas(lista = []) {
+  const metas = [], usados = new Set();
+  for (const m of lista) {
+    const texto = String(m.texto || '').trim().replace(/\s+/g, ' ');
+    if (!texto) continue;
+    if (texto.length > 200) throw Error('Cada meta aceita até 200 caracteres.');
+    let id = /^m\d{1,3}$/.test(m.id || '') && !usados.has(m.id) ? m.id : '';
+    if (!id) { let n = 1; while (usados.has('m' + n) || lista.some(x => x.id === 'm' + n && x !== m)) n++; id = 'm' + n; }
+    usados.add(id);
+    metas.push({ id, texto, situacao: SITUACAO_META[m.situacao] ? m.situacao : 'ativa' });
+  }
+  if (!metas.length) throw Error('Escreva pelo menos uma meta.');
+  if (metas.length > MAX_METAS) throw Error('Use no máximo ' + MAX_METAS + ' metas por especialidade.');
+  return metas;
+}
+/** Notas válidas (1 a 5) das metas marcadas no atendimento. */
+export function validarNotasMetas(d, metas = []) {
+  const notas = {};
+  for (const m of metas) { const v = Number(d['meta_' + m.id]); if (Number.isInteger(v) && v >= 1 && v <= 5) notas[m.id] = v; }
+  return notas;
+}
+/** Série histórica de cada meta: [{data, nota}] na ordem dos atendimentos. */
+export function seriesDasMetas(metas = [], atendimentos = [], registros = new Map()) {
+  const validos = atendimentos.filter(a => a.situacao !== 'anulado').sort((a, b) => ms(a.data) - ms(b.data));
+  const series = {};
+  for (const m of metas) series[m.id] = [];
+  for (const a of validos) {
+    const notas = registros.get(a.id)?.metas || {};
+    for (const m of metas) if (notas[m.id]) series[m.id].push({ data: ms(a.data), nota: notas[m.id] });
+  }
+  return series;
+}
+
+// ---------- lembrete pelo WhatsApp (sem dado clínico) ----------
+/** Número para o link wa.me (com 55 do Brasil), ou '' se o telefone não for celular/fixo válido. */
+export function numeroWhatsApp(tel) {
+  let n = String(tel || '').replace(/\D/g, '').replace(/^0+/, '');
+  if (n.startsWith('55') && (n.length === 12 || n.length === 13)) n = n.slice(2);
+  return n.length === 10 || n.length === 11 ? '55' + n : '';
+}
+/** Texto do lembrete: só primeiro nome, data, hora e local — nada de especialidade ou condição. */
+export function textoLembrete({ nome, inicio, escola }) {
+  const primeiro = String(nome || '').trim().split(/\s+/)[0] || 'o(a) aluno(a)';
+  const dia = diaMunicipal(inicio);
+  return 'Olá! Lembrete da Secretaria Municipal de Educação de Frei Inocêncio: ' + primeiro + ' tem atendimento com a equipe de especialistas na '
+    + DIAS[diaDaSemana(dia)].toLowerCase() + ', ' + formatarData(inicio).slice(0, 5) + ', às ' + horaMunicipal(inicio) + (escola ? ', na ' + escola : '') + '. Se não puder comparecer, avise a escola. Obrigado!';
+}
+export const linkWhatsApp = (tel, texto) => { const n = numeroWhatsApp(tel); return n ? 'https://wa.me/' + n + '?text=' + encodeURIComponent(texto) : ''; };
+
+// ---------- painel da Secretaria ----------
+/** Últimos `n` meses (AAAA-MM) até o mês de `hoje`, do mais antigo ao mais recente. */
+export function ultimosMeses(n = 12, hoje = diaMunicipal(Date.now())) {
+  let [a, m] = hoje.split('-').map(Number); const meses = [];
+  for (let i = 0; i < n; i++) { meses.unshift(a + '-' + pad(m)); if (--m === 0) { m = 12; a--; } }
+  return meses;
+}
+/** Atendimentos realizados por mês e especialidade (e por escola). */
+export function serieMensal(atendimentos = [], meses = ultimosMeses()) {
+  const mapa = new Map(meses.map(m => [m, { mes: m, total: 0, porEspecialidade: {}, porEscola: {} }]));
+  for (const a of atendimentos) {
+    if (a.situacao === 'anulado') continue;
+    const x = mapa.get(diaMunicipal(a.data).slice(0, 7)); if (!x) continue;
+    x.total++; x.porEspecialidade[a.especialidade] = (x.porEspecialidade[a.especialidade] || 0) + 1; x.porEscola[a.escola_id] = (x.porEscola[a.escola_id] || 0) + 1;
+  }
+  return [...mapa.values()];
+}
+export const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+export const rotuloMes = m => MESES_CURTOS[Number(m.slice(5, 7)) - 1] + '/' + m.slice(2, 4);

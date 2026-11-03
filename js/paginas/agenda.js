@@ -1,7 +1,7 @@
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta, especialistasDaEscola, escopoEscolas, escolaAtual } from '../estado.js';
 import { formAgendar } from '../formularios.js';
-import { ESPECIALIDADES, DIAS, diaMunicipal, inicioDaSemana, somarDias, instante, formatarData, ms, bloqueioDoDia, diasDoBloqueio, idBloqueio, numeroDoDia } from '../dominio.js';
+import { ESPECIALIDADES, DIAS, diaMunicipal, inicioDaSemana, somarDias, instante, formatarData, ms, bloqueioDoDia, diasDoBloqueio, idBloqueio, numeroDoDia, feriadosDoAno, diaDaSemana } from '../dominio.js';
 import { esc, $, $$, modal, campo, opcoes, aviso, erro, vazio } from '../ui.js';
 import * as dadosCal from '../dados.js';
 import { linhaAgenda, ligarAgendamentos } from './painel.js';
@@ -65,7 +65,7 @@ function calendario(main, vigente) {
   const futuros = periodos.filter(p => p.ate >= hoje);
   const form = modal({
     titulo: 'Calendário escolar', largo: true, botao: 'Bloquear período',
-    corpo: '<div class="importar-pdf"><div><strong>Calendário do ano letivo</strong><p class="nota">Carregue o PDF "Calendário Escolar" emitido pelo sistema da escola: o sistema lê os dias sem aula e você confere antes de aplicar.</p></div><button type="button" class="btn" id="importar-pdf">Carregar PDF do calendário</button></div>'
+    corpo: '<div class="importar-pdf"><div><strong>Calendário do ano letivo</strong><p class="nota">Carregue o PDF "Calendário Escolar" emitido pelo sistema da escola: o sistema lê os dias sem aula e você confere antes de aplicar.</p></div><div class="acoes-linha"><button type="button" class="btn" id="importar-pdf">Carregar PDF do calendário</button><button type="button" class="btn sec" id="feriados">Feriados nacionais</button></div></div>'
       + '<p class="nota">Dias sem atendimento não aparecem para agendamento (o servidor também recusa). Atendimentos já registrados não são afetados.</p>'
       + '<div class="grade">' + campo('de', 'De', { tipo: 'date', obrig: true, valor: hoje }) + campo('ate', 'Até', { tipo: 'date', valor: hoje })
       + opcoes('escola_id', 'Abrangência', [['', 'Toda a rede'], ...S.escolas.map(e => [e.id, e.nome])])
@@ -80,6 +80,7 @@ function calendario(main, vigente) {
     }
   });
   $('#importar-pdf', form).onclick = () => importarCalendarioPdf(main, vigente);
+  $('#feriados', form).onclick = () => feriados(main, vigente);
   $$('[data-remover-periodo]', form).forEach(b => b.onclick = async () => {
     const p = futuros[Number(b.dataset.removerPeriodo)]; b.disabled = true;
     try { await dadosCal.removerBloqueios(p.ids); S.bloqueios = await dadosCal.listarBloqueios(); aviso('Período liberado.'); document.getElementById('modal')?.remove(); render(main, vigente); }
@@ -130,4 +131,25 @@ function importarCalendarioPdf(main, vigente) {
       enviar.disabled = false;
     } catch (e) { box.innerHTML = '<p class="alerta-caixa erro">' + esc(e.message) + '</p>'; console.error(e); }
   };
+}
+
+/** Feriados nacionais (fixos e móveis) do ano, em dias úteis, para bloquear a agenda da rede toda. */
+function feriados(main, vigente) {
+  const ano0 = Number(diaMunicipal(Date.now()).slice(0, 4));
+  const existentes = () => new Set(S.bloqueios.map(b => b.id));
+  const lista = ano => { const ex = existentes(); return feriadosDoAno(ano).map(f => ({ ...f, ja: ex.has(idBloqueio(f.dia)) })); };
+  const tabela = ano => '<table class="tabela"><thead><tr><th></th><th>Data</th><th>Feriado</th></tr></thead><tbody>' + lista(ano).map((f, i) => '<tr><td><input type="checkbox" name="f' + i + '" value="' + f.dia + '"' + (f.ja ? ' disabled' : ' checked') + ' aria-label="' + esc(f.motivo) + '"></td><td>' + DIAS[diaDaSemana(f.dia)].slice(0, 3) + ' ' + formatarData(instante(f.dia, '12:00')) + '</td><td>' + esc(f.motivo) + (f.ja ? ' <small class="nota">(já bloqueado)</small>' : '') + '</td></tr>').join('') + '</tbody></table>';
+  const form = modal({
+    titulo: 'Feriados nacionais', largo: true, botao: 'Bloquear selecionados',
+    corpo: '<div class="grade">' + opcoes('ano', 'Ano', [ano0, ano0 + 1].map(a => [a, String(a)]), { valor: ano0 }) + '</div>'
+      + '<p class="nota">Só aparecem os que caem de segunda a sexta. Desmarque o que não se aplica. Feriados municipais e recessos: use "Bloquear período".</p><div data-feriados>' + tabela(ano0) + '</div>',
+    aoSalvar: async d => {
+      const ano = Number(d.ano), escolhidos = lista(ano).filter((f, i) => d['f' + i] && !f.ja);
+      if (!escolhidos.length) throw Error('Nenhum feriado novo selecionado.');
+      for (const f of escolhidos) await dadosCal.criarBloqueios([f.dia], '', f.motivo, idBloqueio, numeroDoDia);
+      S.bloqueios = await dadosCal.listarBloqueios();
+      aviso(escolhidos.length + ' feriado(s) bloqueado(s) na agenda.'); render(main, vigente);
+    }
+  });
+  form.ano.onchange = () => { $('[data-feriados]', form).innerHTML = tabela(Number(form.ano.value)); };
 }

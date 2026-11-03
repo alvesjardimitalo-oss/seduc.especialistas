@@ -462,3 +462,88 @@ test('troca de e-mail: a pessoa só grava o e-mail do próprio login confirmado'
   await assertFails(updateDoc(doc(ctx('psico', 'psico@teste.br'), 'usuarios', 'fono'), { email: 'psico@teste.br' }));
   await assertFails(updateDoc(doc(ctx('inativa', 'inativa2@teste.br'), 'usuarios', 'inativa'), { email: 'inativa2@teste.br' }));
 });
+
+// ---------- v2.2: fila de espera, frequência, acessos, metas ----------
+const pedido = (uid, nome, extra = {}) => ({ estudante_id: 'alunoA', escola_id: ESC_A, especialidade: 'fonoaudiologia', motivo: 'Troca letras na escrita e na fala.', prioridade: 'normal', situacao: 'aguardando', solicitante_uid: uid, solicitante_nome: nome, criado_em: serverTimestamp(), ...extra });
+test('fila de espera: direção pede na própria escola; agendado exige agendamento do mesmo aluno', async () => {
+  await assertSucceeds(setDoc(doc(db('dirA'), 'pedidos', 'p1'), pedido('dirA', 'Direção A')));
+  await assertFails(setDoc(doc(db('dirA'), 'pedidos', 'p2'), pedido('dirA', 'Direção A', { estudante_id: 'alunoB', escola_id: ESC_B })));
+  await assertFails(setDoc(doc(db('dirA'), 'pedidos', 'p3'), pedido('fono', 'Outra pessoa')));
+  await assertFails(setDoc(doc(db('fono'), 'pedidos', 'p4'), pedido('fono', 'Fono', { motivo: 'curto' })));
+  await assertSucceeds(setDoc(doc(db('fono'), 'pedidos', 'p5'), pedido('fono', 'Fono', { prioridade: 'alta' })));
+  await assertSucceeds(getDoc(doc(db('psico'), 'pedidos', 'p1')));
+  await assertSucceeds(getDocs(query(collection(db('dirA'), 'pedidos'), where('escola_id', 'in', [ESC_A]))));
+  await assertFails(getDocs(collection(db('dirA'), 'pedidos')));
+  const up = (uid, d) => updateDoc(doc(db(uid), 'pedidos', 'p1'), { ...d, atualizado_por: uid, atualizado_em: serverTimestamp() });
+  await assertFails(up('fono', { situacao: 'agendado', agendamento_id: 'nao-existe' }));
+  await loteAgenda(db('fono'), { criador: 'fono' }).commit();
+  await assertFails(up('fono', { situacao: 'agendado', agendamento_id: 'ag1', motivo: 'troquei o motivo' }));
+  await assertSucceeds(up('fono', { situacao: 'agendado', agendamento_id: 'ag1' }));
+  await assertFails(up('fono', { situacao: 'cancelado', motivo_cancelamento: 'já agendado não volta' }));
+  await assertFails(up('dirA', { prioridade: 'alta' }));
+  await assertSucceeds(updateDoc(doc(db('psico'), 'pedidos', 'p5'), { situacao: 'cancelado', motivo_cancelamento: 'Atendido sem agendamento', atualizado_por: 'psico', atualizado_em: serverTimestamp() }));
+  await assertFails(deleteDoc(doc(db('admin'), 'pedidos', 'p1')));
+});
+
+const hojeMun = () => diaMunicipal(Date.now());
+const entrada = (uid, extra = {}) => setDoc(doc(db(uid), 'frequencias', uid + '_' + (extra.dia || hojeMun())), { uid, nome: 'X', dia: hojeMun(), escola_id: ESC_A, situacao: 'presente', entrada: serverTimestamp(), registrado_por: uid, criado_em: serverTimestamp(), ...extra });
+test('frequência: entrada e saída da própria especialista no relógio do servidor', async () => {
+  await assertFails(entrada('fono', { dia: somarDias(hojeMun(), -1) }));
+  await assertFails(entrada('fono', { entrada: Timestamp.fromMillis(Date.now() - 3600e3) }));
+  await assertFails(setDoc(doc(db('psico'), 'frequencias', 'fono_' + hojeMun()), { uid: 'fono', nome: 'X', dia: hojeMun(), escola_id: '', situacao: 'presente', entrada: serverTimestamp(), registrado_por: 'psico', criado_em: serverTimestamp() }));
+  await assertFails(entrada('dirA'));
+  await assertSucceeds(entrada('fono'));
+  const id = 'fono_' + hojeMun();
+  await assertFails(updateDoc(doc(db('fono'), 'frequencias', id), { saida: Timestamp.fromMillis(Date.now() + 3600e3), atualizado_em: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('fono'), 'frequencias', id), { saida: serverTimestamp(), atualizado_em: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db('fono'), 'frequencias', id), { saida: serverTimestamp(), atualizado_em: serverTimestamp() }));
+  await assertFails(getDoc(doc(db('psico'), 'frequencias', id)));
+  await assertSucceeds(getDoc(doc(db('sec'), 'frequencias', id)));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'frequencias', id)));
+  await assertSucceeds(getDocs(query(collection(db('fono'), 'frequencias'), where('uid', '==', 'fono'))));
+  // ausência justificada pela própria especialista; abono só pela gestão, com motivo
+  const aus = (uid, situacao, j = 'Atestado médico') => setDoc(doc(db(uid), 'frequencias', uid + '_2026-12-01'), { uid, nome: 'X', dia: '2026-12-01', escola_id: '', situacao, justificativa: j, registrado_por: uid, criado_em: serverTimestamp() });
+  await assertFails(aus('psico', 'abonada')); await assertFails(aus('psico', 'atestado', ' '));
+  await assertSucceeds(aus('psico', 'atestado'));
+  const ajuste = (uid, d) => updateDoc(doc(db(uid), 'frequencias', id), { ...d, atualizado_por: uid, atualizado_em: serverTimestamp() });
+  await assertFails(ajuste('sec', { situacao: 'abonada' }));
+  await assertFails(ajuste('secLeitura', { situacao: 'abonada', ajuste_motivo: 'Reunião externa' }));
+  await assertSucceeds(ajuste('sec', { situacao: 'abonada', ajuste_motivo: 'Reunião externa' }));
+  await assertFails(deleteDoc(doc(db('admin'), 'frequencias', id)));
+});
+
+test('acessos aos prontuários: cada um registra o próprio; só a administração lê', async () => {
+  const ac = (uid, perfil, extra = {}) => setDoc(doc(collection(db(uid), 'acessos')), { uid, nome: 'X', perfil, estudante_id: 'alunoA', escola_id: ESC_A, acao: 'prontuario', em: serverTimestamp(), ...extra });
+  await assertSucceeds(ac('fono', 'especialista')); await assertSucceeds(ac('dirA', 'direcao'));
+  await assertFails(ac('fono', 'superadmin')); await assertFails(ac('fono', 'especialista', { uid: 'psico' }));
+  await assertFails(ac('fono', 'especialista', { em: Timestamp.fromMillis(1) })); await assertFails(ac('inativa', 'especialista'));
+  await assertSucceeds(getDocs(query(collection(db('admin'), 'acessos'), where('estudante_id', '==', 'alunoA'))));
+  await assertFails(getDocs(query(collection(db('sec'), 'acessos'), where('estudante_id', '==', 'alunoA'))));
+  await assertFails(getDocs(query(collection(db('fono'), 'acessos'), where('uid', '==', 'fono'))));
+});
+
+test('plano de metas: especialidade da autora; marcação no registro da consulta', async () => {
+  const plano = (uid, esp, metas = [{ id: 'm1', texto: 'Produzir /r/', situacao: 'ativa' }]) => setDoc(doc(db(uid), 'planos', 'alunoA_' + esp), { estudante_id: 'alunoA', especialidade: esp, metas, profissional_uid: uid, profissional_nome: 'X', atualizado_nome: 'X', criado_em: serverTimestamp(), atualizado_por: uid, atualizado_em: serverTimestamp() });
+  await assertFails(plano('fono', 'psicopedagogia'));
+  await assertFails(plano('fono', 'fonoaudiologia', []));
+  await assertFails(plano('dirA', 'fonoaudiologia'));
+  await assertSucceeds(plano('fono', 'fonoaudiologia'));
+  await assertSucceeds(getDoc(doc(db('psico'), 'planos', 'alunoA_fonoaudiologia')));
+  await assertFails(getDoc(doc(db('dirA'), 'planos', 'alunoA_fonoaudiologia')));
+  await assertFails(updateDoc(doc(db('psico'), 'planos', 'alunoA_fonoaudiologia'), { metas: [], atualizado_por: 'psico', atualizado_nome: 'P', atualizado_em: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('fono'), 'planos', 'alunoA_fonoaudiologia'), { metas: [{ id: 'm1', texto: 'Produzir /r/', situacao: 'atingida' }], atualizado_por: 'fono', atualizado_nome: 'Fono', atualizado_em: serverTimestamp() }));
+  // notas das metas no registro da consulta
+  const f = db('fono'), b = loteAtendimento(f, 'fono', { id: 'mt1' });
+  b.set(doc(f, 'atendimentos_registro', 'mt1'), { estudante_id: 'alunoA', profissional_uid: 'fono', objetivo: 'Treino', metas: { m1: 3 }, versao: 1 });
+  await assertSucceeds(b.commit());
+  const b2 = loteAtendimento(f, 'fono', { id: 'mt2' });
+  b2.set(doc(f, 'atendimentos_registro', 'mt2'), { estudante_id: 'alunoA', profissional_uid: 'fono', objetivo: 'Treino', metas: Object.fromEntries(Array.from({ length: 9 }, (_, i) => ['m' + i, 3])), versao: 1 });
+  await assertFails(b2.commit());
+});
+
+test('cópia de segurança: só a administração lista contatos e dados clínicos', async () => {
+  await assertSucceeds(getDocs(collection(db('admin'), 'estudantes_clinico')));
+  await assertSucceeds(getDocs(collection(db('admin'), 'estudantes_privado')));
+  await assertFails(getDocs(collection(db('sec'), 'estudantes_privado')));
+  await assertFails(getDocs(collection(db('psico'), 'estudantes_clinico')));
+});

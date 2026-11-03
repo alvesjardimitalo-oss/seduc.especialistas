@@ -1,0 +1,47 @@
+name: Cópia de segurança semanal (criptografada)
+# Todo domingo às 3h (Brasília) lê o banco com a conta de serviço e guarda a cópia
+# CRIPTOGRAFADA como artefato do GitHub por 90 dias. Sem a senha (segredo BACKUP_SENHA)
+# o arquivo não pode ser aberto. O repositório é público: por isso a cópia nunca vai sem criptografia.
+on:
+  schedule:
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+concurrency:
+  group: seduc-copia-de-seguranca
+  cancel-in-progress: false
+jobs:
+  copia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Conferir segredos
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SEDUC }}
+          BACKUP_SENHA: ${{ secrets.BACKUP_SENHA }}
+        run: |
+          if [ -z "$FIREBASE_SA" ] || [ -z "$BACKUP_SENHA" ]; then
+            echo "::error::Configure os segredos FIREBASE_SERVICE_ACCOUNT_SEDUC e BACKUP_SENHA em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar firebase-admin
+        run: npm install --no-save --no-audit --no-fund firebase-admin@13
+      - name: Gerar cópia criptografada
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SEDUC }}
+          BACKUP_SENHA: ${{ secrets.BACKUP_SENHA }}
+        run: node tools/backup.mjs
+      - name: Guardar a cópia (90 dias)
+        uses: actions/upload-artifact@v4
+        with:
+          name: copia-seduc-especialistas
+          path: copia/
+          retention-days: 90
+          if-no-files-found: error

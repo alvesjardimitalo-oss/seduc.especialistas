@@ -1,11 +1,14 @@
 // Prontuário do aluno: linha do tempo compartilhada em cards expansíveis.
 import * as dados from '../dados.js';
 import { S, pode, nomeEscola, escolaCurta, estudante } from '../estado.js';
-import { formAtendimento, formAgendar, formAluno, arquivarAluno, anularAtendimento, abrirAgendamento, irPara, eventos } from '../formularios.js';
+import { formAtendimento, formAgendar, formAluno, arquivarAluno, anularAtendimento, abrirAgendamento, irPara, eventos, formPedido } from '../formularios.js';
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, linhaDoTempo, situacaoAcompanhamento, idade,
-  formatarData, formatarDataHora, diaMunicipal, ms, noPeriodo, formatarCPF, secoesRegistro, planoDoRegistro, validarCondicao, ordenarCondicoes
+  formatarData, formatarDataHora, diaMunicipal, ms, noPeriodo, formatarCPF, secoesRegistro, planoDoRegistro, validarCondicao, ordenarCondicoes,
+  ESCALA_META, SITUACAO_META, MAX_METAS, validarMetas, seriesDasMetas, diasDeEspera
 } from '../dominio.js';
+import { carregarPedidos, podePedir } from './fila.js';
+import { quemAcessou } from './seguranca.js';
 import { esc, iniciais, vazio, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from '../ui.js';
 import { chipsAcompanhamento } from './alunos.js';
 import { imprimirProntuario, imprimirRelatorio, imprimirFichaEscola } from '../impressao.js';
@@ -19,14 +22,17 @@ export async function render(main, vigente) {
   const aba = ABAS.some(([k]) => k === S.rota.aba) ? S.rota.aba : 'prontuario';
   const clinico = pode.clinico();
   const veContato = clinico || pode.gerenciar() || S.perfil.perfil === 'direcao';
-  const [atendimentos, registros, agenda, privado, saude, relatorios, condicoes] = await Promise.all([
+  dados.registrarAcesso(S.perfil, e, 'prontuario');
+  const [atendimentos, registros, agenda, privado, saude, relatorios, condicoes, planos, pedidos] = await Promise.all([
     dados.listarAtendimentos({ estudanteId: id }),
     clinico ? dados.listarRegistros(id) : [],
     dados.listarAgendamentos({ estudanteId: id }),
     veContato ? dados.lerDoc('estudantes_privado', id).then(x => x || {}).catch(() => null) : null,
     clinico ? dados.lerDoc('estudantes_clinico', id).catch(() => null) : null,
     clinico ? dados.listarRelatorios(id) : [],
-    clinico ? dados.listarCondicoes(id).catch(() => []) : []
+    clinico ? dados.listarCondicoes(id).catch(() => []) : [],
+    clinico ? dados.listarPlanos(id).catch(() => []) : [],
+    carregarPedidos().then(l => l.filter(p => p.estudante_id === id)).catch(() => [])
   ]);
   if (!vigente()) return;
   const reg = new Map(registros.map(r => [r.id, r]));
@@ -44,13 +50,16 @@ export async function render(main, vigente) {
     + (pode.agendar() && e.situacao !== 'arquivado' ? '<button class="btn sec" data-acao="agendar">Agendar</button>' : '')
     + '<button class="btn sec" data-acao="ficha-escola">Ficha para a professora</button>'
     + (clinico ? '<button class="btn sec" data-acao="imprimir">Imprimir prontuário</button>' : '')
+    + (podePedir() && e.situacao !== 'arquivado' ? '<button class="btn sec" data-acao="pedido">Pedir atendimento</button>' : '')
+    + (pode.admin() ? '<button class="btn sec" data-acao="acessos">Quem acessou</button>' : '')
     + '</div></header>'
+    + pedidos.filter(p => p.situacao === 'aguardando').map(p => '<div class="faixa-proximo faixa-fila">Na fila de espera de <strong>' + esc(ESPECIALIDADES[p.especialidade]) + '</strong> desde ' + esc(formatarData(p.criado_em)) + ' (' + diasDeEspera(p) + ' dia(s))' + (p.prioridade === 'alta' ? ' · prioridade alta' : '') + ' · <a href="#/fila">ver fila</a></div>').join('')
     + (proximo ? '<div class="faixa-proximo">Próximo atendimento: <strong>' + esc(formatarDataHora(proximo.inicio)) + '</strong> com ' + esc(proximo.profissional_nome) + ' (' + esc(ESPECIALIDADES[proximo.especialidade]) + ')</div>' : '')
     + '<nav class="abas" role="tablist">' + ABAS.filter(([k]) => k !== 'relatorios' || clinico).map(([k, t]) => '<a role="tab" href="#/aluno/' + esc(id) + '/' + k + '" aria-selected="' + (aba === k) + '" class="' + (aba === k ? 'ativa' : '') + '">' + t
       + (k === 'prontuario' ? ' <span class="contagem">' + atendimentos.filter(a => a.situacao !== 'anulado').length + '</span>' : '')
       + (k === 'relatorios' ? ' <span class="contagem">' + relatorios.length + '</span>' : '') + '</a>').join('') + '</nav>';
 
-  if (aba === 'prontuario') h += abaProntuario(e, atendimentos, reg, privado, saude, clinico, condicoes);
+  if (aba === 'prontuario') h += (clinico ? cartaoPlanos(e, planos, atendimentos, reg) : '') + abaProntuario(e, atendimentos, reg, privado, saude, clinico, condicoes);
   if (aba === 'agenda') h += abaAgenda(agenda);
   if (aba === 'relatorios') h += abaRelatorios(relatorios);
   if (aba === 'ficha') h += abaFicha(e, privado, saude, clinico);
@@ -61,8 +70,11 @@ export async function render(main, vigente) {
     const a = b.dataset.acao;
     if (a === 'registrar') formAtendimento({ estudanteId: id });
     if (a === 'agendar') formAgendar({ estudanteId: id });
-    if (a === 'imprimir') opcoesImpressao(e, atendimentos, reg, privado, saude);
+    if (a === 'imprimir') opcoesImpressao(e, atendimentos, reg, privado, saude, planos);
     if (a === 'ficha-escola') fichaEscola(e, atendimentos, agenda, saude, clinico);
+    if (a === 'pedido') formPedido({ estudanteId: id });
+    if (a === 'acessos') quemAcessou(e);
+    if (a === 'plano') formPlano(e, planos.find(p => p.especialidade === S.perfil.especialidade));
     if (a === 'nova-condicao') novaCondicao(e);
     if (a === 'editar') formAluno(id);
     if (a === 'arquivar') arquivarAluno(id);
@@ -80,7 +92,7 @@ export async function render(main, vigente) {
   $$('[data-anular]', main).forEach(b => b.onclick = () => anularAtendimento(atendimentos.find(x => x.id === b.dataset.anular)));
   $$('[data-versoes]', main).forEach(b => b.onclick = () => verVersoes(b.dataset.versoes));
   $$('[data-agendamento]', main).forEach(b => b.onclick = () => abrirAgendamento(agenda.find(x => x.id === b.dataset.agendamento)));
-  $$('[data-imprimir-rel]', main).forEach(b => b.onclick = () => imprimirRelatorio(relatorios.find(r => r.id === b.dataset.imprimirRel), e));
+  $$('[data-imprimir-rel]', main).forEach(b => b.onclick = () => { dados.registrarAcesso(S.perfil, e, 'relatorio'); imprimirRelatorio(relatorios.find(r => r.id === b.dataset.imprimirRel), e); });
   $('[data-expandir-todos]', main)?.addEventListener('click', ev => { const abrir = ev.target.dataset.expandirTodos !== '1'; $$('.card-atendimento', main).forEach(d => d.open = abrir); ev.target.dataset.expandirTodos = abrir ? '1' : '0'; ev.target.textContent = abrir ? 'Recolher todos' : 'Expandir todos'; });
 }
 
@@ -241,14 +253,15 @@ function abaFicha(e, privado, saude, clinico) {
     + (clinico ? '<section class="cartao"><h2>Informações de saúde</h2><dl class="ficha-dados">' + item('Condição informada', saude?.necessidade_informada) + item('Fonte', saude?.fonte) + item('Observações', saude?.observacoes) + '</dl></section>' : '');
 }
 
-function opcoesImpressao(e, atendimentos, reg, privado, saude) {
+function opcoesImpressao(e, atendimentos, reg, privado, saude, planos = []) {
   const hoje = diaMunicipal(Date.now());
   modal({
     titulo: 'Imprimir prontuário', botao: 'Gerar documento',
     corpo: '<div class="grade">' + opcoes('especialidade', 'Especialidade', [['', 'Todas'], ...Object.entries(ESPECIALIDADES)]) + campo('de', 'De', { tipo: 'date' }) + campo('ate', 'Até', { tipo: 'date', valor: hoje }) + '</div><p class="nota">O documento abre em nova janela para imprimir ou salvar em PDF. Contém dados sensíveis: entregue somente a quem tem direito.</p>',
     aoSalvar: async d => {
       const lista = linhaDoTempo(atendimentos, { especialidade: d.especialidade, incluirAnulados: false }).filter(a => noPeriodo(a.data, d.de, d.ate)).reverse();
-      imprimirProntuario({ estudante: e, privado, saude, atendimentos: lista, registros: reg, filtros: d });
+      dados.registrarAcesso(S.perfil, e, 'impressao');
+      imprimirProntuario({ estudante: e, privado, saude, atendimentos: lista, registros: reg, filtros: d, planos: planos.filter(p => !d.especialidade || p.especialidade === d.especialidade) });
     }
   });
 }
@@ -258,7 +271,7 @@ function fichaEscola(e, atendimentos, agenda, saude, clinico) {
     titulo: 'Ficha para a professora', botao: 'Gerar ficha',
     corpo: '<p>Resumo de uma página para a professora e a escola: quem acompanha o aluno, as orientações para a sala de aula e os próximos atendimentos. <strong>Não inclui o registro clínico.</strong></p>'
       + (clinico && saude?.necessidade_informada ? '<label class="check"><input type="checkbox" name="condicao"> Incluir a condição informada (' + esc(saude.necessidade_informada) + ') — somente com autorização da família</label>' : ''),
-    aoSalvar: async d => imprimirFichaEscola({ estudante: e, atendimentos, agenda, condicao: d.condicao ? saude.necessidade_informada : '' })
+    aoSalvar: async d => (dados.registrarAcesso(S.perfil, e, 'ficha_escola'), imprimirFichaEscola({ estudante: e, atendimentos, agenda, condicao: d.condicao ? saude.necessidade_informada : '' }))
   });
 }
 
@@ -269,5 +282,52 @@ function novaCondicao(e) {
       + campo('descricao', 'Problema ou condição', { obrig: true, largo: true, extra: 'maxlength="150"' })
       + area('observacao', 'Observação (opcional)', { max: 300, linhas: 2 }),
     aoSalvar: async d => { await dados.criarCondicao(e.id, validarCondicao(d), S.perfil); aviso('Adicionado à folha de rosto.'); eventos.aoMudar(); }
+  });
+}
+
+// ---------- plano de acompanhamento (metas e evolução) ----------
+/** Mini-gráfico de uma meta: notas 1–5 ao longo dos atendimentos (uma série, rótulo do último valor). */
+function graficoMeta(serie, esp) {
+  const L = 220, A = 46, mx = 8, my = 6;
+  if (!serie.length) return '<span class="nota">Ainda sem marcação</span>';
+  const x = i => serie.length === 1 ? L / 2 : mx + i * (L - 2 * mx - 24) / (serie.length - 1);
+  const y = n => my + (5 - n) * (A - 2 * my) / 4;
+  const pontos = serie.map((p, i) => x(i).toFixed(1) + ',' + y(p.nota).toFixed(1)).join(' ');
+  const ult = serie[serie.length - 1];
+  return '<svg class="grafico-meta" viewBox="0 0 ' + L + ' ' + A + '" width="' + L + '" height="' + A + '" role="img" aria-label="Evolução: ' + serie.map(p => formatarData(p.data).slice(0, 5) + ' nota ' + p.nota).join(', ') + '">'
+    + [1, 3, 5].map(n => '<line x1="' + mx + '" x2="' + (L - 24) + '" y1="' + y(n) + '" y2="' + y(n) + '" class="grade-linha"/>').join('')
+    + '<polyline points="' + pontos + '" class="linha esp-' + esp + '"/>'
+    + serie.map((p, i) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.nota).toFixed(1) + '" r="4" class="marca-meta"><title>' + formatarData(p.data) + ': ' + p.nota + ' — ' + ESCALA_META[p.nota] + '</title></circle>').join('')
+    + '<text x="' + (L - 2) + '" y="' + (y(ult.nota) + 4) + '" text-anchor="end" class="rotulo">' + ult.nota + '/5</text></svg>';
+}
+function cartaoPlanos(e, planos, atendimentos, reg) {
+  const meu = S.perfil.perfil === 'especialista' ? S.perfil.especialidade : '';
+  const temMeu = planos.some(p => p.especialidade === meu);
+  if (!planos.length && !meu) return '';
+  let h = '<section class="cartao plano"><header class="cartao-topo"><h2>Plano de acompanhamento</h2>'
+    + (meu && e.situacao !== 'arquivado' ? '<button class="btn sec pequeno" data-acao="plano">' + (temMeu ? 'Editar metas de ' : 'Criar metas de ') + esc(ESPECIALIDADES[meu]) + '</button>' : '') + '</header>';
+  if (!planos.length) return h + '<p class="nota">Defina de 3 a 5 metas para o aluno. A cada atendimento você marca de 1 a 5 como está cada meta, e a evolução aparece aqui em gráfico — ótimo para a devolutiva à família.</p></section>';
+  for (const p of planos.slice().sort((a, b) => a.especialidade.localeCompare(b.especialidade))) {
+    const series = seriesDasMetas(p.metas, atendimentos.filter(a => a.especialidade === p.especialidade), reg);
+    h += '<div class="plano-esp esp-' + esc(p.especialidade) + '"><h3>' + esc(ESPECIALIDADES[p.especialidade]) + ' <small class="nota">· atualizado por ' + esc(p.atualizado_nome || p.profissional_nome) + ' em ' + esc(formatarData(p.atualizado_em)) + '</small></h3><ul class="metas">'
+      + p.metas.map(m => '<li class="meta meta-' + esc(m.situacao) + '"><div><strong>' + esc(m.texto) + '</strong><small>' + esc(SITUACAO_META[m.situacao]) + (series[m.id].length ? ' · última: ' + esc(ESCALA_META[series[m.id].at(-1).nota]) : '') + '</small></div>' + graficoMeta(series[m.id], p.especialidade) + '</li>').join('')
+      + '</ul></div>';
+  }
+  return h + '<p class="nota">Escala: 1 Não iniciou · 2 Iniciando · 3 Em desenvolvimento · 4 Quase lá · 5 Atingiu.</p></section>';
+}
+function formPlano(e, plano) {
+  const metas = plano?.metas || [];
+  const linha = (m = {}, i) => '<div class="meta-edicao"><input type="hidden" name="id_' + i + '" value="' + esc(m.id || '') + '">'
+    + '<input type="text" name="texto_' + i + '" value="' + esc(m.texto || '') + '" maxlength="200" placeholder="Meta ' + (i + 1) + (i === 0 ? ' — ex.: Produzir o fonema /r/ em palavras' : '') + '" aria-label="Meta ' + (i + 1) + '">'
+    + '<select name="situacao_' + i + '" aria-label="Situação da meta ' + (i + 1) + '">' + Object.entries(SITUACAO_META).map(([k, t]) => '<option value="' + k + '"' + ((m.situacao || 'ativa') === k ? ' selected' : '') + '>' + t + '</option>').join('') + '</select></div>';
+  modal({
+    titulo: 'Metas de ' + ESPECIALIDADES[S.perfil.especialidade] + ' — ' + e.nome, largo: true, botao: 'Salvar plano',
+    corpo: '<p class="nota">Metas curtas e observáveis. Metas atingidas ou suspensas continuam no histórico, mas saem da marcação da consulta. Visível só para a equipe.</p>'
+      + Array.from({ length: MAX_METAS }, (_, i) => linha(metas[i], i)).join(''),
+    aoSalvar: async d => {
+      const lista = Array.from({ length: MAX_METAS }, (_, i) => ({ id: d['id_' + i], texto: d['texto_' + i], situacao: d['situacao_' + i] }));
+      await dados.salvarPlano(e.id, S.perfil, validarMetas(lista), plano);
+      aviso('Plano salvo.'); eventos.aoMudar();
+    }
   });
 }

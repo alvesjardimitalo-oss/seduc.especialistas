@@ -6,6 +6,6 @@ export {
   EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup, verifyBeforeUpdateEmail
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 export {
-  getFirestore, collection, doc, getDoc, getDocs, query, where,
-  writeBatch, runTransaction, serverTimestamp, Timestamp
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence,
+  collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';

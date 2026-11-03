@@ -3,7 +3,7 @@
   --fundo: #f3f6f9; --papel: #fff; --acento: #0d8f85; --acento-esc: #0a726a; --acento-claro: #e2f4f1;
   --perigo: #b4232c; --aviso: #a8650b; --ok: #1a7f4b;
   --fono: #3d6fd6; --fono-claro: #e7eefc;
-  --neuro: #7a5cd0; --neuro-claro: #efe9fb;
+  --neuro: #b8448f; --neuro-claro: #f9e9f3;
   --psico: #c97a18; --psico-claro: #fcf1e1;
   --raio: 14px; --sombra: 0 1px 2px rgba(16,35,54,.05), 0 6px 20px rgba(16,35,54,.05);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -343,3 +343,71 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .acoes-fila { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .chegada { font-size: .8rem; font-weight: 700; color: var(--aviso); }
 @media (max-width: 900px) { .folha-grade { grid-template-columns: 1fr; } .item-fila, .item-fila:not(.chegou) { grid-template-columns: 1fr; } .item-fila .posicao { display: none; } }
+
+/* ---------- v2.2: fila, frequência, metas, conexão, gráficos ---------- */
+.toast-aviso { background: #6d4507; } .toast { cursor: pointer; }
+.alerta-caixa.ok { background: #e3f4ea; border-color: #b9e0c8; color: #14532d; }
+.alerta-caixa.info { display: flex; align-items: center; justify-content: space-between; gap: .8rem; flex-wrap: wrap; }
+.conexao { margin-right: auto; margin-left: 1rem; font-size: .82rem; font-weight: 600; padding: .3rem .7rem; border-radius: 999px; }
+.conexao.off { background: #fdf0dc; color: var(--aviso); } .conexao.enviando { background: var(--acento-claro); color: var(--acento-esc); }
+
+/* fila de espera */
+.fila-espera { list-style: none; margin: .8rem 0 0; padding: 0; display: grid; gap: .6rem; }
+.pedido { display: grid; grid-template-columns: auto 1fr auto; gap: .9rem; align-items: start; border: 1px solid var(--linha); border-left: 4px solid var(--esp, var(--acento)); border-radius: 12px; padding: .8rem 1rem; background: #fff; }
+.pedido.alta { background: #fffaf1; border-color: #f0c98a; border-left-color: var(--psico); }
+.pedido .posicao { width: 34px; height: 34px; border-radius: 50%; background: var(--marinho); color: #fff; display: grid; place-items: center; font-weight: 800; }
+.pedido-info small { display: block; color: var(--suave); } .pedido-info p { margin: .35rem 0; }
+.pedido .acoes-linha { justify-content: flex-end; }
+.faixa-fila { background: #fff6e6; color: #6d4507; }
+.tag-esp { font-size: .72rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; background: var(--esp-claro, #eef3f7); color: var(--esp, var(--marinho)); }
+@media (max-width: 700px) { .pedido { grid-template-columns: 1fr; } .pedido .posicao { display: none; } }
+
+/* frequência */
+.cartao-ponto { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.cartao-ponto select { padding: .5rem; border: 1px solid var(--linha); border-radius: 10px; }
+.cartao-ponto.em-curso { border-left: 4px solid var(--acento); padding-left: 1rem; } .cartao-ponto.concluido strong { color: var(--ok); }
+.linha-alerta td { background: #fffaf1; }
+.filtros-linha { display: flex; flex-wrap: wrap; gap: .8rem; align-items: end; margin-bottom: .6rem; }
+
+/* metas */
+.plano-esp { border-top: 1px solid var(--linha); padding-top: .8rem; margin-top: .8rem; } .plano-esp:first-of-type { border-top: 0; margin-top: 0; }
+.plano-esp h3 { font-size: .98rem; color: var(--esp); margin-bottom: .4rem; }
+.metas { list-style: none; padding: 0; margin: 0; display: grid; gap: .3rem; }
+.meta { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .45rem 0; border-bottom: 1px dashed var(--linha); }
+.meta small { display: block; color: var(--suave); } .meta-atingida strong { color: var(--ok); } .meta-suspensa { opacity: .6; }
+.grafico-meta { flex: none; max-width: 45vw; height: auto; }
+.grafico-meta .grade-linha { stroke: #e3e9ef; stroke-width: 1; }
+.grafico-meta .linha { fill: none; stroke: var(--esp); stroke-width: 2; stroke-linejoin: round; }
+.grafico-meta .marca-meta { fill: var(--esp); stroke: #fff; stroke-width: 2; }
+.grafico-meta .rotulo { font-size: 12px; font-weight: 700; fill: var(--tinta); }
+.metas-consulta { border: 1px solid var(--linha); border-radius: 12px; padding: .6rem .9rem; margin: .4rem 0; }
+.metas-consulta legend { font-weight: 600; padding: 0 .3rem; } .metas-consulta legend small { font-weight: 400; color: var(--suave); }
+.meta-linha { display: flex; justify-content: space-between; align-items: center; gap: .8rem; padding: .3rem 0; border-bottom: 1px dashed var(--linha); flex-wrap: wrap; }
+.escala { display: flex; gap: .25rem; }
+.escala label { cursor: pointer; } .escala input { position: absolute; opacity: 0; pointer-events: none; }
+.escala span { display: grid; place-items: center; min-width: 34px; height: 34px; border: 1px solid var(--linha); border-radius: 8px; font-weight: 700; color: var(--suave); }
+.escala input:checked + span { background: var(--acento); border-color: var(--acento); color: #fff; }
+.escala input:focus-visible + span { outline: 3px solid #7cc9c1; outline-offset: 1px; }
+.meta-edicao { display: grid; grid-template-columns: 1fr 180px; gap: .5rem; margin-bottom: .45rem; }
+.meta-edicao input, .meta-edicao select { padding: .5rem .6rem; border: 1px solid var(--linha); border-radius: 10px; }
+
+/* lembretes */
+.lembrete { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .5rem .2rem; border-bottom: 1px solid var(--linha); }
+.lembrete small { display: block; color: var(--suave); }
+
+/* gráfico de colunas (painel da Secretaria) */
+.figura-grafico { margin: 0; }
+.legenda { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .85rem; color: var(--tinta); margin-bottom: .4rem; }
+.legenda span, .dica span { display: inline-flex; align-items: center; gap: .35rem; }
+.legenda i, .dica i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.cat-fonoaudiologia { fill: var(--fono); background: var(--fono); } .cat-neuropsicologia { fill: var(--neuro); background: var(--neuro); } .cat-psicopedagogia { fill: var(--psico); background: var(--psico); }
+.area-grafico { position: relative; }
+.grafico-colunas { width: 100%; height: auto; display: block; }
+.grafico-colunas .grade-linha { stroke: #e6ecf1; stroke-width: 1; }
+.grafico-colunas .eixo { font-size: 11px; fill: var(--suave); }
+.grafico-colunas .total { font-size: 11px; font-weight: 700; fill: var(--tinta); }
+.grafico-colunas .alvo { fill: transparent; }
+.grafico-colunas .coluna { cursor: pointer; outline: none; } .grafico-colunas .coluna.apagada .seg { opacity: .35; }
+.grafico-colunas .coluna:focus-visible .alvo { fill: rgba(16,35,54,.05); }
+.dica { position: absolute; background: #fff; border: 1px solid var(--linha); border-radius: 10px; padding: .5rem .7rem; box-shadow: 0 8px 24px rgba(16,35,54,.15); font-size: .82rem; display: grid; gap: .15rem; pointer-events: none; min-width: 170px; }
+.tabela-grafico summary { cursor: pointer; color: var(--acento-esc); font-weight: 600; font-size: .88rem; margin-top: .4rem; }

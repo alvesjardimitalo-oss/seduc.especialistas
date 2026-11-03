@@ -11,7 +11,8 @@ export const S = {
   instituicao: '',             // escola escolhida após o login ('' = todas)
   filtrosAlunos: { busca: '', escola: '', situacao: 'ativo', especialidade: '' },
   agendaSemana: '', agendaProf: '',
-  filtrosRelatorio: null
+  filtrosRelatorio: null,
+  pedidos: null                // fila de espera (carregada sob demanda)
 };
 
 const p = () => S.perfil || {};
@@ -54,7 +55,7 @@ export async function carregarBase() {
   const [escolas, usuarios, estudantes, bloqueios] = await Promise.all([dados.listarEscolas(), dados.listarUsuarios(), dados.listarEstudantes(p()), dados.listarBloqueios().catch(() => [])]);
   S.bloqueios = bloqueios;
   S.escolas = escolas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  S.usuarios = usuarios; S.estudantes = estudantes; S.atendimentos = null;
+  S.usuarios = usuarios; S.estudantes = estudantes; S.atendimentos = null; S.pedidos = null;
 }
 
 /** Metadados de todos os atendimentos visíveis (para situação do acompanhamento). */
