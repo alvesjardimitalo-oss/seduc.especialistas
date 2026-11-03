@@ -1,6 +1,7 @@
 // Estado da sessão e permissões de interface (o servidor reforça tudo em firestore.rules).
 import * as dados from './dados.js';
-import { mapaAcompanhamento } from './dominio.js';
+import { mapaAcompanhamento, logoEscola, normalizar } from './dominio.js';
+import { esc } from './ui.js';
 
 export const S = {
   user: null, perfil: null,
@@ -26,6 +27,14 @@ export const pode = {
 
 export const nomeEscola = id => S.escolas.find(e => e.id === id)?.nome || 'Escola não informada';
 export const escolaCurta = id => nomeEscola(id).replace(/^(Escola|Creche) Municipal /, '').replace(/^Creche /, 'Creche ');
+/** Selo da escola: logotipo oficial ou, sem logotipo, as iniciais do nome. */
+export function seloEscola(id, classe = '') {
+  const e = S.escolas.find(x => x.id === id), logo = logoEscola(e);
+  const nome = e?.nome || 'Escola';
+  if (logo) return '<span class="selo-escola ' + classe + '"><img src="' + logo + '" alt="Logotipo: ' + esc(nome) + '" loading="lazy"></span>';
+  const sig = normalizar(escolaCurta(id)).split(' ').filter(p => p.length > 2 && !['dos', 'das', 'municipal'].includes(p)).slice(0, 2).map(p => p[0].toUpperCase()).join('') || '?';
+  return '<span class="selo-escola sem-logo ' + classe + '" aria-hidden="true">' + sig + '</span>';
+}
 export const especialistas = () => S.usuarios.filter(u => u.perfil === 'especialista' && u.ativo === true && !u.excluido)
   .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 export const estudante = id => S.estudantes.find(e => e.id === id);

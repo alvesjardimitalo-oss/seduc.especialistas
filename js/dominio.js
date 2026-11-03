@@ -351,6 +351,20 @@ export const CHAVES_ESCOLAS = Object.freeze({
   'prefeito-jose-pedro': 'jose pedro', 'monteiro-lobato': 'monteiro lobato',
   'creche-wilma-gloria': 'wilma gloria', 'creche-sebastiana-duarte-cabral': 'sebastiana'
 });
+// Logotipos oficiais (pasta img/logos). Escola sem arquivo usa as iniciais.
+export const LOGO_SEDUC = 'img/logos/seduc.png';
+export const LOGOS_ESCOLAS = Object.freeze({
+  'doutor-joao-souza-lima': 'img/logos/joao-souza-lima.png',
+  'professora-terezinha-sarmento': 'img/logos/terezinha-sarmento.png'
+});
+/** Caminho do logotipo da escola (pelo ID padrão ou pelo nome cadastrado); '' se não houver. */
+export function logoEscola(escola) {
+  if (!escola) return '';
+  if (LOGOS_ESCOLAS[escola.id]) return LOGOS_ESCOLAS[escola.id];
+  const nome = normalizar(escola.nome);
+  const id = Object.keys(LOGOS_ESCOLAS).find(k => CHAVES_ESCOLAS[k] && nome.includes(CHAVES_ESCOLAS[k]));
+  return id ? LOGOS_ESCOLAS[id] : '';
+}
 /** Encontra no cadastro a escola correspondente ao identificador padrão (pelo ID ou pelo nome). */
 export function localizarEscola(idPadrao, escolas = []) {
   const porId = escolas.find(e => e.id === idPadrao);
