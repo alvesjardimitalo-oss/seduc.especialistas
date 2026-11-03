@@ -485,6 +485,33 @@ try {
   await foto(adm, '14-celular-prontuario');
   await adm.close();
 
+  // especialista corrige a escola do aluno (cadastrado na escola errada) pelo botão Editar da lista
+  const esp = await sessao('fono', { instituicao: '' });
+  await esp.goto(url + '#/alunos'); await esp.waitForSelector('.aluno-item');
+  await esp.click('.aluno-linha:has-text("Bruno") [data-editar]'); await esp.waitForSelector('#modal [name=escola_id]');
+  assert.equal(await esp.locator('#modal [name=escola_id] option').count(), 6, 'especialista escolhe qualquer escola da rede');
+  assert.equal(await esp.isVisible('[data-mudanca-escola]'), false);
+  await esp.selectOption('#modal [name=escola_id]', 'monteiro-lobato');
+  assert.equal(await esp.isVisible('[data-mudanca-escola]'), true);
+  await foto(esp, '15-mudanca-escola');
+  await esp.click('#modal [type=submit]'); await esp.waitForTimeout(200);
+  assert.equal(await esp.isVisible('#modal'), true, 'exige informar correção ou transferência');
+  await esp.check('[name=tipo_mudanca][value=correcao]');
+  await esp.click('#modal [type=submit]'); await esp.waitForSelector('#modal', { state: 'detached' });
+  const banco = await esp.evaluate(() => Object.fromEntries([...window.__banco].filter(([k]) => /^(estudantes|agendamentos)\//.test(k))));
+  assert.equal(banco['estudantes/a2'].escola_id, 'monteiro-lobato');
+  assert.deepEqual(banco['estudantes/a2'].escolas_anteriores || [], [], 'correção não entra no histórico');
+  for (const [k, a] of Object.entries(banco)) if (k.startsWith('agendamentos/') && a.estudante_id === 'a2' && a.status === 'agendado') assert.equal(a.escola_id, 'monteiro-lobato', k + ' acompanha o aluno');
+  // transferência registra a escola anterior
+  await esp.goto(url + '#/aluno/a2'); await esp.waitForSelector('[data-acao=editar]');
+  await esp.click('.perfil-topo [data-acao=editar]'); await esp.waitForSelector('#modal [name=escola_id]');
+  await esp.selectOption('#modal [name=escola_id]', 'doutor-joao-souza-lima'); await esp.check('[name=tipo_mudanca][value=transferencia]');
+  await esp.click('#modal [type=submit]'); await esp.waitForSelector('#modal', { state: 'detached' });
+  const a2 = await esp.evaluate(() => window.__banco.get('estudantes/a2'));
+  assert.equal(a2.escola_id, 'doutor-joao-souza-lima');
+  assert.deepEqual(a2.escolas_anteriores.map(x => x.escola_id), ['monteiro-lobato']);
+  await esp.close();
+
   assert.deepEqual(erros, []);
   console.log('OK: fluxo de interface completo.');
 } catch (e) {

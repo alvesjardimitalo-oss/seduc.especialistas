@@ -606,3 +606,35 @@ test('documentos emitidos: direção da escola lê e a impressão registra nome 
   await assertSucceeds(updateDoc(doc(db('sec'), 'usuarios', 'dirA'), { cargo: 'Diretor(a)', atualizado_em: serverTimestamp(), atualizado_por: 'sec' }));
   await assertFails(updateDoc(doc(db('dirA'), 'usuarios', 'dirA'), { cargo: 'Secretário(a) escolar', atualizado_em: serverTimestamp(), atualizado_por: 'dirA' }));
 });
+
+// ---------- mudança de escola do aluno (correção do cadastro ou transferência) ----------
+test('mudança de escola: agendamento em aberto e pedido da fila acompanham o aluno no mesmo lote', async () => {
+  await assertSucceeds(loteAgenda(db('fono'), { criador: 'fono' }).commit());
+  await assertSucceeds(setDoc(doc(db('dirA'), 'pedidos', 'p1'), pedido('dirA', 'Direção A')));
+  const lote = (uid, escolaAluno, escolaItens = escolaAluno) => {
+    const f = db(uid), b = writeBatch(f);
+    b.update(doc(f, 'estudantes', 'alunoA'), { escola_id: escolaAluno, atualizado_por: uid, atualizado_em: serverTimestamp() });
+    b.update(doc(f, 'agendamentos', 'ag1'), { escola_id: escolaItens, alterado_por: uid, alterado_em: serverTimestamp() });
+    b.update(doc(f, 'pedidos', 'p1'), { escola_id: escolaItens, atualizado_por: uid, atualizado_em: serverTimestamp() });
+    return b.commit();
+  };
+  // sem mudar o aluno, não dá para mover os itens para outra escola
+  await assertFails(updateDoc(doc(db('fono'), 'agendamentos', 'ag1'), { escola_id: ESC_B, alterado_por: 'fono', alterado_em: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db('fono'), 'pedidos', 'p1'), { escola_id: ESC_B, atualizado_por: 'fono', atualizado_em: serverTimestamp() }));
+  // direção da escola A não leva o aluno para a escola B
+  await assertFails(lote('dirA', ESC_B));
+  // itens precisam ir para a mesma escola do aluno
+  await assertFails(lote('psico', ESC_B, ESC_A + 'x'));
+  // especialista corrige a escola: aluno, agendamento e pedido passam juntos
+  await assertSucceeds(lote('psico', ESC_B));
+  await env.withSecurityRulesDisabled(async c => {
+    const f = c.firestore();
+    assert.equal((await getDoc(doc(f, 'agendamentos', 'ag1'))).data().escola_id, ESC_B);
+    assert.equal((await getDoc(doc(f, 'pedidos', 'p1'))).data().escola_id, ESC_B);
+  });
+  // a mudança de escola não altera outros campos do agendamento
+  const f = db('psico'), b = writeBatch(f);
+  b.update(doc(f, 'estudantes', 'alunoA'), { escola_id: ESC_A, atualizado_por: 'psico', atualizado_em: serverTimestamp() });
+  b.update(doc(f, 'agendamentos', 'ag1'), { escola_id: ESC_A, duracao_min: 60, alterado_por: 'psico', alterado_em: serverTimestamp() });
+  await assertFails(b.commit());
+});

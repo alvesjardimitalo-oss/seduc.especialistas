@@ -364,9 +364,16 @@ service cloud.firestore {
         && (request.resource.data.duracao_min == 30
           || reservado(request.resource.data.profissional_uid, request.resource.data.inicio + duration.value(30, 'm'), id));
       allow update: if resource.data.status == 'agendado'
-        && semMudar(['estudante_id', 'escola_id', 'profissional_uid', 'especialidade', 'inicio', 'duracao_min', 'codigo', 'criado_por', 'criado_em'])
+        && semMudar(['estudante_id', 'profissional_uid', 'especialidade', 'inicio', 'duracao_min', 'codigo', 'criado_por', 'criado_em'])
         && request.resource.data.alterado_por == request.auth.uid && request.resource.data.alterado_em == request.time
         && (
+          // aluno mudou de escola (correção do cadastro ou transferência): o agendamento em aberto
+          // passa para a escola atual do aluno, gravada no mesmo lote
+          (request.resource.data.status == 'agendado'
+            && soMudar(['escola_id', 'alterado_por', 'alterado_em'])
+            && request.resource.data.escola_id == getAfter(doc('estudantes', resource.data.estudante_id)).data.escola_id
+            && (clinico() || escolaDe(resource.data.escola_id)))
+          ||
           // cancelamento libera os horários
           (request.resource.data.status == 'cancelado'
             && soMudar(['status', 'motivo', 'alterado_por', 'alterado_em'])
@@ -482,6 +489,11 @@ service cloud.firestore {
         && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time
         && (equipe() || gestao() || escolaDe(resource.data.escola_id))
         && (
+          // aluno mudou de escola: o pedido na fila passa para a escola atual do aluno (mesmo lote)
+          (request.resource.data.situacao == 'aguardando'
+            && soMudar(['escola_id', 'atualizado_por', 'atualizado_em'])
+            && request.resource.data.escola_id == getAfter(doc('estudantes', resource.data.estudante_id)).data.escola_id)
+          ||
           // agendado: o agendamento já existe e é do mesmo aluno e especialidade (quem agenda: equipe, gestão, direção)
           (request.resource.data.situacao == 'agendado' && !pedagogicoDe(resource.data.escola_id)
             && soMudar(['situacao', 'agendamento_id', 'atualizado_por', 'atualizado_em'])
