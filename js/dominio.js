@@ -355,16 +355,24 @@ export const CHAVES_ESCOLAS = Object.freeze({
 export const LOGO_SEDUC = 'img/logos/seduc.png';
 export const LOGOS_ESCOLAS = Object.freeze({
   'doutor-joao-souza-lima': 'img/logos/joao-souza-lima.png',
-  'professora-terezinha-sarmento': 'img/logos/terezinha-sarmento.png'
+  'professora-terezinha-sarmento': 'img/logos/terezinha-sarmento.png',
+  'monteiro-lobato': 'img/logos/monteiro-lobato.png',
+  'creche-sebastiana-duarte-cabral': 'img/logos/sebastiana-duarte-cabral.png'
+});
+// Versão só com o símbolo, mais legível nos selos pequenos da tela.
+export const ICONES_ESCOLAS = Object.freeze({
+  'creche-sebastiana-duarte-cabral': 'img/logos/simbolo-creche.png'
 });
 /** Caminho do logotipo da escola (pelo ID padrão ou pelo nome cadastrado); '' se não houver. */
-export function logoEscola(escola) {
+function idPadraoEscola(escola) {
   if (!escola) return '';
-  if (LOGOS_ESCOLAS[escola.id]) return LOGOS_ESCOLAS[escola.id];
+  if (CHAVES_ESCOLAS[escola.id]) return escola.id;
   const nome = normalizar(escola.nome);
-  const id = Object.keys(LOGOS_ESCOLAS).find(k => CHAVES_ESCOLAS[k] && nome.includes(CHAVES_ESCOLAS[k]));
-  return id ? LOGOS_ESCOLAS[id] : '';
+  return Object.keys(CHAVES_ESCOLAS).find(k => nome.includes(CHAVES_ESCOLAS[k])) || '';
 }
+export function logoEscola(escola) { return LOGOS_ESCOLAS[idPadraoEscola(escola)] || ''; }
+/** Imagem para selos pequenos: o símbolo, se houver; senão o logotipo completo. */
+export function iconeEscola(escola) { const id = idPadraoEscola(escola); return ICONES_ESCOLAS[id] || LOGOS_ESCOLAS[id] || ''; }
 /** Encontra no cadastro a escola correspondente ao identificador padrão (pelo ID ou pelo nome). */
 export function localizarEscola(idPadrao, escolas = []) {
   const porId = escolas.find(e => e.id === idPadrao);

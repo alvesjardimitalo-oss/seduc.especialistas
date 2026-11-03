@@ -40,6 +40,7 @@ const seed = {
   'escolas/monteiro-lobato': { nome: 'Escola Municipal Monteiro Lobato', tipo: 'escola' },
   'escolas/prefeito-jose-pedro': { nome: 'Escola Municipal Prefeito José Pedro da Silva', tipo: 'escola' },
   'escolas/doutor-joao-souza-lima': { nome: 'Escola Municipal Doutor João de Souza Lima', tipo: 'escola' },
+  'escolas/creche-sebastiana-duarte-cabral': { nome: 'Creche Sebastiana Duarte Cabral', tipo: 'creche' },
   'escolas/professora-terezinha-sarmento': { nome: 'Escola Municipal Professora Terezinha Sarmento de Oliveira', tipo: 'escola' },
   'estudantes/a1': { nome: 'Ana Clara Souza', escola_id: 'monteiro-lobato', nascimento: '2018-04-10', turma: '2º ano A', turno: 'manha', situacao: 'ativo', criado_em: Date.now() - 40 * dia },
   'estudantes/a2': { nome: 'Bruno Henrique Lima', escola_id: 'prefeito-jose-pedro', nascimento: '2016-09-02', turma: '4º ano', situacao: 'ativo', criado_em: Date.now() - 20 * dia },
