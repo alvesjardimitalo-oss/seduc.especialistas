@@ -35,6 +35,9 @@ export async function signInWithPopup() {
 export function onAuthStateChanged(_, cb) { ouvintes.push(cb); setTimeout(() => cb(usuarioAtual), 0); return () => {}; }
 export async function signOut(a) { if (a && a.secundaria) return; usuarioAtual = null; ouvintes.forEach(f => f(null)); }
 export const getFirestore = () => ({});
+export const initializeFirestore = () => ({});
+export const persistentLocalCache = o => o; export const persistentMultipleTabManager = () => ({});
+export const terminate = async () => {}; export const clearIndexedDbPersistence = async () => { window.__cacheLimpo = true; };
 
 let seq = 0;
 export const collection = (_, ...p) => ({ tipo: 'col', caminho: p.join('/') });

@@ -1,6 +1,6 @@
 // Documentos para impressão / PDF (gerados no navegador, sem envio a terceiros).
 import { S, nomeEscola, escolaCurta } from './estado.js';
-import { LOGO_SEDUC, logoEscola, ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms, secoesRegistro } from './dominio.js';
+import { LOGO_SEDUC, logoEscola, ESCALA_META, SITUACAO_META, seriesDasMetas, ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, formatarData, formatarDataHora, idade, ms, secoesRegistro } from './dominio.js';
 import { esc, imprimir } from './ui.js';
 
 const urlAbs = c => new URL(c, location.href).href;
@@ -22,7 +22,7 @@ function identificacao(e) {
     + '<tr><th>Escola</th><td colspan="3">' + esc(nomeEscola(e.escola_id)) + '</td></tr></table>';
 }
 
-export function imprimirProntuario({ estudante: e, privado, saude, atendimentos, registros, filtros }) {
+export function imprimirProntuario({ estudante: e, privado, saude, atendimentos, registros, filtros, planos = [] }) {
   const profs = new Map();
   for (const a of atendimentos) profs.set(a.profissional_uid, a);
   let h = cabecalho('Prontuário de acompanhamento especializado', e.escola_id) + identificacao(e)
@@ -30,6 +30,11 @@ export function imprimirProntuario({ estudante: e, privado, saude, atendimentos,
     + '<p class="doc-filtro">' + (filtros.especialidade ? ESPECIALIDADES[filtros.especialidade] : 'Todas as especialidades') + ' · ' + (filtros.de ? 'de ' + dataBR(filtros.de) + ' ' : '') + (filtros.ate ? 'até ' + dataBR(filtros.ate) : '') + ' · ' + atendimentos.length + ' registro(s)</p>';
   if (privado?.motivo_encaminhamento) h += '<h2>Motivo do encaminhamento</h2><p class="pre">' + esc(privado.motivo_encaminhamento) + '</p>';
   if (saude?.necessidade_informada) h += '<h2>Condição informada</h2><p class="pre">' + esc(saude.necessidade_informada) + (saude.fonte ? ' (fonte: ' + esc(saude.fonte) + ')' : '') + '</p>';
+  for (const p of planos) {
+    const series = seriesDasMetas(p.metas, atendimentos.filter(a => a.especialidade === p.especialidade), registros);
+    h += '<h2>Plano de acompanhamento — ' + esc(ESPECIALIDADES[p.especialidade]) + '</h2><table class="doc-tab"><thead><tr><th>Meta</th><th>Situação</th><th>Evolução (notas 1 a 5)</th></tr></thead><tbody>'
+      + p.metas.map(m => '<tr><td>' + esc(m.texto) + '</td><td>' + esc(SITUACAO_META[m.situacao]) + '</td><td>' + (series[m.id].length ? series[m.id].map(x => esc(formatarData(x.data).slice(0, 5)) + ': ' + x.nota).join(' → ') + ' (' + esc(ESCALA_META[series[m.id].at(-1).nota]) + ')' : '—') + '</td></tr>').join('') + '</tbody></table>';
+  }
   h += '<h2>Registros de atendimento</h2>';
   h += atendimentos.length ? atendimentos.map(a => {
     const r = registros.get(a.id) || {};

@@ -54,7 +54,7 @@ const navegador = await chromium.launch();
 const erros = [];
 async function sessao(uid, { senha = false, instituicao = '' } = {}) {
   const pg = await navegador.newPage({ viewport: { width: 1360, height: 900 } });
-  pg.on('console', m => { if (m.type() === 'error' && !/500 caracteres no total/.test(m.text())) erros.push(uid + ': ' + m.text()); });
+  pg.on('console', m => { if (m.type() === 'error' && !/500 caracteres no total|já está na fila|Nenhum feriado novo/.test(m.text())) erros.push(uid + ': ' + m.text()); });
   pg.on('pageerror', e => erros.push(uid + ' pageerror: ' + e.message));
   pg.on('dialog', d => d.accept());
   await pg.addInitScript(([seed, uid, email]) => {
@@ -109,7 +109,7 @@ try {
   assert.equal(await pg.locator('#conteudo .linha-agenda').count(), 1);
   await foto(pg, '01c-painel-busca');
   // abre a consulta reagendada e responde "Sim" (registro antes do horário)
-  await pg.click('#conteudo .linha-agenda'); await pg.click('[data-c=sim]');
+  await pg.click('#conteudo .linha-agenda'); await pg.click('[data-c=sim]'); await pg.waitForSelector('#modal [name=objetivo]');
   assert.match(await pg.textContent('#modal-titulo'), new RegExp(codigo));
   await pg.fill('[name=objetivo]', 'x'.repeat(480)); await pg.fill('[name=avaliacao]', 'y'.repeat(30));
   assert.match(await pg.textContent('.contador-total'), /510\/500/);
@@ -223,6 +223,44 @@ try {
   await pg.waitForSelector('.card-atendimento >> text=Relatório de acompanhamento');
   await foto(pg, '08-relatorios-aluno');
 
+  // plano de acompanhamento: metas e marcação na consulta → gráfico
+  await pg.goto(url + '#/aluno/a1'); await pg.waitForSelector('.plano');
+  await pg.click('[data-acao=plano]'); await pg.fill('#modal [name=texto_0]', 'Discriminar /p/ e /b/ em pares de palavras'); await pg.fill('#modal [name=texto_1]', 'Ler sílabas complexas com autonomia');
+  await pg.click('#modal [type=submit]'); await pg.waitForSelector('.plano-esp');
+  assert.equal(await pg.locator('.plano-esp .meta').count(), 2);
+  await pg.click('[data-acao=registrar]'); await pg.waitForSelector('#modal .metas-consulta');
+  await pg.fill('[name=objetivo]', 'Pares mínimos com figuras e ditado de sílabas.');
+  await pg.click('.escala label:has(input[name=meta_m1][value="3"])'); await pg.click('.escala label:has(input[name=meta_m2][value="2"])');
+  await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
+  await pg.waitForSelector('.grafico-meta .rotulo');
+  assert.deepEqual(await pg.locator('.grafico-meta .rotulo').allTextContents(), ['3/5', '2/5']);
+  await foto(pg, '15-plano-metas');
+
+  // sem internet: o registro fica guardado e é enviado depois
+  await pg.context().setOffline(true);
+  await pg.click('[data-acao=registrar]'); await pg.waitForSelector('#modal [name=objetivo]');
+  await pg.fill('[name=objetivo]', 'Registro feito sem internet na escola.');
+  await pg.click('#modal [type=submit]'); await pg.waitForSelector('.toast >> text=Sem internet');
+  await pg.context().setOffline(false); await pg.waitForTimeout(300);
+  assert.equal(await pg.evaluate(() => [...window.__banco.values()].filter(v => v.objetivo === 'Registro feito sem internet na escola.').length), 1);
+
+  // frequência: entrada e saída
+  await pg.goto(url + '#/frequencia'); await pg.waitForSelector('#form-entrada');
+  await pg.click('#form-entrada [type=submit]'); await pg.waitForSelector('#saida');
+  await pg.click('#saida'); await pg.waitForSelector('.cartao-ponto.concluido');
+  await foto(pg, '16-frequencia-especialista');
+  await pg.click('#ausencia'); await pg.fill('#modal [name=dia]', amanha.toISOString().slice(0, 10)); await pg.fill('#modal [name=justificativa]', 'Curso de formação');
+  await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
+
+  // lembrete pelo WhatsApp (sem dado clínico)
+  await pg.goto(url + '#/painel'); await pg.waitForSelector('[data-lembrete]');
+  await pg.evaluate(() => { window.open = u => { window.__aberto = u; return null; }; });
+  await pg.locator('[data-lembrete]').first().click(); await pg.waitForSelector('#modal [name=telefone]');
+  const textoLembrete = await pg.inputValue('#modal [name=texto]');
+  assert.match(textoLembrete, /Bruno tem atendimento/); assert.doesNotMatch(textoLembrete, /Fono|Henrique|Lima/);
+  await pg.fill('#modal [name=telefone]', '(33) 99999-1234'); await pg.click('#modal [type=submit]');
+  assert.match(await pg.evaluate(() => window.__aberto), /^https:\/\/wa\.me\/5533999991234\?text=Ol/);
+
   // cadastrar aluno
   await pg.click('a[href="#/alunos"]'); await pg.click('#novo');
   await pg.fill('[name=nome]', 'Carlos Eduardo Teste'); await pg.selectOption('[name=escola_id]', 'monteiro-lobato');
@@ -248,10 +286,46 @@ try {
   await dir.goto(url + '#/painel'); await dir.waitForSelector('#busca');
   assert.match(await dir.textContent('#conteudo'), /Orientações recentes para a escola[\s\S]*letra bastão/);
   await foto(dir, '10-prontuario-direcao');
+  // fila de espera: a direção pede atendimento
+  await dir.goto(url + '#/fila'); await dir.waitForSelector('#novo-pedido'); await dir.click('#novo-pedido');
+  await dir.selectOption('#modal [data-lista-aluno]', 'a1'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
+  await dir.fill('#modal [name=motivo]', 'Troca letras na escrita e não acompanha a leitura da turma.');
+  await dir.click('#modal [type=submit]'); await dir.waitForSelector('.pedido');
+  await dir.click('#novo-pedido'); await dir.selectOption('#modal [data-lista-aluno]', 'a1'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
+  await dir.fill('#modal [name=motivo]', 'Pedido repetido para o mesmo aluno.'); await dir.click('#modal [type=submit]');
+  await dir.waitForSelector('#modal .form-erro:not([hidden])'); assert.match(await dir.textContent('#modal .form-erro'), /já está na fila/);
+  await dir.click('#modal [data-fechar]');
+  await foto(dir, '17-fila-de-espera');
+  await dir.goto(url + '#/aluno/a1'); await dir.waitForSelector('.faixa-fila');
   await dir.close();
 
   // ---- administração ----
   const adm = await sessao('admin');
+  // fila: agenda o pedido da escola
+  await adm.goto(url + '#/aluno/a2'); await adm.waitForSelector('.linha-tempo');
+  await adm.goto(url + '#/fila'); await adm.waitForSelector('#novo-pedido'); await adm.click('#novo-pedido');
+  await adm.selectOption('#modal [data-lista-aluno]', 'a1'); await adm.selectOption('#modal [name=especialidade]', 'fonoaudiologia'); await adm.selectOption('#modal [name=prioridade]', 'alta');
+  await adm.fill('#modal [name=motivo]', 'Troca letras na escrita e não acompanha a leitura da turma.'); await adm.click('#modal [type=submit]');
+  await adm.waitForSelector('[data-agendar]'); await adm.click('[data-agendar]');
+  await adm.selectOption('#modal [name=profissional_uid]', 'fono'); await adm.waitForSelector('#modal .horario');
+  await adm.locator('#modal .horario').first().click(); await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
+  await adm.waitForFunction(() => [...window.__banco].some(([k, v]) => k.startsWith('pedidos/') && v.situacao === 'agendado' && v.agendamento_id));
+  // segurança: quem acessou e cópia criptografada
+  await adm.goto(url + '#/seguranca'); await adm.waitForSelector('#form-backup');
+  assert.match(await adm.textContent('#conteudo'), /Ítalo Admin[\s\S]*Abriu o prontuário/);
+  await adm.fill('#form-backup [name=senha]', 'senha-de-teste-123'); await adm.fill('#form-backup [name=senha2]', 'senha-de-teste-123');
+  const [download] = await Promise.all([adm.waitForEvent('download'), adm.click('#form-backup [type=submit]')]);
+  const caminhoCopia = join(saida, 'copia-teste.json'); await download.saveAs(caminhoCopia);
+  const copia = JSON.parse(await readFile(caminhoCopia, 'utf8'));
+  assert.equal(copia.formato, 'seduc-backup-v1'); assert.doesNotMatch(JSON.stringify(copia), /Ana Clara/);
+  await adm.click('.anteriores summary'); await adm.setInputFiles('#form-conferir [name=arquivo]', caminhoCopia);
+  await adm.fill('#form-conferir [name=senha]', 'senha-de-teste-123'); await adm.click('#form-conferir [type=submit]');
+  await adm.waitForSelector('[data-conferencia] .alerta-caixa.ok');
+  await foto(adm, '18-seguranca');
+  // frequência da equipe
+  await adm.goto(url + '#/frequencia'); await adm.waitForSelector('#mes');
+  assert.match(await adm.textContent('#conteudo'), /Fernanda Fono/);
+  await foto(adm, '19-frequencia-equipe');
   // novo acesso com login e senha
   await adm.goto(url + '#/equipe'); await adm.waitForSelector('.pessoa'); await adm.waitForTimeout(300); await adm.click('#convidar'); await adm.waitForSelector('#modal [name=email]');
   await adm.fill('#modal [name=nome]', 'Carla Psicopedagoga'); await adm.fill('#modal [name=email]', 'carla@x.br');
@@ -325,6 +399,12 @@ try {
   const nBloq = await adm.evaluate(() => [...window.__banco.keys()].filter(k => k.startsWith('bloqueios/')).length);
   assert.equal(nBloq, 1 + 63);
   assert.equal(await adm.evaluate(() => [...window.__banco.values()].filter(v => v.motivo === 'Semana do Professor').length), 5);
+  // feriados nacionais
+  await adm.click('#calendario'); await adm.click('#feriados'); await adm.waitForSelector('[data-feriados] table');
+  await foto(adm, '13e-feriados');
+  await adm.click('#modal [type=submit]');
+  await Promise.race([adm.waitForSelector('#modal', { state: 'detached' }), adm.waitForSelector('#modal .form-erro:not([hidden])')]);
+  if (await adm.$('#modal')) await adm.click('#modal [data-fechar]');
   await adm.click('#agendar'); await adm.selectOption('#modal [name=profissional_uid]', 'fono'); await adm.fill('#modal [name=dia]', amanhaTxt);
   await adm.locator('#modal [name=dia]').dispatchEvent('change'); await adm.waitForSelector('text=Sem atendimento neste dia');
   await adm.click('#modal [data-fechar]');
@@ -354,7 +434,8 @@ try {
   await adm.click('[data-excluir=fono]'); await adm.fill('[name=motivo]', 'Fim do contrato'); await adm.click('#modal [type=submit]');
   await adm.waitForSelector('#modal', { state: 'detached' });
   await adm.evaluate(() => { window.__usuarioTeste = { uid: 'fono', email: 'fono@x.br', emailVerified: true }; });
-  await adm.click('#sair'); await adm.click('#entrar'); await adm.waitForSelector('.alerta-caixa');
+  await adm.click('#sair'); assert.equal(await adm.evaluate(() => window.__cacheLimpo), true, 'cache local apagado ao sair');
+  await adm.click('#entrar'); await adm.waitForSelector('.alerta-caixa');
   assert.match(await adm.textContent('.alerta-caixa'), /desativado/);
   await adm.evaluate(() => { window.__usuarioTeste = { uid: 'admin', email: 'admin@x.br', emailVerified: true }; });
   await adm.click('#sair'); await adm.click('#entrar'); await adm.waitForSelector('.topo-usuario');
@@ -365,7 +446,7 @@ try {
   await adm.click('#trocar-inst'); await adm.click('[data-inst=monteiro-lobato]');
   await adm.goto(url + '#/alunos'); await adm.waitForSelector('.aluno-item');
   assert.deepEqual(await adm.locator('.aluno-item strong').allTextContents(), ['Ana Clara Souza']);
-  await adm.goto(url + '#/relatorios'); await adm.waitForSelector('.metricas'); await foto(adm, '13b-relatorios');
+  await adm.goto(url + '#/relatorios'); await adm.waitForSelector('.grafico-colunas'); await foto(adm, '13b-relatorios');
   await adm.setViewportSize({ width: 390, height: 844 });
   await adm.goto(url + '#/aluno/a1'); await adm.waitForSelector('.linha-tempo');
   await foto(adm, '14-celular-prontuario');

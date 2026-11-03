@@ -4,7 +4,8 @@ import { S, pode, nomeEscola, escolaCurta, especialistas, estudante, escolasVisi
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, LIMITES, validarEstudante, possiveisDuplicados, validarRegistro,
   instante, diaMunicipal, horaMunicipal, horariosLivres, validarAgendamento, somarDias, formatarData, formatarDataHora,
-  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF, bloqueioDoDia, CAMPOS_SOAP, secoesRegistro
+  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF, bloqueioDoDia, CAMPOS_SOAP, secoesRegistro,
+  ESCALA_META, validarNotasMetas, idPlano, validarPedido, PRIORIDADES, textoLembrete, linkWhatsApp, numeroWhatsApp
 } from './dominio.js';
 import { esc, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from './ui.js';
 
@@ -115,9 +116,27 @@ const DURACOES = [[20, '20 min'], [30, '30 min'], [40, '40 min'], [45, '45 min']
 /**
  * @param {object} o  estudanteId | agendamento | (atendimento + registro para retificar)
  */
-export function formAtendimento({ estudanteId = '', agendamento = null, atendimento = null, registro = null } = {}) {
+/** Metas ativas do plano do aluno na especialidade de quem registra (para marcar a evolução). */
+async function metasDoAluno(alunoId) {
+  if (!alunoId) return [];
+  try { const p = await dados.lerDoc('planos', idPlano(alunoId, S.perfil.especialidade)); return (p?.metas || []).filter(m => m.situacao === 'ativa'); }
+  catch { return []; }
+}
+function blocoMetas(metas, notas = {}) {
+  if (!metas.length) return '<p class="nota">Sem plano de metas em ' + esc(ESPECIALIDADES[S.perfil.especialidade]) + ' para este aluno. Crie no prontuário (Plano de acompanhamento) para acompanhar a evolução em gráfico.</p>';
+  return '<fieldset class="metas-consulta"><legend>Metas do plano — como está hoje? <small>(opcional)</small></legend>'
+    + metas.map(m => '<div class="meta-linha"><span>' + esc(m.texto) + '</span><div class="escala" role="radiogroup" aria-label="' + esc(m.texto) + '">'
+      + '<label><input type="radio" name="meta_' + esc(m.id) + '" value=""' + (!notas[m.id] ? ' checked' : '') + '><span>—</span></label>'
+      + Object.entries(ESCALA_META).map(([v, t]) => '<label title="' + t + '"><input type="radio" name="meta_' + esc(m.id) + '" value="' + v + '"' + (Number(notas[m.id]) === Number(v) ? ' checked' : '') + '><span>' + v + '</span></label>').join('')
+      + '</div></div>').join('')
+    + '<small class="nota">1 Não iniciou · 2 Iniciando · 3 Em desenvolvimento · 4 Quase lá · 5 Atingiu. "—" = não trabalhada hoje.</small></fieldset>';
+}
+
+export async function formAtendimento({ estudanteId = '', agendamento = null, atendimento = null, registro = null } = {}) {
   if (!pode.registrar()) return aviso('Somente as especialistas registram atendimentos.', 'erro');
   if (!S.perfil.especialidade) return aviso('Sua conta não tem especialidade definida. Peça à administração.', 'erro');
+  const alunoInicial = atendimento?.estudante_id || agendamento?.estudante_id || estudanteId;
+  let metas = await metasDoAluno(alunoInicial);
   const ret = Boolean(atendimento);
   const alunoId = atendimento?.estudante_id || agendamento?.estudante_id || estudanteId;
   // Registro de agendamento antecipado (antes do horário marcado) usa o horário atual.
@@ -134,6 +153,7 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
     + '<p class="contador-total largo" aria-live="polite">Total do registro: <b data-total>0</b>/' + LIMITES.texto + ' caracteres</p>'
     + '<div class="campo-escola">' + area('orientacao_escola', 'Orientação para a professora / escola', { valor: atendimento?.orientacao_escola, max: LIMITES.texto, linhas: 2, dica: 'A direção e a escola leem este campo. Escreva estratégias para a sala de aula, sem diagnóstico' }) + '</div>'
     + '<div class="grade">' + opcoes('evolucao', 'Evolução observada', EVOLUCAO, { valor: atendimento?.evolucao || 'nao_avaliado', obrig: true }) + '</div>'
+    + '<div data-metas>' + blocoMetas(metas, registro?.metas) + '</div>'
     + (ret ? campo('motivo', 'Motivo da edição (opcional)', { largo: true, extra: 'maxlength="300"', dica: 'A versão anterior fica guardada no histórico da consulta' }) : '')
     + '<p class="nota">O registro fica visível para toda a equipe de especialistas no prontuário do aluno. Somente você pode editá-lo.</p>';
   const form = modal({
@@ -143,17 +163,23 @@ export function formAtendimento({ estudanteId = '', agendamento = null, atendime
       if (!d.estudante_id) throw Error('Selecione o aluno.');
       const e = estudante(d.estudante_id);
       const { orientacao_escola, ...registroNovo } = validarRegistro(d);
+      const notas = validarNotasMetas(d, metas);
+      if (Object.keys(notas).length || registro?.metas) registroNovo.metas = notas;
       const data = instante(d.dia, d.hora);
       if (!data || data.getTime() > Date.now() + 5 * 60000) throw Error('A data e hora não podem estar no futuro. Para atendimentos futuros, use Agendar.');
       const meta = { estudante_id: e.id, escola_id: e.escola_id, profissional_nome: S.perfil.nome, especialidade: S.perfil.especialidade, tipo: d.tipo, evolucao: d.evolucao, data, duracao_min: Number(d.duracao_min), orientacao_escola };
+      if (ret && dados.semInternet()) throw Error('Sem internet: a edição de uma consulta precisa de conexão (a versão anterior é guardada no servidor).');
+      let r;
       if (ret) await dados.retificarAtendimento(atendimento.id, meta, registroNovo, d.motivo.trim() || 'Edição do registro pela autora');
-      else await dados.registrarAtendimento({ meta, registro: registroNovo, agendamentoId: agendamento?.id || '', codigo: agendamento?.codigo || '' });
+      else r = await dados.registrarAtendimento({ meta, registro: registroNovo, agendamentoId: agendamento?.id || '', codigo: agendamento?.codigo || '' });
       invalidarAtendimentos();
-      aviso(ret ? 'Consulta editada.' : 'Consulta salva no prontuário.');
+      aviso(ret ? 'Consulta editada.' : r?.pendente ? 'Sem internet: consulta guardada no aparelho. Ela será enviada sozinha quando a conexão voltar — não saia do sistema até lá.' : 'Consulta salva no prontuário.', r?.pendente ? 'aviso' : 'ok');
+      if (r?.pendente) return mudou();
       if (!ret && !estudanteId && !agendamento) irPara('#/aluno/' + e.id); else mudou();
     }
   });
-  ativarContadores(form); ativarSeletorAluno(form);
+  ativarContadores(form);
+  ativarSeletorAluno(form, async id => { metas = await metasDoAluno(id); const box = $('[data-metas]', form); if (box) box.innerHTML = blocoMetas(metas); });
   const campos = CAMPOS_SOAP.map(([n]) => form.elements.namedItem(n)), total = $('[data-total]', form);
   const contar = () => { const n = campos.reduce((s2, c) => s2 + c.value.trim().length, 0); total.textContent = n; total.parentElement.classList.toggle('excedido', n > LIMITES.texto); };
   campos.forEach(c => c.addEventListener('input', contar)); contar();
@@ -179,10 +205,11 @@ export function anularAtendimento(a) {
 }
 
 // ---------- agendamento ----------
-export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', remarcar = null } = {}) {
+export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', remarcar = null, aoAgendar = null, especialidade = '' } = {}) {
   if (!pode.agendar()) return;
   if (remarcar) { estudanteId = remarcar.estudante_id; profissionalUid = remarcar.profissional_uid; }
-  const profs = especialistasDaEscola(escolaAtual());
+  if (dados.semInternet()) return aviso('Sem internet: agendar precisa de conexão para reservar o horário sem conflito.', 'erro');
+  const profs = especialistasDaEscola(escolaAtual()).filter(u => !especialidade || u.especialidade === especialidade);
   const fixo = S.perfil.perfil === 'especialista';
   const prof0 = fixo ? S.user.uid : profissionalUid || '';
   let diaInicial = dia || somarDias(hoje(), 1);
@@ -204,9 +231,10 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', 
       const inicio = new Date(Number(d.horario)), duracao = Number(d.duracao_min);
       const ocupados = await dados.listarAgendamentos({ profissional: prof.id, de: instante(d.dia, '00:00'), ate: instante(somarDias(d.dia, 1), '00:00') });
       validarAgendamento({ inicio, duracao, slots: prof.slots || [], ocupados, bloqueios: S.bloqueios, escola: e.escola_id });
-      await dados.agendar({ estudante_id: e.id, escola_id: e.escola_id, profissional_uid: prof.id, profissional_nome: prof.nome, especialidade: prof.especialidade, inicio, duracao_min: duracao, observacao: d.observacao.trim() });
+      const novoId = await dados.agendar({ estudante_id: e.id, escola_id: e.escola_id, profissional_uid: prof.id, profissional_nome: prof.nome, especialidade: prof.especialidade, inicio, duracao_min: duracao, observacao: d.observacao.trim() });
       // Remarcação: o novo horário é reservado primeiro; só então o antigo é cancelado.
       if (remarcar) await dados.cancelarAgendamento(remarcar, ('Remarcado para ' + formatarDataHora(inicio) + '. ' + d.motivo_remarcacao.trim()).slice(0, 500));
+      if (aoAgendar) await aoAgendar(novoId, { especialidade: prof.especialidade, estudante_id: e.id });
       aviso((remarcar ? 'Remarcado para ' : 'Agendado para ') + formatarDataHora(inicio) + '.'); mudou();
     }
   });
@@ -274,6 +302,7 @@ export async function abrirConsulta(item) {
       + (pode.clinico() ? (reg ? secoesRegistro(reg).map(([t, v]) => secao(t, v)).join('') : '') : '<p class="nota">Conteúdo restrito à equipe de especialistas.</p>') + '</div>' : '')
     + '<div class="acoes-linha">'
     + (at && at.situacao !== 'anulado' && at.profissional_uid === S.user.uid && pode.registrar() ? '<button type="button" class="btn" data-c="editar">Editar consulta</button>' : '')
+    + (aberto && !passou && (propria || pode.gestao() || eu.perfil === 'direcao') ? '<button type="button" class="btn sec" data-c="whatsapp">Lembrete por WhatsApp</button>' : '')
     + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">Cancelar agendamento</button>' : '')
     + (!aberto && !avulso && pode.agendar() && ['falta', 'cancelado'].includes(status) ? '<button type="button" class="btn sec" data-c="novo">Agendar novamente</button>' : '')
     + (e ? '<a class="btn sec" href="#/aluno/' + esc(e.id) + '" data-fechar-link>Abrir prontuário</a>' : '')
@@ -285,6 +314,7 @@ export async function abrirConsulta(item) {
     if (acao === 'sim') return formAtendimento({ agendamento: ag });
     if (acao === 'editar') return formAtendimento({ atendimento: { ...at, id: atendimentoId }, registro: reg });
     if (acao === 'reagendar') return formAgendar({ remarcar: ag });
+    if (acao === 'whatsapp') return lembreteWhatsApp(ag);
     if (acao === 'novo') return formAgendar({ estudanteId: item.estudante_id, profissionalUid: item.profissional_uid });
     if (acao === 'cancelar') return modal({ titulo: 'Cancelar agendamento', corpo: '<p>O horário volta a ficar disponível. O cancelamento fica registrado.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar agendamento', aoSalvar: async d => { await dados.cancelarAgendamento(ag, d.motivo.trim()); aviso('Agendamento cancelado.'); mudou(); } });
     if (acao === 'nao') return modal({
@@ -299,5 +329,43 @@ export async function abrirConsulta(item) {
   });
 }
 export const abrirAgendamento = abrirConsulta;
+
+/** Lembrete à família pelo WhatsApp: abre a conversa com o texto pronto (sem dado clínico). */
+export async function lembreteWhatsApp(ag) {
+  const e = estudante(ag.estudante_id);
+  let tel = '';
+  try { tel = (await dados.lerDoc('estudantes_privado', ag.estudante_id))?.telefone || ''; } catch { /* sem acesso ao contato */ }
+  const texto = textoLembrete({ nome: e?.nome, inicio: ag.inicio, escola: escolaCurta(ag.escola_id) });
+  const form = modal({
+    titulo: 'Lembrete por WhatsApp', botao: 'Abrir WhatsApp',
+    corpo: '<p class="nota">A mensagem não cita especialidade, condição nem o sobrenome do aluno.</p>'
+      + campo('telefone', 'WhatsApp da família', { tipo: 'tel', valor: tel, obrig: true, extra: 'maxlength="40" inputmode="tel"', dica: tel ? 'Telefone do cadastro do aluno' : 'Sem telefone no cadastro: digite com DDD' })
+      + '<label class="campo largo"><span>Mensagem</span><textarea name="texto" rows="5" maxlength="600">' + esc(texto) + '</textarea></label>',
+    aoSalvar: async d => {
+      const link = linkWhatsApp(d.telefone, d.texto.trim());
+      if (!link) throw Error('Telefone inválido: use DDD + número (ex.: 33 99999-0000).');
+      window.open(link, '_blank', 'noopener');
+    }
+  });
+  return form;
+}
+
+/** Pedido de atendimento (entra na fila de espera da especialidade). */
+export function formPedido({ estudanteId = '' } = {}) {
+  modal({
+    titulo: 'Pedir atendimento especializado', largo: true, botao: 'Enviar para a fila',
+    corpo: '<div class="grade">' + seletorAluno('estudante_id', estudanteId)
+      + opcoes('especialidade', 'Especialidade', Object.entries(ESPECIALIDADES), { obrig: true, vazio: 'Selecione' })
+      + opcoes('prioridade', 'Prioridade', Object.entries(PRIORIDADES), { valor: 'normal' }) + '</div>'
+      + area('motivo', 'O que a escola observou', { obrig: true, max: 1000, linhas: 4, dica: 'Comportamentos e dificuldades em sala, há quanto tempo, o que já foi tentado. Sem diagnóstico.' })
+      + '<p class="nota">O pedido entra na fila de espera da especialidade. A equipe agenda pela ordem de prioridade e de chegada.</p>',
+    aoSalvar: async d => {
+      const p = validarPedido(d), e = estudante(p.estudante_id);
+      if ((S.pedidos || []).some(x => x.situacao === 'aguardando' && x.estudante_id === e.id && x.especialidade === p.especialidade)) throw Error('Este aluno já está na fila de ' + ESPECIALIDADES[p.especialidade] + '.');
+      await dados.criarPedido({ ...p, escola_id: e.escola_id }, S.perfil);
+      S.pedidos = null; aviso('Pedido enviado para a fila de ' + ESPECIALIDADES[p.especialidade] + '.'); mudou();
+    }
+  });
+}
 
 export { idade, formatarData };

@@ -11,6 +11,9 @@ import * as agenda from './paginas/agenda.js';
 import * as relatorios from './paginas/relatorios.js';
 import * as equipe from './paginas/equipe.js';
 import * as escolas from './paginas/escolas.js';
+import * as fila from './paginas/fila.js';
+import * as frequencia from './paginas/frequencia.js';
+import * as seguranca from './paginas/seguranca.js';
 
 const raiz = document.getElementById('app');
 const PAGINAS = {
@@ -18,9 +21,12 @@ const PAGINAS = {
   alunos: { titulo: 'Alunos', mod: alunos, icone: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a7 7 0 0 1 14 0v1M17 11a3 3 0 1 0 0-6M22 21v-1a5 5 0 0 0-4-4.9' },
   aluno: { titulo: 'Prontuário', mod: prontuario, menu: false },
   agenda: { titulo: 'Agenda', mod: agenda, icone: 'M3 5h18v16H3zM3 10h18M8 3v4M16 3v4' },
+  fila: { titulo: 'Fila de espera', mod: fila, icone: 'M4 6h16M4 12h10M4 18h6M18 14v6M15 17h6' },
+  frequencia: { titulo: 'Frequência', mod: frequencia, icone: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2' },
   relatorios: { titulo: 'Relatórios', mod: relatorios, icone: 'M4 20V10M10 20V4M16 20v-7M22 20H2' },
   equipe: { titulo: 'Equipe', mod: equipe, icone: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21v-1a8 8 0 0 1 16 0v1' },
-  escolas: { titulo: 'Escolas', mod: escolas, icone: 'M3 10l9-6 9 6v10H3zM9 20v-6h6v6' }
+  escolas: { titulo: 'Escolas', mod: escolas, icone: 'M3 10l9-6 9 6v10H3zM9 20v-6h6v6' },
+  seguranca: { titulo: 'Segurança', mod: seguranca, icone: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4' }
 };
 const svg = d => '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"/></svg>';
 
@@ -110,8 +116,11 @@ async function escolherInstituicao(forcar = false) {
 
 function menu() {
   const p = S.perfil.perfil;
-  const itens = ['painel', 'alunos', 'agenda', 'relatorios', 'equipe'];
+  const itens = ['painel', 'alunos', 'agenda', 'fila'];
+  if (p === 'especialista' || pode.gestao()) itens.push('frequencia');
+  itens.push('relatorios', 'equipe');
   if (pode.gerenciar() || p === 'secretaria') itens.push('escolas');
+  if (pode.admin()) itens.push('seguranca');
   return itens;
 }
 
@@ -124,11 +133,16 @@ function moldura() {
     + '<div class="lateral-rodape">Rede Municipal de Ensino<br>Frei Inocêncio/MG<br><button class="link claro" id="ver-lgpd">Privacidade (LGPD)</button></div></aside>'
     + '<div class="area"><header class="topo"><button class="icone-btn menu-movel" id="abrir-menu" aria-label="Abrir menu">☰</button>'
     + '<button class="inst-atual" id="trocar-inst" title="Trocar instituição">' + (S.instituicao ? seloEscola(S.instituicao, 'mini') : '<span class="selo-escola mini"><img src="' + LOGO_SEDUC + '" alt=""></span>') + '<small>Instituição</small><strong>' + esc(S.instituicao ? escolaCurta(S.instituicao) : 'Todas as instituições') + '</strong><span aria-hidden="true">⇄</span></button>'
+    + '<span class="conexao" id="conexao" hidden></span>'
     + '<div class="topo-usuario"><button class="minha-conta" id="minha-conta" title="Minha conta: e-mail e senha"><span class="avatar">' + esc(iniciais(S.perfil.nome)) + '</span><div><strong>' + esc(S.perfil.nome) + '</strong><small>' + esc(papel) + '</small></div></button>'
     + '<button class="btn sec pequeno" id="sair">Sair</button></div></header>'
     + '<main id="conteudo" class="conteudo" tabindex="-1"></main></div></div>';
-  document.getElementById('sair').onclick = () => dados.sair();
+  document.getElementById('sair').onclick = () => {
+    if (dados.pendentes.size && !confirm(dados.pendentes.size + ' registro(s) feito(s) sem internet ainda não foram enviados. Se sair agora, eles serão perdidos. Sair mesmo assim?')) return;
+    dados.sair();
+  };
   document.getElementById('minha-conta').onclick = minhaConta;
+  atualizarConexao();
   document.getElementById('trocar-inst').onclick = async () => { await escolherInstituicao(true); renderizar(); };
   document.getElementById('ver-lgpd').onclick = () => import('./ui.js').then(u => u.modal({ titulo: 'Privacidade e LGPD', somenteLeitura: true, corpo: '<p>Os dados são usados só para o atendimento especializado da rede municipal. Texto clínico: somente a equipe de especialistas. Direção e Secretaria: dados cadastrais, agenda e indicadores. Registros não são apagados (guarda do prontuário); correções geram versões. Termo aceito em ' + esc(S.perfil.termo_lgpd_em?.toDate ? S.perfil.termo_lgpd_em.toDate().toLocaleString('pt-BR') : '—') + '.</p>' }));
   document.getElementById('abrir-menu').onclick = () => raiz.querySelector('.casca').classList.toggle('menu-aberto');
@@ -182,6 +196,26 @@ async function renderizar() {
   }
 }
 eventos.aoMudar = renderizar;
+
+// ---------- conexão: aviso de modo sem internet e registros aguardando envio ----------
+function atualizarConexao() {
+  const el = document.getElementById('conexao'); if (!el) return;
+  const n = dados.pendentes.size, off = dados.semInternet();
+  el.hidden = !off && !n;
+  el.className = 'conexao' + (off ? ' off' : ' enviando');
+  el.textContent = off ? 'Sem internet' + (n ? ' · ' + n + ' registro(s) aguardando envio' : ' · os dados mostrados podem estar desatualizados') : n + ' registro(s) sendo enviado(s)…';
+}
+window.addEventListener('online', () => { atualizarConexao(); if (S.perfil) aviso('Internet de volta. Enviando o que ficou pendente.'); });
+window.addEventListener('offline', atualizarConexao);
+window.addEventListener('seduc:pendentes', atualizarConexao);
+window.addEventListener('seduc:sincronizado', ev => aviso(ev.detail + ': enviado ao servidor.'));
+window.addEventListener('seduc:falha-sincronizar', ev => {
+  console.error(ev.detail.erro);
+  aviso(ev.detail.descricao + ' feito sem internet foi RECUSADO pelo servidor ao sincronizar (' + (String(ev.detail.erro?.code || '').includes('permission') ? 'dados não passaram na validação' : ev.detail.erro?.message || 'erro') + '). Confira o prontuário e registre de novo.', 'erro');
+});
+
+// Aplicativo instalável e disponível sem internet (só em https; o servidor de testes local não registra).
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(e => console.warn('service worker', e));
 window.addEventListener('hashchange', renderizar);
 
 async function iniciar() {

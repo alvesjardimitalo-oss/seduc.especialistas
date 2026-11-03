@@ -7,12 +7,16 @@ export function aviso(msg, tipo = 'ok') {
   const el = document.createElement('div');
   el.className = 'toast toast-' + tipo; el.setAttribute('role', tipo === 'erro' ? 'alert' : 'status');
   el.textContent = msg; document.body.append(el);
-  setTimeout(() => el.classList.add('saindo'), 3800); setTimeout(() => el.remove(), 4300);
+  const dura = tipo === 'ok' ? 3800 : Math.min(12000, 4000 + msg.length * 40); // avisos longos e erros ficam mais tempo
+  el.onclick = () => el.remove();
+  setTimeout(() => el.classList.add('saindo'), dura); setTimeout(() => el.remove(), dura + 500);
 }
 export function erro(e) {
   console.error(e);
-  const m = String(e?.code || '').includes('permission-denied')
+  const cod = String(e?.code || '');
+  const m = cod.includes('permission-denied')
     ? 'Operação não autorizada para sua conta (ou os dados não passaram na validação).'
+    : (cod.includes('unavailable') || navigator.onLine === false) ? 'Sem internet: esta operação precisa de conexão. Tente de novo quando a internet voltar.'
     : (e?.message || String(e));
   aviso(m, 'erro');
 }

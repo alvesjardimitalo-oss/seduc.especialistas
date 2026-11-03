@@ -191,3 +191,88 @@ test('calendário escolar em PDF (Frei Inocêncio 2026): leitura por cor confere
   assert.equal(feriados(2026)['2026-04-03'], 'Sexta-feira Santa'); assert.equal(feriados(2027)['2027-02-08'], 'Carnaval');
   assert.throws(() => interpretarCalendario([{ str: 'qualquer coisa', x: 0, y: 0, w: 1 }], []), /ano/);
 });
+
+test('feriados: Páscoa, datas móveis e só dias úteis', () => {
+  assert.equal(d.pascoa(2026), '2026-04-05');
+  assert.equal(d.pascoa(2027), '2027-03-28');
+  const f = d.feriadosDoAno(2026), dias = f.map(x => x.dia);
+  assert.ok(dias.includes('2026-02-16') && dias.includes('2026-02-17')); // carnaval
+  assert.ok(dias.includes('2026-04-03')); // sexta-feira santa
+  assert.ok(dias.includes('2026-06-04')); // corpus christi
+  assert.ok(!dias.includes('2026-11-15')); // domingo: fora
+  assert.ok(f.every(x => { const w = d.diaDaSemana(x.dia); return w >= 1 && w <= 5; }));
+});
+
+test('fila de espera: validação, ordem e indicadores', () => {
+  assert.throws(() => d.validarPedido({ estudante_id: 'a', especialidade: 'x', motivo: 'dificuldade na leitura' }), /especialidade/);
+  assert.throws(() => d.validarPedido({ estudante_id: 'a', especialidade: 'fonoaudiologia', motivo: 'curto' }), /10 caracteres/);
+  const p = d.validarPedido({ estudante_id: 'a', especialidade: 'fonoaudiologia', motivo: '  Troca letras na escrita ', prioridade: 'x' });
+  assert.equal(p.prioridade, 'normal'); assert.equal(p.motivo, 'Troca letras na escrita');
+  const agora = d.instante('2026-11-20', '12:00').getTime(), em = dia => d.instante(dia, '10:00');
+  const lista = [
+    { id: '1', situacao: 'aguardando', prioridade: 'normal', especialidade: 'fonoaudiologia', escola_id: 'A', criado_em: em('2026-11-01') },
+    { id: '2', situacao: 'aguardando', prioridade: 'alta', especialidade: 'fonoaudiologia', escola_id: 'B', criado_em: em('2026-11-15') },
+    { id: '3', situacao: 'agendado', prioridade: 'normal', especialidade: 'psicopedagogia', escola_id: 'A', criado_em: em('2026-11-01'), atualizado_em: em('2026-11-11') },
+    { id: '4', situacao: 'cancelado', prioridade: 'normal', especialidade: 'psicopedagogia', escola_id: 'A', criado_em: em('2026-11-01') }
+  ];
+  assert.deepEqual(d.ordenarFila(lista).map(x => x.id), ['2', '1']);
+  const r = d.resumoFila(lista, agora);
+  assert.equal(r.aguardando, 2); assert.equal(r.altas, 1); assert.equal(r.esperaMaxima, 19); assert.equal(r.esperaMedia, 12);
+  assert.equal(r.tempoAteAgendar, 10); assert.equal(r.porEspecialidade.fonoaudiologia.aguardando, 2);
+  assert.equal(r.porEscola.A.aguardando, 1);
+});
+
+test('frequência: jornada prevista desconta bloqueios e soma horas cumpridas', () => {
+  const { jornada } = d.prepararJornada([{ dia: 1, inicio: '08:00', fim: '11:00', escola_id: 'A' }, { dia: 3, inicio: '13:00', fim: '17:00', escola_id: 'B' }]);
+  const bloqueios = [{ id: d.idBloqueio('2026-11-04', 'B'), motivo: 'Reunião' }];
+  const prev = d.jornadaPrevista({ jornada, de: '2026-11-01', ate: '2026-11-14', bloqueios });
+  assert.deepEqual(prev.map(p => p.dia), ['2026-11-02', '2026-11-09', '2026-11-11']); // 04/11 bloqueado na escola B
+  const reg = [
+    { dia: '2026-11-02', situacao: 'presente', entrada: d.instante('2026-11-02', '08:00'), saida: d.instante('2026-11-02', '11:30') },
+    { dia: '2026-11-09', situacao: 'atestado' }
+  ];
+  const r = d.resumoFrequencia({ registros: reg, jornada, de: '2026-11-01', ate: '2026-11-14', bloqueios, hoje: '2026-11-15' });
+  assert.equal(r.diasPrevistos, 3); assert.equal(r.minutosPrevistos, 180 + 180 + 240); assert.equal(r.minutosCumpridos, 210);
+  assert.equal(r.presencas, 1); assert.equal(r.justificadas, 1); assert.deepEqual(r.semRegistro, ['2026-11-11']);
+  assert.equal(d.formatarHoras(210), '3h30'); assert.equal(d.formatarHoras(600), '10h');
+});
+
+test('plano de metas: validação, notas e séries', () => {
+  assert.throws(() => d.validarMetas([{ texto: ' ' }]), /pelo menos uma/);
+  const metas = d.validarMetas([{ id: 'm2', texto: 'Produzir /r/ em palavras' }, { texto: 'Ler sílabas simples', situacao: 'xx' }]);
+  assert.deepEqual(metas.map(m => m.id), ['m2', 'm1']); assert.equal(metas[1].situacao, 'ativa');
+  assert.deepEqual(d.validarNotasMetas({ meta_m2: '4', meta_m1: '9' }, metas), { m2: 4 });
+  const ats = [{ id: 'b', data: d.instante('2026-11-10', '09:00') }, { id: 'a', data: d.instante('2026-11-03', '09:00') }, { id: 'c', situacao: 'anulado', data: d.instante('2026-11-11', '09:00') }];
+  const regs = new Map([['a', { metas: { m2: 2 } }], ['b', { metas: { m2: 3, m1: 1 } }], ['c', { metas: { m2: 5 } }]]);
+  const s = d.seriesDasMetas(metas, ats, regs);
+  assert.deepEqual(s.m2.map(x => x.nota), [2, 3]); assert.deepEqual(s.m1.map(x => x.nota), [1]);
+});
+
+test('lembrete por WhatsApp não leva dado clínico', () => {
+  assert.equal(d.numeroWhatsApp('(33) 99855-6503'), '5533998556503');
+  assert.equal(d.numeroWhatsApp('+55 33 3333-4444'), '553333334444');
+  assert.equal(d.numeroWhatsApp('9999'), '');
+  const t = d.textoLembrete({ nome: 'Ana Clara Souza', inicio: d.instante('2026-11-05', '08:30'), escola: 'E.M. Monteiro Lobato' });
+  assert.match(t, /Ana tem atendimento/); assert.match(t, /quinta, 05\/11, às 08:30/);
+  assert.doesNotMatch(t, /Souza|Fono|Psico|Neuro/);
+  assert.match(d.linkWhatsApp('33998556503', 'oi'), /^https:\/\/wa\.me\/5533998556503\?text=oi$/);
+});
+
+test('série mensal para o painel da Secretaria', () => {
+  assert.deepEqual(d.ultimosMeses(3, '2026-01-15'), ['2025-11', '2025-12', '2026-01']);
+  const s = d.serieMensal([
+    { data: d.instante('2025-12-10', '09:00'), especialidade: 'fonoaudiologia', escola_id: 'A' },
+    { data: d.instante('2026-01-02', '09:00'), especialidade: 'psicopedagogia', escola_id: 'A' },
+    { data: d.instante('2026-01-03', '09:00'), especialidade: 'psicopedagogia', escola_id: 'B', situacao: 'anulado' }
+  ], ['2025-12', '2026-01']);
+  assert.equal(s[0].total, 1); assert.equal(s[1].porEspecialidade.psicopedagogia, 1); assert.equal(d.rotuloMes('2026-01'), 'jan/26');
+});
+
+test('cópia de segurança: criptografa e abre só com a senha certa', async () => {
+  const b = await import('../js/backup.js');
+  const env = await b.criptografar({ estudantes: [{ id: 'x', nome: 'Teste' }] }, 'senha-longa-de-teste', { colecoes: 1 });
+  assert.equal(env.formato, 'seduc-backup-v1'); assert.doesNotMatch(JSON.stringify(env), /Teste/);
+  assert.deepEqual(await b.abrir(env, 'senha-longa-de-teste'), { estudantes: [{ id: 'x', nome: 'Teste' }] });
+  await assert.rejects(() => b.abrir(env, 'senha-errada-qualquer'), /Senha incorreta/);
+  assert.throws(() => b.validarSenha('curta'), /12 caracteres/);
+});

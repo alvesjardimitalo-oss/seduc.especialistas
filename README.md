@@ -15,6 +15,8 @@ Cada consulta tem um **código único** (ex.: `C261030-7K3F`) e abre numa janela
 
 **Adaptações para a escola:** orientação para a professora/escola em cada consulta (a direção lê; o registro clínico não), calendário escolar (férias, recesso e feriados bloqueiam a agenda também no servidor), tipos de atendimento escolares (observação em sala, grupo, reunião com professora/família), painel com "Hoje na escola" e ficha de uma página para a professora.
 
+**Versão 2.2:** fila de espera com pedidos da escola, frequência das especialistas (horas previstas × cumpridas), registro de quem acessou cada prontuário, plano de metas com gráfico de evolução, funcionamento sem internet, cópia de segurança criptografada (manual e semanal), lembrete por WhatsApp sem dado clínico, feriados nacionais automáticos e painel da Secretaria com os últimos 12 meses. Detalhes em [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md).
+
 ## Como funciona
 
 | Quem | O que faz |
