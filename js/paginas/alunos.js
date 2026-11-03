@@ -28,10 +28,11 @@ export async function render(main, vigente) {
     + '<p class="nota" role="status">' + lista.length + ' aluno(s) encontrado(s)</p>'
     + (lista.length ? '<div class="lista-alunos">' + lista.map(e => {
       const sit = S.acompanhamento.get(e.id), anos = idade(e.nascimento);
-      return '<a class="aluno-item" href="#/aluno/' + esc(e.id) + '"><span class="avatar">' + esc(iniciais(e.nome)) + '</span>'
+      return '<div class="aluno-linha"><a class="aluno-item" href="#/aluno/' + esc(e.id) + '"><span class="avatar">' + esc(iniciais(e.nome)) + '</span>'
         + '<span class="aluno-nome"><strong>' + esc(e.nome) + '</strong><small>' + esc(escolaCurta(e.escola_id)) + (e.turma ? ' · ' + esc(e.turma) : '') + (anos != null ? ' · ' + anos + ' anos' : '') + (e.situacao === 'arquivado' ? ' · arquivado' : '') + '</small></span>'
         + '<span class="aluno-chips">' + chipsAcompanhamento(sit) + '</span>'
-        + '<span class="aluno-ultimo">' + (sit?.ultimo ? 'Último: ' + esc(formatarData(sit.ultimo.data)) : '') + '</span></a>';
+        + '<span class="aluno-ultimo">' + (sit?.ultimo ? 'Último: ' + esc(formatarData(sit.ultimo.data)) : '') + '</span></a>'
+        + (pode.cadastrarAluno() ? '<button type="button" class="btn sec pequeno editar-aluno" data-editar="' + esc(e.id) + '" title="Editar aluno (dados e escola)" aria-label="Editar ' + esc(e.nome) + '">Editar</button>' : '') + '</div>';
     }).join('') + '</div>' : vazio('Nenhum aluno encontrado.', 'Revise os filtros ou cadastre o aluno.'));
 
   const form = $('#filtros', main);
@@ -39,6 +40,7 @@ export async function render(main, vigente) {
   form.oninput = () => { clearTimeout(t); t = setTimeout(() => { Object.assign(S.filtrosAlunos, Object.fromEntries(new FormData(form))); const pos = form.busca.selectionStart; render(main, vigente).then(() => { const b = $('#filtros [name=busca]', main); b.focus(); b.setSelectionRange(pos, pos); }); }, 200); };
   form.onsubmit = e => e.preventDefault();
   $('#novo', main)?.addEventListener('click', () => formAluno());
+  main.querySelectorAll('[data-editar]').forEach(b => b.onclick = () => formAluno(b.dataset.editar));
   $('#importar', main)?.addEventListener('click', importar);
 }
 

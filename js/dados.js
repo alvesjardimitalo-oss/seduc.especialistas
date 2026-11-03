@@ -215,11 +215,16 @@ export async function listarEstudantes(perfil) {
 export async function lerDoc(col, id) { const s = await getDoc(doc(db, col, id)); return s.exists() ? { id: s.id, ...s.data() } : null; }
 
 /** Cria ou atualiza o aluno com seus dados privados (e clínicos, se a equipe enviou). */
-export async function salvarEstudante({ id, estudante, privado, clinico, novo }) {
+export async function salvarEstudante({ id, estudante, privado, clinico, novo, mover = null }) {
   const ref = id ? doc(db, 'estudantes', id) : doc(collection(db, 'estudantes'));
   const b = writeBatch(db), quem = uidAtual();
   if (novo) b.set(ref, { ...estudante, situacao: 'ativo', criado_por: quem, criado_em: serverTimestamp() });
   else b.update(ref, { ...estudante, atualizado_por: quem, atualizado_em: serverTimestamp() });
+  // Mudança de escola: agendamentos em aberto e pedidos da fila acompanham o aluno (mesmo lote).
+  if (mover) {
+    for (const a of mover.agendamentos) b.update(doc(db, 'agendamentos', a), { escola_id: estudante.escola_id, alterado_por: quem, alterado_em: serverTimestamp() });
+    for (const p of mover.pedidos) b.update(doc(db, 'pedidos', p), { escola_id: estudante.escola_id, atualizado_por: quem, atualizado_em: serverTimestamp() });
+  }
   if (privado) b.set(doc(db, 'estudantes_privado', ref.id), { ...privado, atualizado_por: quem, atualizado_em: serverTimestamp() });
   if (clinico) b.set(doc(db, 'estudantes_clinico', ref.id), { ...clinico, atualizado_por: quem, atualizado_em: serverTimestamp() });
   await b.commit();

@@ -1,6 +1,6 @@
 // Formulários compartilhados entre as páginas.
 import * as dados from './dados.js';
-import { S, pode, nomeEscola, escolaCurta, especialistas, estudante, escolasVisiveis, invalidarAtendimentos, escolaAtual, especialistasDaEscola } from './estado.js';
+import { S, pode, perfilEscolar, nomeEscola, escolaCurta, especialistas, estudante, escolasVisiveis, invalidarAtendimentos, escolaAtual, especialistasDaEscola } from './estado.js';
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, LIMITES, validarEstudante, possiveisDuplicados, validarRegistro,
   instante, diaMunicipal, horaMunicipal, horariosLivres, validarAgendamento, somarDias, formatarData, formatarDataHora,
@@ -52,7 +52,11 @@ export async function formAluno(id = '', { aoCriar = null } = {}) {
     + campo('nome', 'Nome completo', { valor: e.nome, obrig: true, largo: true, extra: 'maxlength="180" autocomplete="off"' })
     + campo('nascimento', 'Data de nascimento', { tipo: 'date', valor: e.nascimento })
     + campo('cpf', 'CPF', { valor: formatarCPF(privado.cpf), extra: 'maxlength="14" inputmode="numeric" placeholder="000.000.000-00"' })
-    + opcoes('escola_id', 'Escola', escolas, { valor: e.escola_id || escolaAtual(), obrig: true, vazio: 'Selecione' })
+    + opcoes('escola_id', 'Escola em que está matriculado', escolas, { valor: e.escola_id || escolaAtual(), obrig: true, vazio: 'Selecione', dica: perfilEscolar() ? '' : 'Qualquer escola da rede, mesmo que você não atenda nela' })
+    + (id ? '<fieldset class="largo" data-mudanca-escola hidden><legend>Mudança de escola</legend>'
+      + '<label class="opcao-linha"><input type="radio" name="tipo_mudanca" value="correcao"> <span><strong>Correção</strong> — o aluno foi cadastrado na escola errada</span></label>'
+      + '<label class="opcao-linha"><input type="radio" name="tipo_mudanca" value="transferencia"> <span><strong>Transferência</strong> — o aluno mudou de escola</span></label>'
+      + '<small>Agendamentos em aberto e pedidos na fila passam para a nova escola. Na transferência, a escola anterior fica registrada no histórico do aluno.</small></fieldset>' : '')
     + campo('turma', 'Turma / ano', { valor: e.turma, extra: 'maxlength="80"', dica: 'Ex.: 2º ano B' })
     + opcoes('turno', 'Turno', [['', 'Não informado'], ['manha', 'Manhã'], ['tarde', 'Tarde'], ['integral', 'Integral']], { valor: e.turno || '' })
     + campo('ano_letivo', 'Ano letivo', { tipo: 'number', valor: e.ano_letivo || new Date().getFullYear(), extra: 'min="2020" max="2100"' })
@@ -72,27 +76,56 @@ export async function formAluno(id = '', { aoCriar = null } = {}) {
       + campo('fonte', 'Fonte da informação', { valor: clinico.fonte, largo: true, extra: 'maxlength="300"', dica: 'Ex.: laudo neuropediatra de 03/2025' })
       + '</div>' + area('observacoes', 'Observações relevantes (medicação, cuidados)', { valor: clinico.observacoes, max: 3000, linhas: 3 }) + '</fieldset>' : '');
   const form = modal({
-    titulo: id ? 'Editar cadastro' : 'Cadastrar aluno', corpo, largo: true, botao: id ? 'Salvar alterações' : 'Cadastrar',
+    titulo: id ? 'Editar aluno' : 'Cadastrar aluno', corpo, largo: true, botao: id ? 'Salvar alterações' : 'Cadastrar',
     aoSalvar: async d => {
       const est = validarEstudante(d);
       if (!id) {
         const dup = possiveisDuplicados(S.estudantes, est);
         if (dup.length && !confirm('Já existe aluno com o mesmo nome (' + dup.map(x => escolaCurta(x.escola_id)).join(', ') + '). Cadastrar mesmo assim?')) throw Error('Cadastro não realizado: confira o aluno existente.');
       }
-      if (id && e.escola_id !== est.escola_id) est.escolas_anteriores = [...(e.escolas_anteriores || []), { escola_id: e.escola_id, ate: hoje() }];
-      else if (id) est.escolas_anteriores = e.escolas_anteriores || [];
+      let mover = null;
+      if (id && e.escola_id !== est.escola_id) {
+        if (!d.tipo_mudanca) throw Error('Informe se a mudança de escola é correção do cadastro ou transferência.');
+        // Correção: a escola errada não entra no histórico. Transferência: registra até quando estudou lá.
+        est.escolas_anteriores = d.tipo_mudanca === 'transferencia'
+          ? [...(e.escolas_anteriores || []), { escola_id: e.escola_id, ate: hoje() }].slice(-20)
+          : (e.escolas_anteriores || []);
+        const [ags, peds] = await Promise.all([
+          dados.listarAgendamentos({ estudanteId: id }).catch(() => []),
+          dados.listarPedidos({ estudanteId: id }).catch(() => [])
+        ]);
+        mover = {
+          agendamentos: ags.filter(a => a.status === 'agendado' && a.escola_id !== est.escola_id).map(a => a.id),
+          pedidos: peds.filter(p => p.situacao === 'aguardando' && p.escola_id !== est.escola_id).map(p => p.id)
+        };
+      } else if (id) est.escolas_anteriores = e.escolas_anteriores || [];
       if (d.cpf && !cpfValido(d.cpf)) throw Error('CPF inválido.');
       const privadoNovo = { responsavel: privado.responsavel || '', parentesco: privado.parentesco || '', mae: d.mae.trim(), pai: d.pai.trim(), telefone: d.telefone.trim(), endereco: d.endereco.trim(), cartao_sus: d.cartao_sus.replace(/\D/g, ''), cpf: d.cpf.replace(/\D/g, ''), motivo_encaminhamento: d.motivo_encaminhamento.trim() };
       const clinicoNovo = pode.clinico() ? { necessidade_informada: d.necessidade_informada.trim(), fonte: d.fonte.trim(), observacoes: d.observacoes.trim() } : null;
-      const novoId = await dados.salvarEstudante({ id, estudante: est, privado: privadoNovo, clinico: clinicoNovo, novo: !id });
+      let novoId, semMover = false;
+      try { novoId = await dados.salvarEstudante({ id, estudante: est, privado: privadoNovo, clinico: clinicoNovo, novo: !id, mover }); }
+      catch (err) {
+        // Regras antigas no servidor ainda não deixam mover agendamentos/pedidos: salva só o aluno.
+        if (!(mover && (mover.agendamentos.length || mover.pedidos.length) && err?.code === 'permission-denied')) throw err;
+        novoId = await dados.salvarEstudante({ id, estudante: est, privado: privadoNovo, clinico: clinicoNovo, novo: false });
+        semMover = true;
+      }
       const local = { situacao: 'ativo', ...e, ...est, id: novoId };
       S.estudantes = [...S.estudantes.filter(x => x.id !== novoId), local];
-      aviso(id ? 'Cadastro atualizado.' : 'Aluno cadastrado.');
+      if (mover) { invalidarAtendimentos(); S.pedidos = null; }
+      aviso(!id ? 'Aluno cadastrado.' : mover ? (d.tipo_mudanca === 'transferencia' ? 'Aluno transferido para ' : 'Escola corrigida para ') + escolaCurta(est.escola_id) + '.'
+        + (semMover ? ' Os agendamentos em aberto continuam na escola anterior (avise a Administração).' : '') : 'Cadastro atualizado.');
       if (!id && aoCriar) setTimeout(() => aoCriar(novoId), 50);
       else if (!id) irPara('#/aluno/' + novoId); else mudou();
     }
   });
   ativarContadores(form);
+  const caixa = $('[data-mudanca-escola]', form);
+  if (caixa) form.escola_id.addEventListener('change', () => {
+    const mudou = form.escola_id.value && form.escola_id.value !== e.escola_id;
+    caixa.hidden = !mudou;
+    $$('[name=tipo_mudanca]', caixa).forEach(r => { r.required = mudou; if (!mudou) r.checked = false; });
+  });
 }
 
 export function arquivarAluno(id) {

@@ -141,6 +141,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .filtros .campo { min-width: 170px; flex: 1; }
 .lista-alunos { display: grid; gap: .5rem; }
 .aluno-item { display: grid; grid-template-columns: 44px minmax(200px, 1.4fr) 1.2fr auto; gap: .9rem; align-items: center; background: #fff; border: 1px solid var(--linha); border-radius: 12px; padding: .7rem .9rem; text-decoration: none; color: var(--tinta); box-shadow: var(--sombra); }
+.aluno-linha { display: flex; gap: .5rem; align-items: center; } .aluno-linha .aluno-item { flex: 1; min-width: 0; } .editar-aluno { flex: none; }
 .aluno-item:hover { border-color: #b7d9d4; background: #fbfefd; }
 .aluno-nome strong { display: block; } .aluno-nome small, .aluno-ultimo { color: var(--suave); font-size: .82rem; }
 .aluno-chips, .chips { display: flex; flex-wrap: wrap; gap: .3rem; }
@@ -226,6 +227,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .campo input:focus, .campo select:focus, .campo textarea:focus { border-color: var(--acento); outline: 2px solid var(--acento-claro); }
 .obrig { color: var(--perigo); }
 .largo { grid-column: 1 / -1; }
+.opcao-linha { display: flex; gap: .5rem; align-items: flex-start; cursor: pointer; } .opcao-linha input { margin-top: .2rem; }
+[data-mudanca-escola] { background: #fff8e6; border-color: #f0c96a; } [data-mudanca-escola] small { color: var(--suave); font-size: .82rem; }
 .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .8rem 1rem; }
 fieldset { border: 1px solid var(--linha); border-radius: 12px; padding: .9rem 1rem 1rem; margin: 0; display: grid; gap: .8rem; }
 legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }

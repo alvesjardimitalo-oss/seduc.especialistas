@@ -48,6 +48,7 @@ export async function render(main, vigente) {
     + '<div class="acoes-linha">'
     + (pode.registrar() && e.situacao !== 'arquivado' ? '<button class="btn" data-acao="registrar">+ Registrar atendimento</button>' : '')
     + (pode.agendar() && e.situacao !== 'arquivado' ? '<button class="btn sec" data-acao="agendar">Agendar</button>' : '')
+    + (pode.cadastrarAluno() ? '<button class="btn sec" data-acao="editar">Editar aluno</button>' : '')
     + '<button class="btn sec" data-acao="ficha-escola">Ficha para a professora</button>'
     + (clinico ? '<button class="btn sec" data-acao="imprimir">Imprimir prontuário</button>' : '')
     + (podePedir() && e.situacao !== 'arquivado' ? '<button class="btn sec" data-acao="pedido">Pedir atendimento</button>' : '')
@@ -243,7 +244,7 @@ function formRelatorio(e, atendimentos, reg) {
 function abaFicha(e, privado, saude, clinico) {
   const item = (k, v) => '<div><dt>' + k + '</dt><dd>' + (v ? esc(v) : '<span class="nota">Não informado</span>') + '</dd></div>';
   return '<section class="cartao"><header class="cartao-topo"><h2>Dados do aluno</h2><div class="acoes-linha">'
-    + (pode.cadastrarAluno() ? '<button class="btn sec" data-acao="editar">Editar cadastro</button>' : '')
+    + (pode.cadastrarAluno() ? '<button class="btn sec" data-acao="editar">Editar aluno</button>' : '')
     + (pode.cadastrarAluno() && !['direcao', 'secretaria_escolar', 'pedagogico'].includes(S.perfil.perfil) ? '<button class="btn sec" data-acao="arquivar">' + (e.situacao === 'arquivado' ? 'Reativar' : 'Arquivar') + '</button>' : '') + '</div></header>'
     + '<dl class="ficha-dados">' + item('Nome', e.nome) + item('Nascimento', e.nascimento ? formatarData(e.nascimento + 'T12:00:00-03:00') : '') + item('Escola', nomeEscola(e.escola_id))
     + item('Turma', e.turma) + item('Turno', { manha: 'Manhã', tarde: 'Tarde', integral: 'Integral' }[e.turno]) + item('Ano letivo', String(e.ano_letivo || ''))

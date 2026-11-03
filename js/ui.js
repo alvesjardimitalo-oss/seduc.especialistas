@@ -77,11 +77,12 @@ export function area(nome, rotulo, { valor = '', obrig = false, max = 3000, dica
     + '<textarea name="' + nome + '" rows="' + linhas + '" maxlength="' + max + '"' + (obrig ? ' required' : '') + ' data-contador>' + esc(valor) + '</textarea>'
     + '<small class="contador-linha">' + (dica ? esc(dica) + ' · ' : '') + '<span data-conta>' + String(valor).length + '</span>/' + max + '</small></label>';
 }
-export function opcoes(nome, rotulo, itens, { valor = '', obrig = false, vazio = '', largo = false, extra = '' } = {}) {
+export function opcoes(nome, rotulo, itens, { valor = '', obrig = false, vazio = '', largo = false, extra = '', dica = '' } = {}) {
   const lista = Array.isArray(itens) ? itens : Object.entries(itens);
   return '<label class="campo' + (largo ? ' largo' : '') + '"><span>' + esc(rotulo) + (obrig ? ' <b class="obrig">*</b>' : '') + '</span><select name="' + nome + '"' + (obrig ? ' required' : '') + ' ' + extra + '>'
     + (vazio !== '' ? '<option value="">' + esc(vazio) + '</option>' : '')
-    + lista.map(([v, t]) => '<option value="' + esc(v) + '"' + (String(v) === String(valor) ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>';
+    + lista.map(([v, t]) => '<option value="' + esc(v) + '"' + (String(v) === String(valor) ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>'
+    + (dica ? '<small>' + esc(dica) + '</small>' : '') + '</label>';
 }
 export function ativarContadores(raiz = document) {
   $$('[data-contador]', raiz).forEach(t => { const c = t.parentElement.querySelector('[data-conta]'); t.oninput = () => { c.textContent = t.value.length; }; });
