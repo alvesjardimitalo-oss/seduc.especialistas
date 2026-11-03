@@ -236,13 +236,15 @@ test('falta só depois do horário; realizado só com o registro da profissional
 });
 
 // ---------- relatórios ----------
-test('relatórios descritivos são da equipe e imutáveis', async () => {
+test('relatórios descritivos: emitidos pela equipe, imutáveis; direção da escola só lê', async () => {
   const r = { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', registro_profissional: 'CRFa 6-0000', tipo: 'relatorio', titulo: 'Relatório', destinatario: 'Família', periodo_de: '2026-01-01', periodo_ate: '2026-06-30', texto: 'Texto', criado_em: serverTimestamp() };
   await assertSucceeds(setDoc(doc(db('fono'), 'relatorios', 'r1'), r));
   await assertFails(setDoc(doc(db('fono'), 'relatorios', 'r2'), { ...r, especialidade: 'neuropsicologia' }));
   await assertFails(updateDoc(doc(db('fono'), 'relatorios', 'r1'), { texto: 'Mudado' }));
   await assertSucceeds(getDoc(doc(db('psico'), 'relatorios', 'r1')));
-  await assertFails(getDoc(doc(db('dirA'), 'relatorios', 'r1')));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'relatorios', 'r1')));
+  await assertFails(setDoc(doc(db('dirA'), 'relatorios', 'r3'), { ...r, profissional_uid: 'dirA' }));
+  await assertFails(updateDoc(doc(db('dirA'), 'relatorios', 'r1'), { texto: 'Mudado' }));
 });
 
 // ---------- exclusão de usuários ----------

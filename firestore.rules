@@ -63,6 +63,40 @@ service cloud.firestore {
         && (d.perfil != 'especialista' || especialidadeValida(d.get('especialidade', '')));
     }
 
+    // Primeiro login de quem foi autorizado por e-mail: perfil, especialidade, escolas e cargo iguais aos da autorização.
+    function pelaAutorizacao(c, novo) {
+      return c.ativo == true && novo.perfil == c.perfil && novo.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
+        && novo.especialidade == c.get('especialidade', '') && novo.escolas == c.get('escolas', [])
+        && novo.get('cargo', '') == c.get('cargo', '') && novo.ativo == true;
+    }
+    function criacaoDeConta(m, novo) {
+      let ok = m.ativo == true && m.get('excluido', false) != true;
+      let adm = ok && m.perfil == 'superadmin';
+      let ger = adm || (ok && m.perfil == 'secretaria' && m.get('gerenciar', false) == true);
+      return usuarioValido(novo) && novo.criado_em == request.time && novo.get('gerenciar', false) == false
+        && (
+          (ger && novo.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria'] && (novo.perfil != 'secretaria' || adm))
+          || (ok && m.perfil == 'direcao' && novo.perfil == 'pedagogico' && novo.ativo == true && novo.get('excluido', false) == false
+            && novo.get('escolas', []).size() > 0 && m.get('escolas', []).hasAll(novo.get('escolas', [])))
+        );
+    }
+    function atualizacaoDeConta(uid, m, novo, velho) {
+      let ok = m.ativo == true && m.get('excluido', false) != true;
+      let adm = ok && m.perfil == 'superadmin';
+      let ger = ok && m.perfil == 'secretaria' && m.get('gerenciar', false) == true;
+      let mudou = novo.diff(velho).affectedKeys();
+      return usuarioValido(novo) && !mudou.hasAny(['email', 'criado_em'])
+        && novo.atualizado_em == request.time && novo.atualizado_por == request.auth.uid
+        && (
+          (adm && (uid != request.auth.uid || (novo.perfil == 'superadmin' && novo.ativo == true && novo.get('excluido', false) == false)))
+          || (ger && uid != request.auth.uid && velho.perfil != 'superadmin' && novo.perfil != 'superadmin'
+            && (velho.perfil != 'secretaria' || novo.perfil == 'secretaria') && !mudou.hasAny(['gerenciar']))
+          || (ok && m.perfil == 'direcao' && uid != request.auth.uid && velho.perfil == 'pedagogico' && novo.perfil == 'pedagogico'
+            && m.get('escolas', []).hasAll(velho.get('escolas', [])) && m.get('escolas', []).hasAll(novo.get('escolas', []))
+            && novo.get('escolas', []).size() > 0 && !mudou.hasAny(['gerenciar']))
+        );
+    }
+
     match /usuarios/{uid} {
       allow get: if logado() && (uid == request.auth.uid || ativo());
       allow list: if ativo();
@@ -78,28 +112,11 @@ service cloud.firestore {
           (request.resource.data.keys().hasOnly(['nome', 'email', 'perfil', 'ativo', 'especialidade', 'escolas', 'cargo', 'criado_em'])
             && request.auth.token.email_verified == true
             && exists(doc('convites', request.auth.token.email.lower()))
-            && get(doc('convites', request.auth.token.email.lower())).data.ativo == true
-            && request.resource.data.perfil == get(doc('convites', request.auth.token.email.lower())).data.perfil
-            && request.resource.data.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
-            && request.resource.data.especialidade == get(doc('convites', request.auth.token.email.lower())).data.get('especialidade', '')
-            && request.resource.data.escolas == get(doc('convites', request.auth.token.email.lower())).data.get('escolas', [])
-            && request.resource.data.get('cargo', '') == get(doc('convites', request.auth.token.email.lower())).data.get('cargo', '')
-            && request.resource.data.ativo == true
+            && pelaAutorizacao(get(doc('convites', request.auth.token.email.lower())).data, request.resource.data)
             && usuarioValido(request.resource.data))
         )
-        // Gestão cria a conta de quem recebeu login e senha (a conta de acesso é criada no mesmo momento).
-        || (gerencia() && uid != request.auth.uid && usuarioValido(request.resource.data)
-          && request.resource.data.criado_em == request.time
-          && request.resource.data.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
-          && (request.resource.data.perfil != 'secretaria' || admin())
-          && request.resource.data.get('gerenciar', false) == false)
-        // Direção cria o acesso da equipe pedagógica da própria escola (login com e-mail e senha).
-        || (ativo() && eu().perfil == 'direcao' && uid != request.auth.uid && usuarioValido(request.resource.data)
-          && request.resource.data.criado_em == request.time
-          && request.resource.data.perfil == 'pedagogico' && request.resource.data.ativo == true
-          && request.resource.data.get('gerenciar', false) == false && request.resource.data.get('excluido', false) == false
-          && request.resource.data.get('escolas', []).size() > 0
-          && eu().get('escolas', []).hasAll(request.resource.data.get('escolas', [])));
+        // Gestão (ou a direção, para a equipe pedagógica da própria escola) cria a conta de quem recebeu login e senha.
+        || (logado() && exists(caminhoEu()) && uid != request.auth.uid && criacaoDeConta(get(caminhoEu()).data, request.resource.data));
       // A própria pessoa só registra o aceite do termo de LGPD.
       allow update: if ativo() && uid == request.auth.uid && soMudar(['termo_lgpd', 'termo_lgpd_em'])
         && txtObr(request.resource.data.termo_lgpd, 40) && request.resource.data.termo_lgpd_em == request.time;
@@ -109,26 +126,9 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email.lower();
       // Superadministrador altera qualquer conta, mas não rebaixa a si mesmo.
       // Secretaria com gerenciamento delegado não toca em administradores, em si mesma
-      // nem na própria delegação de gerenciamento.
-      allow update: if usuarioValido(request.resource.data) && semMudar(['email', 'criado_em'])
-        && request.resource.data.atualizado_em == request.time && request.resource.data.atualizado_por == request.auth.uid
-        && (
-          (admin() && (uid != request.auth.uid || (request.resource.data.perfil == 'superadmin' && request.resource.data.ativo == true
-            && request.resource.data.get('excluido', false) == false)))
-          ||
-          (gerencia() && !admin() && uid != request.auth.uid
-            && resource.data.perfil != 'superadmin' && request.resource.data.perfil != 'superadmin'
-            && (resource.data.perfil != 'secretaria' || request.resource.data.perfil == 'secretaria')
-            && semMudar(['gerenciar']))
-          ||
-          // Direção edita, desativa ou reativa a equipe pedagógica da própria escola
-          (ativo() && eu().perfil == 'direcao' && uid != request.auth.uid
-            && resource.data.perfil == 'pedagogico' && request.resource.data.perfil == 'pedagogico'
-            && eu().get('escolas', []).hasAll(resource.data.get('escolas', []))
-            && eu().get('escolas', []).hasAll(request.resource.data.get('escolas', []))
-            && request.resource.data.get('escolas', []).size() > 0
-            && semMudar(['gerenciar']))
-        );
+      // nem na própria delegação de gerenciamento. Direção edita só a equipe pedagógica da própria escola.
+      // (lê o perfil de quem altera uma única vez, para ficar dentro do limite de expressões das regras)
+      allow update: if logado() && exists(caminhoEu()) && atualizacaoDeConta(uid, get(caminhoEu()).data, request.resource.data, resource.data);
       // Apagar de vez só solicitações pendentes (conta que nunca teve acesso nem registros).
       // Contas que já usaram o sistema são excluídas por "excluido: true" e podem ser restauradas.
       allow delete: if gerencia() && uid != request.auth.uid && resource.data.perfil == 'pendente';
