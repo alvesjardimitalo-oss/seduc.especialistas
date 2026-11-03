@@ -16,13 +16,15 @@ export const S = {
 };
 
 const p = () => S.perfil || {};
+/** Perfis ligados a escolas específicas (direção e equipe pedagógica). */
+export const perfilEscolar = () => ['direcao', 'pedagogico'].includes(p().perfil);
 export const pode = {
   clinico: () => p().perfil === 'especialista' || p().perfil === 'superadmin',
   registrar: () => p().perfil === 'especialista',
   gerenciar: () => p().perfil === 'superadmin' || (p().perfil === 'secretaria' && p().gerenciar === true),
   gestao: () => ['superadmin', 'secretaria'].includes(p().perfil),
   agendar: () => ['especialista', 'secretaria', 'superadmin', 'direcao'].includes(p().perfil),
-  cadastrarAluno: () => p().perfil === 'especialista' || pode.gerenciar() || p().perfil === 'direcao',
+  cadastrarAluno: () => p().perfil === 'especialista' || pode.gerenciar() || perfilEscolar(),
   admin: () => p().perfil === 'superadmin'
 };
 
@@ -39,17 +41,17 @@ export function seloEscola(id, classe = '') {
 export const especialistas = () => S.usuarios.filter(u => u.perfil === 'especialista' && u.ativo === true && !u.excluido)
   .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 export const estudante = id => S.estudantes.find(e => e.id === id);
-export const escolasVisiveis = () => p().perfil === 'direcao' ? S.escolas.filter(e => (p().escolas || []).includes(e.id)) : S.escolas;
+export const escolasVisiveis = () => perfilEscolar() ? S.escolas.filter(e => (p().escolas || []).includes(e.id)) : S.escolas;
 /** Instituições que a pessoa atende (especialista: as vinculadas no perfil; sem vínculo, todas). */
 export const escolasDaPessoa = () => {
   const ids = p().escolas || [];
-  if (p().perfil === 'direcao' || (p().perfil === 'especialista' && ids.length)) return S.escolas.filter(e => ids.includes(e.id));
+  if (perfilEscolar() || (p().perfil === 'especialista' && ids.length)) return S.escolas.filter(e => ids.includes(e.id));
   return S.escolas;
 };
 export const escolaAtual = () => S.instituicao;
 /** Especialistas que atendem uma escola (sem escolas vinculadas = atende todas). */
 export const especialistasDaEscola = escolaId => especialistas().filter(u => !escolaId || !(u.escolas || []).length || u.escolas.includes(escolaId));
-export const escopoEscolas = () => p().perfil === 'direcao' ? (p().escolas || []) : null;
+export const escopoEscolas = () => perfilEscolar() ? (p().escolas || []) : null;
 
 export async function carregarBase() {
   const [escolas, usuarios, estudantes, bloqueios] = await Promise.all([dados.listarEscolas(), dados.listarUsuarios(), dados.listarEstudantes(p()), dados.listarBloqueios().catch(() => [])]);

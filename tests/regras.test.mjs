@@ -20,6 +20,7 @@ const usuarios = {
   sec: { nome: 'Secretaria', email: 'sec@teste.br', perfil: 'secretaria', ativo: true, gerenciar: true },
   secLeitura: { nome: 'Sec Leitura', email: 'sec2@teste.br', perfil: 'secretaria', ativo: true, gerenciar: false },
   dirA: { nome: 'Direção A', email: 'dira@teste.br', perfil: 'direcao', ativo: true, escolas: [ESC_A] },
+  pedA: { nome: 'Pedagógica A', email: 'peda@teste.br', perfil: 'pedagogico', ativo: true, escolas: [ESC_A] },
   fono: { nome: 'Fono', email: 'fono@teste.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', ...jornadaFono },
   psico: { nome: 'Psicopedagoga', email: 'psico@teste.br', perfil: 'especialista', ativo: true, especialidade: 'psicopedagogia', jornada: [], slots: [] },
   inativa: { nome: 'Inativa', email: 'inativa@teste.br', perfil: 'especialista', ativo: false, especialidade: 'neuropsicologia' },
@@ -546,4 +547,37 @@ test('cópia de segurança: só a administração lista contatos e dados clínic
   await assertSucceeds(getDocs(collection(db('admin'), 'estudantes_privado')));
   await assertFails(getDocs(collection(db('sec'), 'estudantes_privado')));
   await assertFails(getDocs(collection(db('psico'), 'estudantes_clinico')));
+});
+
+test('equipe pedagógica: cadastra aluno e pede atendimento só na própria escola; não agenda nem lê clínico', async () => {
+  const f = db('pedA');
+  await assertSucceeds(setDoc(doc(f, 'estudantes', 'np1'), { nome: 'Aluno Novo', escola_id: ESC_A, situacao: 'ativo', criado_por: 'pedA', criado_em: serverTimestamp() }));
+  await assertFails(setDoc(doc(f, 'estudantes', 'np2'), { nome: 'Aluno Outra', escola_id: ESC_B, situacao: 'ativo', criado_por: 'pedA', criado_em: serverTimestamp() }));
+  await assertSucceeds(setDoc(doc(f, 'estudantes_privado', 'np1'), { mae: 'Mãe', telefone: '33999990000', motivo_encaminhamento: 'Não acompanha a leitura', atualizado_por: 'pedA', atualizado_em: serverTimestamp() }));
+  await assertSucceeds(getDoc(doc(f, 'estudantes', 'alunoA'))); await assertFails(getDoc(doc(f, 'estudantes', 'alunoB')));
+  await assertFails(getDoc(doc(f, 'estudantes_clinico', 'alunoA')));
+  await assertSucceeds(setDoc(doc(f, 'pedidos', 'pp1'), pedido('pedA', 'Pedagógica A')));
+  await assertFails(setDoc(doc(f, 'pedidos', 'pp2'), pedido('pedA', 'Pedagógica A', { estudante_id: 'alunoB', escola_id: ESC_B })));
+  await assertSucceeds(setDoc(doc(db('dirA'), 'pedidos', 'pp3'), pedido('dirA', 'Direção A')));
+  const cancela = (id, uid) => updateDoc(doc(db(uid), 'pedidos', id), { situacao: 'cancelado', motivo_cancelamento: 'Família não autorizou', atualizado_por: uid, atualizado_em: serverTimestamp() });
+  await assertFails(cancela('pp3', 'pedA')); // pedido feito pela direção
+  await assertSucceeds(cancela('pp1', 'pedA'));
+  await assertFails(loteAgenda(db('pedA'), { criador: 'pedA' }).commit());
+  await loteAtendimento(db('fono'), 'fono').commit();
+  await assertSucceeds(getDoc(doc(f, 'atendimentos', 'at1'))); await assertFails(getDoc(doc(f, 'atendimentos_registro', 'at1')));
+  // a direção cria e desativa o acesso da equipe pedagógica da própria escola
+  const novaConta = (uid, id, extra = {}) => setDoc(doc(db(uid), 'usuarios', id), { nome: 'Coordenadora', email: id + '@teste.br', perfil: 'pedagogico', ativo: true, excluido: false, gerenciar: false, especialidade: '', escolas: [ESC_A], criado_em: serverTimestamp(), ...extra });
+  await assertSucceeds(novaConta('dirA', 'coordA'));
+  await assertFails(novaConta('dirA', 'coordB', { escolas: [ESC_B] }));
+  await assertFails(novaConta('dirA', 'coordC', { perfil: 'direcao' }));
+  await assertFails(novaConta('dirA', 'coordD', { escolas: [] }));
+  await assertFails(novaConta('pedA', 'coordE'));
+  await assertFails(novaConta('fono', 'coordF'));
+  const mudar = (uid, id, d) => updateDoc(doc(db(uid), 'usuarios', id), { ...d, atualizado_em: serverTimestamp(), atualizado_por: uid });
+  await assertSucceeds(mudar('dirA', 'coordA', { ativo: false, excluido: true, motivo_exclusao: 'Mudou de escola' }));
+  await assertFails(mudar('dirA', 'coordA', { perfil: 'secretaria' }));
+  await assertFails(mudar('dirA', 'fono', { ativo: false }));
+  await assertFails(mudar('dirA', 'dirA', { escolas: [ESC_A, ESC_B] }));
+  // a gestão cria o acesso da equipe pedagógica
+  await assertSucceeds(setDoc(doc(db('sec'), 'convites', 'coord@teste.br'), { email: 'coord@teste.br', nome: 'Coordenação', perfil: 'pedagogico', especialidade: '', escolas: [ESC_A], ativo: true, criado_por: 'sec', criado_em: serverTimestamp() }));
 });

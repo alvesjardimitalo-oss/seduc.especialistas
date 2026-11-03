@@ -21,7 +21,7 @@ export async function render(main, vigente) {
   if (!e) { main.innerHTML = '<div class="alerta-caixa erro">Aluno não encontrado ou fora do seu acesso.</div><a href="#/alunos" class="btn sec">← Voltar</a>'; return; }
   const aba = ABAS.some(([k]) => k === S.rota.aba) ? S.rota.aba : 'prontuario';
   const clinico = pode.clinico();
-  const veContato = clinico || pode.gerenciar() || S.perfil.perfil === 'direcao';
+  const veContato = clinico || pode.gerenciar() || ['direcao', 'pedagogico'].includes(S.perfil.perfil);
   dados.registrarAcesso(S.perfil, e, 'prontuario');
   const [atendimentos, registros, agenda, privado, saude, relatorios, condicoes, planos, pedidos] = await Promise.all([
     dados.listarAtendimentos({ estudanteId: id }),
@@ -243,7 +243,7 @@ function abaFicha(e, privado, saude, clinico) {
   const item = (k, v) => '<div><dt>' + k + '</dt><dd>' + (v ? esc(v) : '<span class="nota">Não informado</span>') + '</dd></div>';
   return '<section class="cartao"><header class="cartao-topo"><h2>Dados do aluno</h2><div class="acoes-linha">'
     + (pode.cadastrarAluno() ? '<button class="btn sec" data-acao="editar">Editar cadastro</button>' : '')
-    + (pode.cadastrarAluno() && S.perfil.perfil !== 'direcao' ? '<button class="btn sec" data-acao="arquivar">' + (e.situacao === 'arquivado' ? 'Reativar' : 'Arquivar') + '</button>' : '') + '</div></header>'
+    + (pode.cadastrarAluno() && !['direcao', 'pedagogico'].includes(S.perfil.perfil) ? '<button class="btn sec" data-acao="arquivar">' + (e.situacao === 'arquivado' ? 'Reativar' : 'Arquivar') + '</button>' : '') + '</div></header>'
     + '<dl class="ficha-dados">' + item('Nome', e.nome) + item('Nascimento', e.nascimento ? formatarData(e.nascimento + 'T12:00:00-03:00') : '') + item('Escola', nomeEscola(e.escola_id))
     + item('Turma', e.turma) + item('Turno', { manha: 'Manhã', tarde: 'Tarde', integral: 'Integral' }[e.turno]) + item('Ano letivo', String(e.ano_letivo || ''))
     + item('Situação', e.situacao === 'arquivado' ? 'Arquivado — ' + (e.motivo_arquivamento || '') : 'Ativo')

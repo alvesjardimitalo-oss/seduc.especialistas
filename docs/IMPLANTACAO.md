@@ -26,7 +26,8 @@ GitHub → Settings → Pages → Branch `v2-prontuario`, pasta `/ (root)`. Depo
    - Quando ela entrar, use *Editar* para definir a **jornada**: dias, horários e local de cada período.
    - Quem já entrou sem autorização aparece em *Aguardando liberação*.
 3. **Direções:** autorize da mesma forma, escolhendo a(s) escola(s).
-4. **Alunos:** cadastre manualmente ou use *Importar planilha (JSON)* (só a administração) com o arquivo privado de 2026. O arquivo **não** vai para o GitHub.
+4. **Equipe pedagógica:** cada direção, em *Equipe → + Acesso da equipe pedagógica*, informa nome e e-mail da supervisora/coordenadora. A pessoa recebe um e-mail para criar a própria senha. A direção pode reenviar o link e desativar o acesso. (Exige o login por E-mail/senha ativado no Firebase.)
+5. **Alunos:** cadastre manualmente ou use *Importar planilha (JSON)* (só a administração) com o arquivo privado de 2026. O arquivo **não** vai para o GitHub.
 
 ## 5. Teste com a equipe (dados fictícios)
 - [ ] A especialista registra um atendimento, e as outras duas veem o card.

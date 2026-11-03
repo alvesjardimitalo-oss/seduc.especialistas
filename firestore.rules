@@ -18,7 +18,7 @@ service cloud.firestore {
     function eu() { return get(caminhoEu()).data; }
     function ativo() {
       return logado() && exists(caminhoEu()) && eu().ativo == true && eu().get('excluido', false) != true
-        && eu().perfil in ['especialista', 'secretaria', 'direcao', 'superadmin'];
+        && eu().perfil in ['especialista', 'secretaria', 'direcao', 'pedagogico', 'superadmin'];
     }
     function admin() { return ativo() && eu().perfil == 'superadmin'; }
     function gestao() { return ativo() && eu().perfil in ['superadmin', 'secretaria']; }
@@ -26,7 +26,10 @@ service cloud.firestore {
     function equipe() { return ativo() && eu().perfil == 'especialista'; }
     function clinico() { return equipe() || admin(); }
     function direcaoDe(escola) { return ativo() && eu().perfil == 'direcao' && escola in eu().get('escolas', []); }
-    function veEscola(escola) { return gestao() || equipe() || direcaoDe(escola); }
+    // Equipe pedagógica da escola (supervisão/coordenação): cadastra alunos e pede atendimento; não agenda nem lê texto clínico.
+    function pedagogicoDe(escola) { return ativo() && eu().perfil == 'pedagogico' && escola in eu().get('escolas', []); }
+    function escolaDe(escola) { return direcaoDe(escola) || pedagogicoDe(escola); }
+    function veEscola(escola) { return gestao() || equipe() || escolaDe(escola); }
 
     // ---------- utilidades ----------
     function txt(v, n) { return v is string && v.size() <= n; }
@@ -51,7 +54,7 @@ service cloud.firestore {
           'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em'])
         && txt(d.get('motivo_exclusao', ''), 500) && txt(d.get('endereco', ''), 300) && txt(d.get('termo_lgpd', ''), 40)
         && txtObr(d.nome, 180) && txt(d.get('email', ''), 200)
-        && d.perfil in ['pendente', 'especialista', 'secretaria', 'direcao', 'superadmin']
+        && d.perfil in ['pendente', 'especialista', 'secretaria', 'direcao', 'pedagogico', 'superadmin']
         && d.ativo is bool && d.get('gerenciar', false) is bool && d.get('excluido', false) is bool
         && d.get('escolas', []) is list && d.get('escolas', []).size() <= 10
         && d.get('jornada', []) is list && d.get('jornada', []).size() <= 30
@@ -77,7 +80,7 @@ service cloud.firestore {
             && exists(doc('convites', request.auth.token.email.lower()))
             && get(doc('convites', request.auth.token.email.lower())).data.ativo == true
             && request.resource.data.perfil == get(doc('convites', request.auth.token.email.lower())).data.perfil
-            && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+            && request.resource.data.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
             && request.resource.data.especialidade == get(doc('convites', request.auth.token.email.lower())).data.get('especialidade', '')
             && request.resource.data.escolas == get(doc('convites', request.auth.token.email.lower())).data.get('escolas', [])
             && request.resource.data.ativo == true
@@ -86,9 +89,16 @@ service cloud.firestore {
         // Gestão cria a conta de quem recebeu login e senha (a conta de acesso é criada no mesmo momento).
         || (gerencia() && uid != request.auth.uid && usuarioValido(request.resource.data)
           && request.resource.data.criado_em == request.time
-          && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+          && request.resource.data.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
           && (request.resource.data.perfil != 'secretaria' || admin())
-          && request.resource.data.get('gerenciar', false) == false);
+          && request.resource.data.get('gerenciar', false) == false)
+        // Direção cria o acesso da equipe pedagógica da própria escola (login com e-mail e senha).
+        || (ativo() && eu().perfil == 'direcao' && uid != request.auth.uid && usuarioValido(request.resource.data)
+          && request.resource.data.criado_em == request.time
+          && request.resource.data.perfil == 'pedagogico' && request.resource.data.ativo == true
+          && request.resource.data.get('gerenciar', false) == false && request.resource.data.get('excluido', false) == false
+          && request.resource.data.get('escolas', []).size() > 0
+          && eu().get('escolas', []).hasAll(request.resource.data.get('escolas', [])));
       // A própria pessoa só registra o aceite do termo de LGPD.
       allow update: if ativo() && uid == request.auth.uid && soMudar(['termo_lgpd', 'termo_lgpd_em'])
         && txtObr(request.resource.data.termo_lgpd, 40) && request.resource.data.termo_lgpd_em == request.time;
@@ -109,6 +119,14 @@ service cloud.firestore {
             && resource.data.perfil != 'superadmin' && request.resource.data.perfil != 'superadmin'
             && (resource.data.perfil != 'secretaria' || request.resource.data.perfil == 'secretaria')
             && semMudar(['gerenciar']))
+          ||
+          // Direção edita, desativa ou reativa a equipe pedagógica da própria escola
+          (ativo() && eu().perfil == 'direcao' && uid != request.auth.uid
+            && resource.data.perfil == 'pedagogico' && request.resource.data.perfil == 'pedagogico'
+            && eu().get('escolas', []).hasAll(resource.data.get('escolas', []))
+            && eu().get('escolas', []).hasAll(request.resource.data.get('escolas', []))
+            && request.resource.data.get('escolas', []).size() > 0
+            && semMudar(['gerenciar']))
         );
       // Apagar de vez só solicitações pendentes (conta que nunca teve acesso nem registros).
       // Contas que já usaram o sistema são excluídas por "excluido: true" e podem ser restauradas.
@@ -125,7 +143,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['email', 'nome', 'perfil', 'especialidade', 'escolas', 'ativo', 'criado_por', 'criado_em'])
         && request.resource.data.email == email && email == email.lower()
         && txtObr(request.resource.data.nome, 180)
-        && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria']
+        && request.resource.data.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
         && (request.resource.data.perfil != 'secretaria' || admin())
         && (request.resource.data.perfil != 'especialista' || especialidadeValida(request.resource.data.especialidade))
         && request.resource.data.escolas is list && request.resource.data.escolas.size() <= 10
@@ -156,7 +174,7 @@ service cloud.firestore {
         && txt(d.get('motivo_arquivamento', ''), 500)
         && d.get('escolas_anteriores', []) is list && d.get('escolas_anteriores', []).size() <= 20;
     }
-    function podeCadastrar(escola) { return equipe() || gerencia() || direcaoDe(escola); }
+    function podeCadastrar(escola) { return equipe() || gerencia() || escolaDe(escola); }
 
     match /estudantes/{id} {
       allow get, list: if veEscola(resource.data.escola_id);
@@ -165,13 +183,13 @@ service cloud.firestore {
         && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time;
       allow update: if estudanteValido(request.resource.data) && semMudar(['criado_por', 'criado_em', 'origem'])
         && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time
-        && (equipe() || gerencia() || (direcaoDe(resource.data.escola_id) && direcaoDe(request.resource.data.escola_id)));
+        && (equipe() || gerencia() || (escolaDe(resource.data.escola_id) && escolaDe(request.resource.data.escola_id)));
       allow delete: if false;
     }
 
     // Contatos e motivo do encaminhamento: equipe, gestão delegada e direção da escola.
     match /estudantes_privado/{id} {
-      allow get: if clinico() || gerencia() || direcaoDe(get(doc('estudantes', id)).data.escola_id);
+      allow get: if clinico() || gerencia() || escolaDe(get(doc('estudantes', id)).data.escola_id);
       allow list: if admin(); // cópia de segurança
       allow create, update: if existsAfter(doc('estudantes', id))
         && podeCadastrar(getAfter(doc('estudantes', id)).data.escola_id)
@@ -209,7 +227,7 @@ service cloud.firestore {
     function versaoGravada(id, v) { return existsAfter(doc('atendimentos_versoes', id + '_' + string(v))); }
 
     match /atendimentos/{id} {
-      allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
+      allow get, list: if clinico() || gestao() || escolaDe(resource.data.escola_id);
       allow create: if equipe()
         && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
             'tipo', 'evolucao', 'data', 'duracao_min', 'agendamento_id', 'codigo', 'orientacao_escola', 'situacao', 'versao', 'criado_em', 'atualizado_em'])
@@ -319,7 +337,7 @@ service cloud.firestore {
     }
 
     match /agendamentos/{id} {
-      allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
+      allow get, list: if clinico() || gestao() || escolaDe(resource.data.escola_id);
       allow create: if request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome',
             'especialidade', 'inicio', 'duracao_min', 'status', 'observacao', 'codigo', 'criado_por', 'criado_em'])
         && codigoValido(request.resource.data.codigo)
@@ -443,8 +461,8 @@ service cloud.firestore {
 
     // ---------- fila de espera: pedidos de atendimento feitos pela escola ----------
     match /pedidos/{id} {
-      allow get, list: if clinico() || gestao() || direcaoDe(resource.data.escola_id);
-      allow create: if (equipe() || gestao() || direcaoDe(request.resource.data.escola_id))
+      allow get, list: if clinico() || gestao() || escolaDe(resource.data.escola_id);
+      allow create: if (equipe() || gestao() || escolaDe(request.resource.data.escola_id))
         && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'especialidade', 'motivo', 'prioridade', 'situacao',
             'solicitante_uid', 'solicitante_nome', 'criado_em'])
         && especialidadeValida(request.resource.data.especialidade)
@@ -456,15 +474,17 @@ service cloud.firestore {
         && get(doc('estudantes', request.resource.data.estudante_id)).data.escola_id == request.resource.data.escola_id;
       allow update: if resource.data.situacao == 'aguardando'
         && request.resource.data.atualizado_por == request.auth.uid && request.resource.data.atualizado_em == request.time
-        && (equipe() || gestao() || direcaoDe(resource.data.escola_id))
+        && (equipe() || gestao() || escolaDe(resource.data.escola_id))
         && (
-          // agendado: o agendamento já existe e é do mesmo aluno e especialidade
-          (request.resource.data.situacao == 'agendado'
+          // agendado: o agendamento já existe e é do mesmo aluno e especialidade (quem agenda: equipe, gestão, direção)
+          (request.resource.data.situacao == 'agendado' && !pedagogicoDe(resource.data.escola_id)
             && soMudar(['situacao', 'agendamento_id', 'atualizado_por', 'atualizado_em'])
             && get(doc('agendamentos', request.resource.data.agendamento_id)).data.estudante_id == resource.data.estudante_id
             && get(doc('agendamentos', request.resource.data.agendamento_id)).data.especialidade == resource.data.especialidade)
           ||
+          // retirar da fila: equipe pedagógica só retira os pedidos que ela mesma fez
           (request.resource.data.situacao == 'cancelado'
+            && (!pedagogicoDe(resource.data.escola_id) || resource.data.solicitante_uid == request.auth.uid)
             && soMudar(['situacao', 'motivo_cancelamento', 'atualizado_por', 'atualizado_em'])
             && txtObr(request.resource.data.motivo_cancelamento, 500))
           ||
