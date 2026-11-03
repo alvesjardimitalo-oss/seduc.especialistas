@@ -7,6 +7,7 @@ import {
   jornadaPrevista, resumoFrequencia, formatarDataHora, minutosTrabalhados, formatarHoras, faixaDoHorario, csv
 } from '../dominio.js';
 import { esc, vazio, modal, campo, area, opcoes, aviso, erro, imprimir, $, $$ } from '../ui.js';
+import { documento } from '../impressao.js';
 
 let mes = '';
 const fimDoMes = m => { let [a, n] = m.split('-').map(Number); n++; if (n === 13) { n = 1; a++; } return somarDias(a + '-' + String(n).padStart(2, '0') + '-01', -1); };
@@ -119,10 +120,11 @@ async function frequenciaDaEquipe(main, vigente, { hoje, de, ate }) {
     const url = URL.createObjectURL(new Blob([csv(tab)], { type: 'text/csv;charset=utf-8' }));
     const a = Object.assign(document.createElement('a'), { href: url, download: 'frequencia_' + mes + '.csv' }); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   };
-  $('#imprimir', main).onclick = () => imprimir('Frequência ' + mes, '<header class="doc-cab"><div class="doc-cab-txt"><strong>Prefeitura Municipal de Frei Inocêncio/MG</strong><span>Secretaria Municipal de Educação · Atendimento Educacional Especializado</span></div><h1>Frequência da equipe — ' + esc(dataBR(de).slice(3)) + '</h1></header>'
-    + '<table class="doc-tab"><thead><tr><th>Profissional</th><th>Previstos</th><th>Presenças</th><th>Faltas</th><th>Justif.</th><th>Sem reg.</th><th>Horas prev.</th><th>Horas cumpr.</th></tr></thead><tbody>'
-    + linhas.map(x => '<tr><td>' + esc(x.u.nome) + '</td><td class="num">' + x.r.diasPrevistos + '</td><td class="num">' + x.r.presencas + '</td><td class="num">' + x.r.faltas + '</td><td class="num">' + x.r.justificadas + '</td><td class="num">' + x.r.semRegistro.length + '</td><td class="num">' + formatarHoras(x.r.minutosPrevistos) + '</td><td class="num">' + formatarHoras(x.r.minutosCumpridos) + '</td></tr>').join('')
-    + '</tbody></table><div class="assinaturas"><div class="assinatura"><span></span><strong>Secretaria Municipal de Educação</strong></div></div><footer class="doc-rodape"><div class="doc-log"><b>Impresso por:</b> ' + esc(S.perfil.nome) + ' — ' + esc(cargoDe(S.perfil)) + ' · <b>em</b> ' + esc(formatarDataHora(Date.now())) + '</div>SEDUC Especialistas.</footer>');
+  $('#imprimir', main).onclick = () => imprimir('Frequência ' + mes, documento({ titulo: 'Frequência da equipe de especialistas', subtitulo: 'Mês de referência: ' + dataBR(de).slice(3), lgpd: false,
+    corpo: '<table class="doc-tab"><thead><tr><th>Profissional</th><th class="num">Dias previstos</th><th class="num">Presenças</th><th class="num">Faltas</th><th class="num">Justificadas</th><th class="num">Sem registro</th><th class="num">Horas previstas</th><th class="num">Horas cumpridas</th></tr></thead><tbody>'
+      + linhas.map(x => '<tr><td>' + esc(x.u.nome) + '<br><small>' + esc(ESPECIALIDADES[x.u.especialidade] || '') + '</small></td><td class="num">' + x.r.diasPrevistos + '</td><td class="num">' + x.r.presencas + '</td><td class="num">' + x.r.faltas + '</td><td class="num">' + x.r.justificadas + '</td><td class="num">' + x.r.semRegistro.length + '</td><td class="num">' + formatarHoras(x.r.minutosPrevistos) + '</td><td class="num">' + formatarHoras(x.r.minutosCumpridos) + '</td></tr>').join('')
+      + '</tbody></table><p class="doc-nota">Horas previstas pela jornada cadastrada, sem os dias bloqueados no calendário escolar. Horas cumpridas pelo registro de entrada e saída.</p>'
+      + '<p class="doc-local">Frei Inocêncio/MG, ' + esc(formatarData(Date.now())) + '.</p><div class="assinaturas"><div class="assinatura"><span></span><strong>Secretaria Municipal de Educação</strong></div></div>' }));
 }
 
 function detalhe(x, { hoje, de, ate }, main, vigente) {
