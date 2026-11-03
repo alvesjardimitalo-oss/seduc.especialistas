@@ -40,7 +40,7 @@ function ativarSeletorAluno(form, aoEscolher = () => {}) {
 }
 
 // ---------- cadastro de aluno ----------
-export async function formAluno(id = '') {
+export async function formAluno(id = '', { aoCriar = null } = {}) {
   if (!pode.cadastrarAluno()) return;
   const e = id ? estudante(id) : {};
   let privado = {}, clinico = {};
@@ -88,7 +88,8 @@ export async function formAluno(id = '') {
       const local = { situacao: 'ativo', ...e, ...est, id: novoId };
       S.estudantes = [...S.estudantes.filter(x => x.id !== novoId), local];
       aviso(id ? 'Cadastro atualizado.' : 'Aluno cadastrado.');
-      if (!id) irPara('#/aluno/' + novoId); else mudou();
+      if (!id && aoCriar) setTimeout(() => aoCriar(novoId), 50);
+      else if (!id) irPara('#/aluno/' + novoId); else mudou();
     }
   });
   ativarContadores(form);
@@ -351,13 +352,14 @@ export async function lembreteWhatsApp(ag) {
 }
 
 /** Pedido de atendimento (entra na fila de espera da especialidade). */
-export function formPedido({ estudanteId = '' } = {}) {
-  modal({
+export function formPedido({ estudanteId = '', rascunho = {} } = {}) {
+  const form = modal({
     titulo: 'Pedir atendimento especializado', largo: true, botao: 'Enviar para a fila',
     corpo: '<div class="grade">' + seletorAluno('estudante_id', estudanteId)
-      + opcoes('especialidade', 'Especialidade', Object.entries(ESPECIALIDADES), { obrig: true, vazio: 'Selecione' })
-      + opcoes('prioridade', 'Prioridade', Object.entries(PRIORIDADES), { valor: 'normal' }) + '</div>'
-      + area('motivo', 'O que a escola observou', { obrig: true, max: 1000, linhas: 4, dica: 'Comportamentos e dificuldades em sala, há quanto tempo, o que já foi tentado. Sem diagnóstico.' })
+      + (!estudanteId && pode.cadastrarAluno() ? '<p class="largo nota">Aluno não está na lista? <button type="button" class="btn sec pequeno" id="cadastrar-do-pedido">+ Cadastrar aluno</button> — depois de cadastrado, o pedido continua daqui.</p>' : '')
+      + opcoes('especialidade', 'Especialidade', Object.entries(ESPECIALIDADES), { obrig: true, vazio: 'Selecione', valor: rascunho.especialidade || '' })
+      + opcoes('prioridade', 'Prioridade', Object.entries(PRIORIDADES), { valor: rascunho.prioridade || 'normal' }) + '</div>'
+      + area('motivo', 'O que a escola observou', { valor: rascunho.motivo || '', obrig: true, max: 1000, linhas: 4, dica: 'Comportamentos e dificuldades em sala, há quanto tempo, o que já foi tentado. Sem diagnóstico.' })
       + '<p class="nota">O pedido entra na fila de espera da especialidade. A equipe agenda pela ordem de prioridade e de chegada.</p>',
     aoSalvar: async d => {
       const p = validarPedido(d), e = estudante(p.estudante_id);
@@ -365,6 +367,11 @@ export function formPedido({ estudanteId = '' } = {}) {
       await dados.criarPedido({ ...p, escola_id: e.escola_id }, S.perfil);
       S.pedidos = null; aviso('Pedido enviado para a fila de ' + ESPECIALIDADES[p.especialidade] + '.'); mudou();
     }
+  });
+  const motivoDigitado = () => form.motivo?.value || '';
+  $('#cadastrar-do-pedido', form)?.addEventListener('click', () => {
+    const rascunho = { especialidade: form.especialidade.value, prioridade: form.prioridade.value, motivo: motivoDigitado() };
+    formAluno('', { aoCriar: novoId => formPedido({ estudanteId: novoId, rascunho }) });
   });
 }
 

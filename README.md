@@ -23,7 +23,8 @@ Cada consulta tem um **código único** (ex.: `C261030-7K3F`) e abre numa janela
 |---|---|
 | **Especialista** (fono, neuropsico, psicopedagoga) | Cadastra alunos, registra atendimentos no prontuário, agenda nos próprios horários, emite relatórios. Lê o prontuário completo de **todos** os alunos da rede, porque a equipe é única. Só corrige os próprios registros. |
 | **Secretaria de Educação** | Vê a agenda, os indicadores e os relatórios gerenciais. Com a opção *gerenciar*, também libera contas, define jornadas e cadastra escolas e alunos. **Não lê o texto clínico.** |
-| **Direção escolar** | Cadastra os alunos da própria escola com o motivo do encaminhamento e agenda nos horários livres da equipe. Acompanha datas, faltas e a evolução. **Não lê o texto clínico.** |
+| **Direção escolar** | Cadastra os alunos da própria escola com o motivo do encaminhamento, agenda nos horários livres da equipe e cria/desativa o acesso da equipe pedagógica da escola. Acompanha datas, faltas e a evolução. **Não lê o texto clínico.** |
+| **Equipe pedagógica da escola** (supervisão/coordenação) | Acesso criado pela direção da escola (a pessoa recebe e-mail para criar a senha). Cadastra alunos da própria escola e pede atendimento (fila de espera); vê agenda, faltas e as orientações para a escola. **Não agenda e não lê o texto clínico.** |
 | **Administração** | Faz tudo o que a Secretaria faz e ainda pode anular registros com justificativa. |
 
 - **Prontuário:** é uma linha do tempo de cards, filtrável por especialidade. Cada card registra o tipo (avaliação, sessão, reavaliação, devolutiva, orientação à escola ou alta), a evolução observada e três textos: *trabalhado*, *desenvolvido* e *orientações*.

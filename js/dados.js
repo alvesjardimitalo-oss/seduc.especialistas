@@ -62,7 +62,7 @@ export async function criarContaComSenha(email, perfil) {
     uid = cred.user.uid;
     await signOut(auth2);
   } catch (e) {
-    if (e.code === 'auth/email-already-in-use') throw Error('Este e-mail já tem conta. Peça para a pessoa entrar e libere o acesso em "Aguardando liberação".');
+    if (e.code === 'auth/email-already-in-use') throw Error('Este e-mail já tem conta no sistema. Se for a mesma pessoa, peça à administração para liberar ou ajustar o acesso.');
     if (e.code === 'auth/operation-not-allowed') throw Error('O login por e-mail e senha não está ativado no Firebase (Authentication → Sign-in method → E-mail/senha).');
     throw e;
   } finally { await deleteApp(app2).catch(() => {}); }
@@ -207,7 +207,7 @@ export async function salvarEscola(id, d) {
 
 // ---------- estudantes ----------
 export async function listarEstudantes(perfil) {
-  if (perfil.perfil !== 'direcao') return lista(await getDocs(collection(db, 'estudantes')));
+  if (!['direcao', 'pedagogico'].includes(perfil.perfil)) return lista(await getDocs(collection(db, 'estudantes')));
   const out = [];
   for (const p of pedacos(perfil.escolas || [])) out.push(...lista(await getDocs(query(collection(db, 'estudantes'), where('escola_id', 'in', p)))));
   return out;

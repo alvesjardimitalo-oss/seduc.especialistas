@@ -30,6 +30,7 @@ const seed = {
   'usuarios/psico': { nome: 'Paula Psicopedagoga', email: 'psico@x.br', perfil: 'especialista', ativo: true, especialidade: 'psicopedagogia', jornada: [], slots: [] },
   'usuarios/admin': { nome: 'Ítalo Admin', email: 'admin@x.br', perfil: 'superadmin', ativo: true },
   'usuarios/dir': { nome: 'Diretora Monteiro', email: 'dir@x.br', perfil: 'direcao', ativo: true, escolas: ['monteiro-lobato'] },
+  'usuarios/ped': { nome: 'Supervisora Monteiro', email: 'ped@x.br', perfil: 'pedagogico', ativo: true, escolas: ['monteiro-lobato'] },
   'usuarios/pend': { nome: 'Nova Pessoa', email: 'nova@x.br', perfil: 'pendente', ativo: false },
   'usuarios/pend2': { nome: 'Desconhecido', email: 'desconhecido@x.br', perfil: 'pendente', ativo: false },
   'usuarios/antiga': { nome: 'Conta Antiga', email: 'antiga@x.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', vinculos_legados: ['v1'], termos_aceitos: true, criado_em: 1 },
@@ -297,7 +298,29 @@ try {
   await dir.click('#modal [data-fechar]');
   await foto(dir, '17-fila-de-espera');
   await dir.goto(url + '#/aluno/a1'); await dir.waitForSelector('.faixa-fila');
+  // direção cria o acesso da equipe pedagógica (e-mail para criar a senha)
+  await dir.goto(url + '#/equipe'); await dir.waitForSelector('#novo-pedagogico'); await dir.click('#novo-pedagogico');
+  await dir.fill('#modal [name=nome]', 'Coordenadora Pedagógica'); await dir.fill('#modal [name=email]', 'Coord@x.br');
+  await dir.click('#modal [type=submit]'); await dir.waitForSelector('.pessoa >> text=Coordenadora Pedagógica');
+  assert.deepEqual(await dir.evaluate(() => window.__emails), ['coord@x.br']);
+  assert.deepEqual(await dir.evaluate(() => { const u = window.__banco.get('usuarios/novo_coord'); return [u.perfil, u.escolas]; }), ['pedagogico', ['monteiro-lobato']]);
+  await foto(dir, '21-direcao-equipe-pedagogica');
   await dir.close();
+
+  // ---- equipe pedagógica: aluno novo direto do pedido de atendimento ----
+  const ped = await sessao('ped');
+  await ped.goto(url + '#/fila'); await ped.waitForSelector('#novo-pedido'); await ped.click('#novo-pedido');
+  await ped.selectOption('#modal [name=especialidade]', 'psicopedagogia');
+  await ped.fill('#modal [name=motivo]', 'Não reconhece as letras do próprio nome.');
+  await ped.click('#cadastrar-do-pedido'); await ped.waitForSelector('#modal [name=nome]');
+  await ped.fill('#modal [name=nome]', 'Joana Nova Aluna'); await ped.click('#modal [type=submit]');
+  await ped.waitForSelector('#modal .aluno-fixo >> text=Joana Nova Aluna');
+  assert.equal(await ped.inputValue('#modal [name=motivo]'), 'Não reconhece as letras do próprio nome.');
+  await ped.click('#modal [type=submit]'); await ped.waitForSelector('.pedido >> text=Joana Nova Aluna');
+  assert.equal(await ped.locator('[data-agendar]').count(), 0, 'equipe pedagógica não agenda');
+  assert.ok(!(await ped.locator('nav a').allTextContents()).includes('Frequência'));
+  await foto(ped, '20-equipe-pedagogica-fila');
+  await ped.close();
 
   // ---- administração ----
   const adm = await sessao('admin');
@@ -306,7 +329,8 @@ try {
   await adm.goto(url + '#/fila'); await adm.waitForSelector('#novo-pedido'); await adm.click('#novo-pedido');
   await adm.selectOption('#modal [data-lista-aluno]', 'a1'); await adm.selectOption('#modal [name=especialidade]', 'fonoaudiologia'); await adm.selectOption('#modal [name=prioridade]', 'alta');
   await adm.fill('#modal [name=motivo]', 'Troca letras na escrita e não acompanha a leitura da turma.'); await adm.click('#modal [type=submit]');
-  await adm.waitForSelector('[data-agendar]'); await adm.click('[data-agendar]');
+  await adm.waitForSelector('[data-agendar]', { timeout: 8000 }).catch(async () => { await foto(adm, 'erro-fila'); throw Error('fila admin: ' + (await adm.$('#modal') ? await adm.textContent('#modal .form-erro') : await adm.textContent('#conteudo')).slice(0, 400)); });
+  await adm.click('[data-agendar]');
   await adm.selectOption('#modal [name=profissional_uid]', 'fono'); await adm.waitForSelector('#modal .horario');
   await adm.locator('#modal .horario').first().click(); await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
   await adm.waitForFunction(() => [...window.__banco].some(([k, v]) => k.startsWith('pedidos/') && v.situacao === 'agendado' && v.agendamento_id));

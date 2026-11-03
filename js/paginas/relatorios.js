@@ -13,7 +13,7 @@ export async function render(main, vigente) {
   const hoje = diaMunicipal(Date.now());
   const f = S.filtrosRelatorio ||= { de: hoje.slice(0, 7) + '-01', ate: hoje, escola: escolaAtual(), especialidade: '', profissional: S.perfil.perfil === 'especialista' ? S.user.uid : '' };
   if (f.de && f.ate && f.de > f.ate) [f.de, f.ate] = [f.ate, f.de];
-  const painel = pode.gestao() || S.perfil.perfil === 'direcao';
+  const painel = pode.gestao() || ['direcao', 'pedagogico'].includes(S.perfil.perfil);
   const meses = ultimosMeses(12, hoje);
   const [atendimentos, ano, pedidos] = await Promise.all([
     dados.listarAtendimentos({ de: f.de ? instante(f.de, '00:00') : undefined, ate: f.ate ? instante(somarDias(f.ate, 1), '00:00') : undefined, escolas: escopoEscolas() || undefined }),

@@ -14,6 +14,7 @@ export const PERFIS = Object.freeze({
   especialista: 'Especialista',
   secretaria: 'Secretaria de Educação',
   direcao: 'Direção escolar',
+  pedagogico: 'Equipe pedagógica da escola',
   superadmin: 'Administração',
   pendente: 'Aguardando liberação'
 });

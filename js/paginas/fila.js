@@ -11,7 +11,7 @@ export async function carregarPedidos(forcar = false) {
   S.pedidos = await dados.listarPedidos({ escolas: escopoEscolas() || undefined });
   return S.pedidos;
 }
-export const podePedir = () => pode.registrar() || pode.gestao() || S.perfil.perfil === 'direcao';
+export const podePedir = () => pode.registrar() || pode.gestao() || ['direcao', 'pedagogico'].includes(S.perfil.perfil);
 
 let filtro = { especialidade: '', mostrar: 'aguardando' };
 
@@ -25,7 +25,7 @@ export async function render(main, vigente) {
   const lista = filtro.mostrar === 'aguardando'
     ? ordenarFila(pedidos.filter(p => daEscola(p) && (!filtro.especialidade || p.especialidade === filtro.especialidade)))
     : pedidos.filter(p => daEscola(p) && p.situacao !== 'aguardando' && (!filtro.especialidade || p.especialidade === filtro.especialidade)).sort((a, b) => ms(b.atualizado_em) - ms(a.atualizado_em)).slice(0, 100);
-  const veMotivo = pode.clinico() || pode.gestao() || S.perfil.perfil === 'direcao';
+  const veMotivo = pode.clinico() || pode.gestao() || ['direcao', 'pedagogico'].includes(S.perfil.perfil);
   const minhaEsp = p => S.perfil.perfil === 'especialista' && p.especialidade === S.perfil.especialidade;
   const podeAgendar = p => minhaEsp(p) || pode.gestao() || S.perfil.perfil === 'direcao';
 
@@ -51,7 +51,7 @@ export async function render(main, vigente) {
       + (p.situacao === 'aguardando' ? '<div class="acoes-linha">'
         + (podeAgendar(p) ? '<button class="btn pequeno" data-agendar="' + esc(p.id) + '">Agendar</button>' : '')
         + (pode.registrar() || pode.gestao() ? '<button class="btn sec pequeno" data-prioridade="' + esc(p.id) + '">' + (p.prioridade === 'alta' ? 'Prioridade normal' : 'Prioridade alta') + '</button>' : '')
-        + '<button class="link perigo" data-cancelar="' + esc(p.id) + '">Retirar da fila</button></div>' : '')
+        + (S.perfil.perfil !== 'pedagogico' || p.solicitante_uid === S.user.uid ? '<button class="link perigo" data-cancelar="' + esc(p.id) + '">Retirar da fila</button>' : '') + '</div>' : '')
       + '</li>';
   }).join('') + '</ol>' : vazio(filtro.mostrar === 'aguardando' ? 'Ninguém aguardando' + (filtro.especialidade ? ' em ' + ESPECIALIDADES[filtro.especialidade] : '') + '.' : 'Sem histórico.', podePedir() ? 'Use "+ Pedir atendimento" quando a escola identificar um aluno que precisa de avaliação.' : '');
   h += '</section>';
