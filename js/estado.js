@@ -17,15 +17,16 @@ export const S = {
 
 const p = () => S.perfil || {};
 /** Perfis ligados a escolas específicas (direção e equipe pedagógica). */
-export const perfilEscolar = () => ['direcao', 'pedagogico'].includes(p().perfil);
+export const perfilEscolar = () => ['direcao', 'secretaria_escolar', 'pedagogico'].includes(p().perfil);
 export const pode = {
-  clinico: () => p().perfil === 'especialista' || p().perfil === 'superadmin',
+  clinico: () => ['especialista', 'superadmin', 'secretaria'].includes(p().perfil),
   registrar: () => p().perfil === 'especialista',
-  gerenciar: () => p().perfil === 'superadmin' || (p().perfil === 'secretaria' && p().gerenciar === true),
+  // Hierarquia: Administração e Secretaria de Educação podem tudo.
+  gerenciar: () => ['superadmin', 'secretaria'].includes(p().perfil),
   gestao: () => ['superadmin', 'secretaria'].includes(p().perfil),
-  agendar: () => ['especialista', 'secretaria', 'superadmin', 'direcao'].includes(p().perfil),
+  agendar: () => ['especialista', 'secretaria', 'superadmin', 'direcao', 'secretaria_escolar'].includes(p().perfil),
   cadastrarAluno: () => p().perfil === 'especialista' || pode.gerenciar() || perfilEscolar(),
-  admin: () => p().perfil === 'superadmin'
+  admin: () => ['superadmin', 'secretaria'].includes(p().perfil)
 };
 
 export const nomeEscola = id => S.escolas.find(e => e.id === id)?.nome || 'Escola não informada';

@@ -19,7 +19,7 @@ export async function render(main, vigente) {
   if (f.instAplicada !== S.instituicao) { f.escola = S.instituicao; f.instAplicada = S.instituicao; }
   const lista = filtrarEstudantes(S.estudantes, f, S.acompanhamento);
   const escolas = escolasVisiveis();
-  main.innerHTML = '<header class="pagina-topo"><div><h1>Alunos</h1><p>' + S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo').length + ' alunos ativos' + (['direcao', 'pedagogico'].includes(S.perfil.perfil) ? ' na(s) sua(s) escola(s)' : ' na rede') + '</p></div>'
+  main.innerHTML = '<header class="pagina-topo"><div><h1>Alunos</h1><p>' + S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo').length + ' alunos ativos' + (['direcao', 'secretaria_escolar', 'pedagogico'].includes(S.perfil.perfil) ? ' na(s) sua(s) escola(s)' : ' na rede') + '</p></div>'
     + '<div class="acoes-linha">' + (pode.cadastrarAluno() ? '<button class="btn" id="novo">+ Cadastrar aluno</button>' : '') + (pode.admin() ? '<button class="btn sec" id="importar">Importar planilha (JSON)</button>' : '') + '</div></header>'
     + '<form class="filtros cartao" id="filtros"><label class="campo"><span>Buscar</span><input type="search" name="busca" value="' + esc(f.busca) + '" placeholder="Nome do aluno"></label>'
     + '<label class="campo"><span>Escola</span><select name="escola"><option value="">Todas</option>' + escolas.map(e => '<option value="' + esc(e.id) + '"' + (f.escola === e.id ? ' selected' : '') + '>' + esc(escolaCurta(e.id)) + '</option>').join('') + '</select></label>'

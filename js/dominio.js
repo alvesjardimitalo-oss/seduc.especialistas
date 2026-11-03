@@ -14,6 +14,7 @@ export const PERFIS = Object.freeze({
   especialista: 'Especialista',
   secretaria: 'Secretaria de Educação',
   direcao: 'Direção escolar',
+  secretaria_escolar: 'Secretaria escolar',
   pedagogico: 'Equipe pedagógica da escola',
   superadmin: 'Administração',
   pendente: 'Aguardando liberação'
@@ -21,7 +22,8 @@ export const PERFIS = Object.freeze({
 
 // Cargos das contas ligadas à escola (aparecem no topo e no registro de impressão dos documentos).
 export const CARGOS = Object.freeze({
-  direcao: ['Diretor(a)', 'Vice-diretor(a)', 'Secretário(a) escolar'],
+  direcao: ['Diretor(a)', 'Vice-diretor(a)'],
+  secretaria_escolar: ['Secretário(a) escolar'],
   pedagogico: ['Supervisor(a) pedagógico(a)', 'Coordenador(a) pedagógico(a)']
 });
 /** Cargo/função de quem usa o sistema, para assinatura e registro de impressão. */

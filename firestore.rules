@@ -18,14 +18,16 @@ service cloud.firestore {
     function eu() { return get(caminhoEu()).data; }
     function ativo() {
       return logado() && exists(caminhoEu()) && eu().ativo == true && eu().get('excluido', false) != true
-        && eu().perfil in ['especialista', 'secretaria', 'direcao', 'pedagogico', 'superadmin'];
+        && eu().perfil in ['especialista', 'secretaria', 'direcao', 'secretaria_escolar', 'pedagogico', 'superadmin'];
     }
-    function admin() { return ativo() && eu().perfil == 'superadmin'; }
-    function gestao() { return ativo() && eu().perfil in ['superadmin', 'secretaria']; }
-    function gerencia() { return admin() || (ativo() && eu().perfil == 'secretaria' && eu().get('gerenciar', false) == true); }
+    // Hierarquia: Administração e Secretaria de Educação podem tudo (mesmos poderes).
+    function admin() { return ativo() && eu().perfil in ['superadmin', 'secretaria']; }
+    function gestao() { return admin(); }
+    function gerencia() { return admin(); }
     function equipe() { return ativo() && eu().perfil == 'especialista'; }
     function clinico() { return equipe() || admin(); }
-    function direcaoDe(escola) { return ativo() && eu().perfil == 'direcao' && escola in eu().get('escolas', []); }
+    // Direção da escola: diretor(a)/vice (perfil direcao) e secretaria escolar veem consultas, agenda e documentos da escola.
+    function direcaoDe(escola) { return ativo() && eu().perfil in ['direcao', 'secretaria_escolar'] && escola in eu().get('escolas', []); }
     // Equipe pedagógica da escola (supervisão/coordenação): cadastra alunos e pede atendimento; não agenda nem lê texto clínico.
     function pedagogicoDe(escola) { return ativo() && eu().perfil == 'pedagogico' && escola in eu().get('escolas', []); }
     function escolaDe(escola) { return direcaoDe(escola) || pedagogicoDe(escola); }
@@ -54,7 +56,7 @@ service cloud.firestore {
           'motivo_exclusao', 'excluido_em', 'endereco', 'termo_lgpd', 'termo_lgpd_em', 'cargo'])
         && txt(d.get('cargo', ''), 80) && txt(d.get('motivo_exclusao', ''), 500) && txt(d.get('endereco', ''), 300) && txt(d.get('termo_lgpd', ''), 40)
         && txtObr(d.nome, 180) && txt(d.get('email', ''), 200)
-        && d.perfil in ['pendente', 'especialista', 'secretaria', 'direcao', 'pedagogico', 'superadmin']
+        && d.perfil in ['pendente', 'especialista', 'secretaria', 'direcao', 'secretaria_escolar', 'pedagogico', 'superadmin']
         && d.ativo is bool && d.get('gerenciar', false) is bool && d.get('excluido', false) is bool
         && d.get('escolas', []) is list && d.get('escolas', []).size() <= 10
         && d.get('jornada', []) is list && d.get('jornada', []).size() <= 30
@@ -65,33 +67,35 @@ service cloud.firestore {
 
     // Primeiro login de quem foi autorizado por e-mail: perfil, especialidade, escolas e cargo iguais aos da autorização.
     function pelaAutorizacao(c, novo) {
-      return c.ativo == true && novo.perfil == c.perfil && novo.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
+      return c.ativo == true && novo.perfil == c.perfil && novo.perfil in ['especialista', 'direcao', 'secretaria_escolar', 'pedagogico', 'secretaria']
         && novo.especialidade == c.get('especialidade', '') && novo.escolas == c.get('escolas', [])
         && novo.get('cargo', '') == c.get('cargo', '') && novo.ativo == true;
     }
+    // Contas criadas por outra pessoa: Administração/Secretaria criam qualquer perfil;
+    // o(a) diretor(a) cria apenas equipe pedagógica e secretaria escolar da própria escola.
     function criacaoDeConta(m, novo) {
       let ok = m.ativo == true && m.get('excluido', false) != true;
-      let adm = ok && m.perfil == 'superadmin';
-      let ger = adm || (ok && m.perfil == 'secretaria' && m.get('gerenciar', false) == true);
-      return usuarioValido(novo) && novo.criado_em == request.time && novo.get('gerenciar', false) == false
+      let adm = ok && m.perfil in ['superadmin', 'secretaria'];
+      return usuarioValido(novo) && novo.criado_em == request.time && novo.perfil != 'pendente'
         && (
-          (ger && novo.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria'] && (novo.perfil != 'secretaria' || adm))
-          || (ok && m.perfil == 'direcao' && novo.perfil == 'pedagogico' && novo.ativo == true && novo.get('excluido', false) == false
+          adm
+          || (ok && m.perfil == 'direcao' && novo.perfil in ['pedagogico', 'secretaria_escolar'] && novo.ativo == true
+            && novo.get('excluido', false) == false && novo.get('gerenciar', false) == false
             && novo.get('escolas', []).size() > 0 && m.get('escolas', []).hasAll(novo.get('escolas', [])))
         );
     }
     function atualizacaoDeConta(uid, m, novo, velho) {
       let ok = m.ativo == true && m.get('excluido', false) != true;
-      let adm = ok && m.perfil == 'superadmin';
-      let ger = ok && m.perfil == 'secretaria' && m.get('gerenciar', false) == true;
+      let adm = ok && m.perfil in ['superadmin', 'secretaria'];
       let mudou = novo.diff(velho).affectedKeys();
       return usuarioValido(novo) && !mudou.hasAny(['email', 'criado_em'])
         && novo.atualizado_em == request.time && novo.atualizado_por == request.auth.uid
         && (
-          (adm && (uid != request.auth.uid || (novo.perfil == 'superadmin' && novo.ativo == true && novo.get('excluido', false) == false)))
-          || (ger && uid != request.auth.uid && velho.perfil != 'superadmin' && novo.perfil != 'superadmin'
-            && (velho.perfil != 'secretaria' || novo.perfil == 'secretaria') && !mudou.hasAny(['gerenciar']))
-          || (ok && m.perfil == 'direcao' && uid != request.auth.uid && velho.perfil == 'pedagogico' && novo.perfil == 'pedagogico'
+          // Administração/Secretaria alteram qualquer conta; a própria só sem perder o acesso
+          (adm && (uid != request.auth.uid || (novo.perfil == m.perfil && novo.ativo == true && novo.get('excluido', false) == false)))
+          // Diretor(a): equipe pedagógica e secretaria escolar da própria escola
+          || (ok && m.perfil == 'direcao' && uid != request.auth.uid
+            && velho.perfil in ['pedagogico', 'secretaria_escolar'] && novo.perfil in ['pedagogico', 'secretaria_escolar']
             && m.get('escolas', []).hasAll(velho.get('escolas', [])) && m.get('escolas', []).hasAll(novo.get('escolas', []))
             && novo.get('escolas', []).size() > 0 && !mudou.hasAny(['gerenciar']))
         );
@@ -145,8 +149,7 @@ service cloud.firestore {
         && txt(request.resource.data.get('cargo', ''), 80)
         && request.resource.data.email == email && email == email.lower()
         && txtObr(request.resource.data.nome, 180)
-        && request.resource.data.perfil in ['especialista', 'direcao', 'pedagogico', 'secretaria']
-        && (request.resource.data.perfil != 'secretaria' || admin())
+        && request.resource.data.perfil in ['especialista', 'direcao', 'secretaria_escolar', 'pedagogico', 'secretaria']
         && (request.resource.data.perfil != 'especialista' || especialidadeValida(request.resource.data.especialidade))
         && request.resource.data.escolas is list && request.resource.data.escolas.size() <= 10
         && request.resource.data.ativo is bool
