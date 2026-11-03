@@ -357,12 +357,11 @@ export const LOGOS_ESCOLAS = Object.freeze({
   'doutor-joao-souza-lima': 'img/logos/joao-souza-lima.png',
   'professora-terezinha-sarmento': 'img/logos/terezinha-sarmento.png',
   'monteiro-lobato': 'img/logos/monteiro-lobato.png',
-  'creche-sebastiana-duarte-cabral': 'img/logos/sebastiana-duarte-cabral.png'
+  'creche-sebastiana-duarte-cabral': 'img/logos/sebastiana-duarte-cabral.png',
+  'creche-wilma-gloria': 'img/logos/wilma-gloria.png'
 });
-// Versão só com o símbolo, mais legível nos selos pequenos da tela.
-export const ICONES_ESCOLAS = Object.freeze({
-  'creche-sebastiana-duarte-cabral': 'img/logos/simbolo-creche.png'
-});
+// Versão reduzida para os selos pequenos da tela (quando houver).
+export const ICONES_ESCOLAS = Object.freeze({});
 /** Caminho do logotipo da escola (pelo ID padrão ou pelo nome cadastrado); '' se não houver. */
 function idPadraoEscola(escola) {
   if (!escola) return '';
