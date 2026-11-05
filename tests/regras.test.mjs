@@ -367,9 +367,9 @@ test('termo LGPD: a pessoa registra o próprio aceite e nada mais', async () => 
   await assertFails(updateDoc(doc(db('inativa'), 'usuarios', 'inativa'), { termo_lgpd: 'lgpd-2026-10', termo_lgpd_em: serverTimestamp() }));
 });
 
-test('registro da consulta: até 500 caracteres no total', async () => {
-  await assertSucceeds(loteAtendimento(db('fono'), 'fono', { id: 'c1', texto: 'x'.repeat(488) }).commit()); // + 'Boa resposta' (12) = 500
-  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'c2', texto: 'x'.repeat(489) }).commit());
+test('registro da consulta: até 4000 caracteres por campo', async () => {
+  await assertSucceeds(loteAtendimento(db('fono'), 'fono', { id: 'c1', texto: 'x'.repeat(4000) }).commit());
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'c2', texto: 'x'.repeat(4001) }).commit());
 });
 
 test('código único: obrigatório e igual ao do agendamento', async () => {
@@ -418,14 +418,15 @@ test('apagar definitivamente: só Administração/Secretaria, só conta já excl
 });
 
 // ---------- v2.3: itens do PEC ----------
-test('registro SOAP aceito; antigo continua válido; limite de 500 somando tudo', async () => {
+test('registro SOAP aceito; antigo continua válido; limite de 10000 somando tudo', async () => {
   const f = db('fono');
   const soap = (id, reg) => { const b = writeBatch(f);
     b.set(doc(f, 'atendimentos', id), { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'sessao', evolucao: 'avancou', data: Timestamp.now(), duracao_min: 30, agendamento_id: '', codigo: 'C261103-SP01', situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
     b.set(doc(f, 'atendimentos_registro', id), { estudante_id: 'alunoA', profissional_uid: 'fono', versao: 1, ...reg }); return b.commit(); };
   await assertSucceeds(soap('s1', { subjetivo: 'Mãe relata trocas', objetivo: 'Discriminação auditiva', avaliacao: 'Melhora', plano: 'Manter' }));
   await assertFails(soap('s2', { subjetivo: 'Só relato', objetivo: '' }));
-  await assertFails(soap('s3', { objetivo: 'x'.repeat(300), plano: 'y'.repeat(201) }));
+  await assertSucceeds(soap('s3a', { subjetivo: 'a'.repeat(4000), objetivo: 'x'.repeat(4000), plano: 'y'.repeat(2000) }));
+  await assertFails(soap('s3', { subjetivo: 'a'.repeat(4000), objetivo: 'x'.repeat(4000), plano: 'y'.repeat(2001) }));
   await assertFails(soap('s4', { objetivo: 'ok', diagnostico_cid: 'F80' }));
 });
 

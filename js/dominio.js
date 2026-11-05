@@ -62,7 +62,8 @@ export const STATUS_AGENDA = Object.freeze({
 export const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 // Registro da consulta: até 500 caracteres no total (trabalhado + desenvolvido + orientações).
-export const LIMITES = Object.freeze({ texto: 500, motivo: 500, relatorio: 10000, nome: 180 });
+// Consulta: cada campo SOAP até 4.000 caracteres, 10.000 no total; orientação para a escola até 2.000.
+export const LIMITES = Object.freeze({ texto: 500, campoSoap: 4000, registro: 10000, orientacao: 2000, motivo: 500, relatorio: 10000, nome: 180 });
 
 /** Código único da consulta, legível: C + AAMMDD + '-' + 4 caracteres (ex.: C261030-7K3F). */
 export function gerarCodigo(data = Date.now(), aleatorio = Math.random) {
@@ -246,13 +247,14 @@ export const planoDoRegistro = (r = {}) => String(r.plano || r.orientacoes || ''
 export function validarRegistro(d) {
   const r = {};
   for (const [k] of CAMPOS_SOAP) r[k] = String(d[k] || '').trim();
+  for (const [k, t] of CAMPOS_SOAP) if (r[k].length > LIMITES.campoSoap) throw Error('O campo ' + t + ' aceita até ' + LIMITES.campoSoap + ' caracteres (agora: ' + r[k].length + ').');
   const total = CAMPOS_SOAP.reduce((n, [k]) => n + r[k].length, 0);
-  if (total > LIMITES.texto) throw Error('O registro da consulta aceita até ' + LIMITES.texto + ' caracteres no total (agora: ' + total + ').');
+  if (total > LIMITES.registro) throw Error('O registro da consulta aceita até ' + LIMITES.registro + ' caracteres no total (agora: ' + total + ').');
   if (!r.objetivo) throw Error('Preencha o Objetivo: o que foi observado e trabalhado no atendimento.');
   if (!TIPOS_ATENDIMENTO[d.tipo]) throw Error('Selecione o tipo de atendimento.');
   if (!EVOLUCAO[d.evolucao]) throw Error('Selecione a evolução observada.');
   r.orientacao_escola = String(d.orientacao_escola || '').trim();
-  if (r.orientacao_escola.length > LIMITES.texto) throw Error('A orientação para a escola aceita até ' + LIMITES.texto + ' caracteres.');
+  if (r.orientacao_escola.length > LIMITES.orientacao) throw Error('A orientação para a escola aceita até ' + LIMITES.orientacao + ' caracteres.');
   return r;
 }
 

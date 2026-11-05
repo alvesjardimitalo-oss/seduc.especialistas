@@ -56,7 +56,7 @@ const navegador = await chromium.launch();
 const erros = [];
 async function sessao(uid, { senha = false, instituicao = '' } = {}) {
   const pg = await navegador.newPage({ viewport: { width: 1360, height: 900 } });
-  pg.on('console', m => { if (m.type() === 'error' && !/500 caracteres no total|já está na fila|Nenhum feriado novo/.test(m.text())) erros.push(uid + ': ' + m.text()); });
+  pg.on('console', m => { if (m.type() === 'error' && !/10000 caracteres no total|já está na fila|Nenhum feriado novo/.test(m.text())) erros.push(uid + ': ' + m.text()); });
   pg.on('pageerror', e => erros.push(uid + ' pageerror: ' + e.message));
   pg.on('dialog', d => d.accept());
   await pg.addInitScript(([seed, uid, email]) => {
@@ -113,11 +113,11 @@ try {
   // abre a consulta reagendada e responde "Sim" (registro antes do horário)
   await pg.click('#conteudo .linha-agenda'); await pg.click('[data-c=sim]'); await pg.waitForSelector('#modal [name=objetivo]');
   assert.match(await pg.textContent('#modal-titulo'), new RegExp(codigo));
-  await pg.fill('[name=objetivo]', 'x'.repeat(480)); await pg.fill('[name=avaliacao]', 'y'.repeat(30));
-  assert.match(await pg.textContent('.contador-total'), /510\/500/);
+  await pg.fill('[name=subjetivo]', 'w'.repeat(4000)); await pg.fill('[name=objetivo]', 'x'.repeat(4000)); await pg.fill('[name=avaliacao]', 'y'.repeat(2010));
+  assert.match(await pg.textContent('.contador-total'), /10010\/10000/);
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.form-erro:not([hidden])');
-  assert.match(await pg.textContent('.form-erro'), /500/);
-  await pg.fill('[name=objetivo]', 'Leitura de sílabas complexas com apoio visual.'); await pg.fill('[name=avaliacao]', 'Leu 6 de 10.');
+  assert.match(await pg.textContent('.form-erro'), /10000/);
+  await pg.fill('[name=subjetivo]', ''); await pg.fill('[name=objetivo]', 'Leitura de sílabas complexas com apoio visual.'); await pg.fill('[name=avaliacao]', 'Leu 6 de 10.');
   await pg.fill('[name=orientacao_escola]', 'Ler junto com o aluno, apontando as sílabas.'); await pg.selectOption('[name=tipo]', 'observacao_sala');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(300);
   await pg.click('#conteudo .linha-agenda'); await pg.waitForSelector('.registro-consulta');

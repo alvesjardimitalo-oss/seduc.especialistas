@@ -51,10 +51,12 @@ test('cadastro de aluno: validação e duplicidade', () => {
   assert.equal(d.idade('2018-05-01', d.instante('2026-05-01', '12:00')), 8);
 });
 
-test('registro SOAP: objetivo obrigatório e até 500 caracteres no total', () => {
+test('registro SOAP: objetivo obrigatório, até 4000 por campo e 10000 no total', () => {
   assert.throws(() => d.validarRegistro({ subjetivo: 'Relato da mãe', objetivo: ' ', tipo: 'sessao', evolucao: 'avancou' }), /Objetivo/);
   assert.throws(() => d.validarRegistro({ objetivo: 'x', tipo: 'outro', evolucao: 'avancou' }), /tipo/);
-  assert.throws(() => d.validarRegistro({ subjetivo: 'a'.repeat(200), objetivo: 'b'.repeat(200), avaliacao: 'c'.repeat(50), plano: 'd'.repeat(51), tipo: 'sessao', evolucao: 'avancou' }), /500/);
+  assert.throws(() => d.validarRegistro({ objetivo: 'b'.repeat(4001), tipo: 'sessao', evolucao: 'avancou' }), /4000/);
+  assert.throws(() => d.validarRegistro({ subjetivo: 'a'.repeat(3000), objetivo: 'b'.repeat(3000), avaliacao: 'c'.repeat(3000), plano: 'd'.repeat(1001), tipo: 'sessao', evolucao: 'avancou' }), /10000/);
+  assert.equal(d.validarRegistro({ subjetivo: 'a'.repeat(3000), objetivo: 'b'.repeat(4000), avaliacao: 'c'.repeat(2000), plano: 'd'.repeat(1000), tipo: 'sessao', evolucao: 'avancou' }).objetivo.length, 4000);
   assert.deepEqual(d.validarRegistro({ subjetivo: ' s ', objetivo: 'o', avaliacao: '', plano: 'p', tipo: 'sessao', evolucao: 'estavel' }), { subjetivo: 's', objetivo: 'o', avaliacao: '', plano: 'p', orientacao_escola: '' });
   assert.deepEqual(d.secoesRegistro({ objetivo: 'o', plano: 'p' }).map(x => x[0]), ['O — Objetivo', 'P — Plano']);
   assert.deepEqual(d.secoesRegistro({ trabalhado: 't', orientacoes: 'or' }).map(x => x[1]), ['t', 'or']);
@@ -173,9 +175,9 @@ test('calendário escolar: bloqueio da rede e da escola', () => {
 });
 
 test('orientação para a escola separada do registro clínico', () => {
-  const r = d.validarRegistro({ objetivo: 'x'.repeat(500), orientacao_escola: 'Sentar perto da professora.', tipo: 'observacao_sala', evolucao: 'estavel' });
+  const r = d.validarRegistro({ objetivo: 'x'.repeat(4000), orientacao_escola: 'Sentar perto da professora.', tipo: 'observacao_sala', evolucao: 'estavel' });
   assert.equal(r.orientacao_escola, 'Sentar perto da professora.');
-  assert.throws(() => d.validarRegistro({ objetivo: 'x', orientacao_escola: 'y'.repeat(501), tipo: 'grupo', evolucao: 'estavel' }), /escola/);
+  assert.throws(() => d.validarRegistro({ objetivo: 'x', orientacao_escola: 'y'.repeat(2001), tipo: 'grupo', evolucao: 'estavel' }), /escola/);
 });
 
 test('calendário escolar em PDF (Frei Inocêncio 2026): leitura por cor confere com os dias letivos', async () => {

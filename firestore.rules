@@ -236,7 +236,7 @@ service cloud.firestore {
       allow create: if equipe()
         && request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome', 'especialidade',
             'tipo', 'evolucao', 'data', 'duracao_min', 'agendamento_id', 'codigo', 'orientacao_escola', 'situacao', 'versao', 'criado_em', 'atualizado_em'])
-        && txt(request.resource.data.get('orientacao_escola', ''), 500)
+        && txt(request.resource.data.get('orientacao_escola', ''), 2000)
         && request.resource.data.profissional_uid == request.auth.uid
         && codigoValido(request.resource.data.codigo)
         && request.resource.data.especialidade == eu().especialidade
@@ -265,7 +265,7 @@ service cloud.firestore {
           (equipe() && resource.data.profissional_uid == request.auth.uid
             && request.resource.data.situacao == 'valido'
             && soMudar(['tipo', 'evolucao', 'data', 'duracao_min', 'orientacao_escola', 'versao', 'atualizado_em'])
-            && txt(request.resource.data.get('orientacao_escola', ''), 500)
+            && txt(request.resource.data.get('orientacao_escola', ''), 2000)
             && camposClinicosValidos(request.resource.data))
           ||
           // anulação (registro feito por engano): autora ou administração, com motivo
@@ -279,15 +279,15 @@ service cloud.firestore {
     }
 
     // Registro SOAP (subjetivo, objetivo, avaliação, plano) ou formato anterior (trabalhado,
-    // desenvolvido, orientações). Até 500 caracteres no total por consulta.
+    // desenvolvido, orientações). Até 4.000 caracteres por campo e 10.000 no total por consulta.
     // Notas das metas do plano (1 a 5) marcadas na consulta: mapa pequeno { m1: 3, ... }.
     function metasValidas(d) { return d.get('metas', {}) is map && d.get('metas', {}).size() <= 8; }
     function registroValido(d) {
-      return metasValidas(d) && txt(d.get('subjetivo', ''), 500) && txt(d.get('objetivo', ''), 500) && txt(d.get('avaliacao', ''), 500) && txt(d.get('plano', ''), 500)
-        && txt(d.get('trabalhado', ''), 500) && txt(d.get('desenvolvido', ''), 500) && txt(d.get('orientacoes', ''), 500)
+      return metasValidas(d) && txt(d.get('subjetivo', ''), 4000) && txt(d.get('objetivo', ''), 4000) && txt(d.get('avaliacao', ''), 4000) && txt(d.get('plano', ''), 4000)
+        && txt(d.get('trabalhado', ''), 4000) && txt(d.get('desenvolvido', ''), 4000) && txt(d.get('orientacoes', ''), 4000)
         && (d.get('objetivo', '').trim().size() > 0 || d.get('trabalhado', '').trim().size() > 0)
         && d.get('subjetivo', '').size() + d.get('objetivo', '').size() + d.get('avaliacao', '').size() + d.get('plano', '').size()
-          + d.get('trabalhado', '').size() + d.get('desenvolvido', '').size() + d.get('orientacoes', '').size() <= 500;
+          + d.get('trabalhado', '').size() + d.get('desenvolvido', '').size() + d.get('orientacoes', '').size() <= 10000;
     }
     match /atendimentos_registro/{id} {
       allow get, list: if clinico();
