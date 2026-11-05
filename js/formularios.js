@@ -183,9 +183,9 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
     + campo('hora', 'Horário', { tipo: 'time', valor: horaMunicipal(quando), obrig: true })
     + opcoes('duracao_min', 'Duração', DURACOES, { valor: atendimento?.duracao_min || agendamento?.duracao_min || 30 })
     + '</div>'
-    + '<div class="soap">' + CAMPOS_SOAP.map(([k, rot, dica]) => area(k, rot, { valor: valorSoap(registro, k), obrig: k === 'objetivo', max: LIMITES.texto, linhas: k === 'objetivo' ? 3 : 2, dica })).join('') + '</div>'
-    + '<p class="contador-total largo" aria-live="polite">Total do registro: <b data-total>0</b>/' + LIMITES.texto + ' caracteres</p>'
-    + '<div class="campo-escola">' + area('orientacao_escola', 'Orientação para a professora / escola', { valor: atendimento?.orientacao_escola, max: LIMITES.texto, linhas: 2, dica: 'A direção e a escola leem este campo. Escreva estratégias para a sala de aula, sem diagnóstico' }) + '</div>'
+    + '<div class="soap">' + CAMPOS_SOAP.map(([k, rot, dica]) => area(k, rot, { valor: valorSoap(registro, k), obrig: k === 'objetivo', max: LIMITES.campoSoap, linhas: k === 'objetivo' ? 6 : 4, dica })).join('') + '</div>'
+    + '<p class="contador-total largo" aria-live="polite">Total do registro: <b data-total>0</b>/' + LIMITES.registro + ' caracteres</p>'
+    + '<div class="campo-escola">' + area('orientacao_escola', 'Orientação para a professora / escola', { valor: atendimento?.orientacao_escola, max: LIMITES.orientacao, linhas: 3, dica: 'A direção e a escola leem este campo. Escreva estratégias para a sala de aula, sem diagnóstico' }) + '</div>'
     + '<div class="grade">' + opcoes('evolucao', 'Evolução observada', EVOLUCAO, { valor: atendimento?.evolucao || 'nao_avaliado', obrig: true }) + '</div>'
     + '<div data-metas>' + blocoMetas(metas, registro?.metas) + '</div>'
     + (ret ? campo('motivo', 'Motivo da edição (opcional)', { largo: true, extra: 'maxlength="300"', dica: 'A versão anterior fica guardada no histórico da consulta' }) : '')
@@ -215,7 +215,7 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
   ativarContadores(form);
   ativarSeletorAluno(form, async id => { metas = await metasDoAluno(id); const box = $('[data-metas]', form); if (box) box.innerHTML = blocoMetas(metas); });
   const campos = CAMPOS_SOAP.map(([n]) => form.elements.namedItem(n)), total = $('[data-total]', form);
-  const contar = () => { const n = campos.reduce((s2, c) => s2 + c.value.trim().length, 0); total.textContent = n; total.parentElement.classList.toggle('excedido', n > LIMITES.texto); };
+  const contar = () => { const n = campos.reduce((s2, c) => s2 + c.value.trim().length, 0); total.textContent = n; total.parentElement.classList.toggle('excedido', n > LIMITES.registro); };
   campos.forEach(c => c.addEventListener('input', contar)); contar();
 }
 
