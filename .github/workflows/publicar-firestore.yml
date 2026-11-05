@@ -27,23 +27,22 @@ jobs:
       - name: Carregar código e regras revisadas
         uses: actions/checkout@v4
         with:
-          ref: feature/mvp-especialistas
+          ref: ${{ github.ref }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - name: Instalar dependências reprodutíveis
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
       - name: Testar regras de segurança no emulador
-        run: npm run test:rules
+        run: npm run test:regras
       - name: Autenticar no Firebase (conta de serviço)
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SEDUC }}
-      - name: Publicar somente regras do Firestore
-        run: npx --no-install firebase deploy --only firestore:rules --project seduc-especialistas --non-interactive
+      - name: Publicar regras e índices do Firestore
+        run: npx --no-install firebase deploy --only firestore:rules,firestore:indexes --project seduc-especialistas --non-interactive
