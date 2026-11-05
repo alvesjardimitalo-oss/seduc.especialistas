@@ -62,3 +62,14 @@ GitHub → Settings → Pages → Branch `v2-prontuario`, pasta `/ (root)`. Depo
 - Cópia de segurança configurada (seção 7) e testada com *Conferir uma cópia*.
 - Retenção: o prontuário eletrônico deve ser guardado por longo prazo (CFFa 649/2022: eliminação só após 20 anos do último registro; CFP 001/2009: mínimo de 5 anos). O sistema não apaga registros.
 - Protocolos de testes psicológicos (neuropsicologia) **não** devem ser anexados ao prontuário compartilhado. Ficam sob guarda exclusiva da psicóloga (CFP 001/2009); no sistema, registre só a síntese.
+
+
+## Conectar o GitHub ao Firebase (uma vez só)
+
+Depois disso, toda mudança em `firestore.rules` enviada para a branch `v2-prontuario` é testada e publicada sozinha.
+
+1. **Gerar a chave:** Firebase Console → projeto `seduc-especialistas` → ⚙️ Configurações do projeto → aba **Contas de serviço** → **Gerar nova chave privada**. Baixa um arquivo `.json`.
+2. **Dar permissão para publicar regras:** Google Cloud Console → IAM (projeto `seduc-especialistas`) → na conta `firebase-adminsdk-...@seduc-especialistas.iam.gserviceaccount.com` clique no lápis e adicione os papéis **Administrador do Firebase Rules**, **Administrador de índices do Cloud Datastore** e **Consumidor do Service Usage**.
+3. **Guardar no GitHub:** repositório → Settings → Secrets and variables → Actions → **New repository secret**. Nome: `FIREBASE_SERVICE_ACCOUNT_SEDUC`. Valor: todo o conteúdo do arquivo `.json`.
+4. **Apagar o `.json` do computador** (ele dá acesso total ao banco). Nunca coloque esse arquivo no repositório.
+5. **Testar:** Actions → *Publicar regras do Firestore SEDUC* → *Run workflow* → branch `v2-prontuario` → digite `seduc-especialistas`. Ficou verde = conectado.
