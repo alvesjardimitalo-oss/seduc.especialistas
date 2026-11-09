@@ -414,3 +414,10 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .grafico-colunas .coluna:focus-visible .alvo { fill: rgba(16,35,54,.05); }
 .dica { position: absolute; background: #fff; border: 1px solid var(--linha); border-radius: 10px; padding: .5rem .7rem; box-shadow: 0 8px 24px rgba(16,35,54,.15); font-size: .82rem; display: grid; gap: .15rem; pointer-events: none; min-width: 170px; }
 .tabela-grafico summary { cursor: pointer; color: var(--acento-esc); font-weight: 600; font-size: .88rem; margin-top: .4rem; }
+
+/* Identificação técnica discreta, sem afetar o acesso ou os dados dos alunos. */
+.credito-infotec {display:block; margin-top:12px; padding-top:9px; border-top:1px solid rgba(150,170,190,.25); font-size:11px; line-height:1.6; font-weight:500; color:inherit;}
+.credito-infotec a {color:inherit; font-weight:700; text-underline-offset:2px;}
+.login-cartao .credito-infotec {text-align:center; color:var(--suave); margin:0; padding-top:12px; border-top:1px solid var(--linha);}
+.lateral-rodape .credito-infotec {color:#b2c2d0;}
+@media print { .credito-infotec {display:none!important} }
