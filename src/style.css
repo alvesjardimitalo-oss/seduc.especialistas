@@ -1552,3 +1552,13 @@ dialog::backdrop {
     display: none;
   }
 }
+
+/* Identificação discreta do fornecedor de tecnologia, sem afetar os dados do sistema. */
+.credito-ti { font-size: 11px; font-weight: 500; line-height: 1.5; white-space: normal; }
+.credito-ti a { color: inherit; font-weight: 750; text-decoration: underline; text-underline-offset: 2px; }
+.credito-ti a:hover, .credito-ti a:focus-visible { color: #bd903c; }
+.login-foot + .credito-login { margin-top: 14px; font-size: 11px; color: #aabfcf; }
+.workspace > footer { display: flex; gap: 15px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.workspace > footer .credito-ti { font-size: 10px; }
+@media(max-width:700px) { .workspace > footer .credito-ti { display: inline; } .login-brand .credito-login { display: block; } }
+@media print { .credito-ti { display: none !important; } }
