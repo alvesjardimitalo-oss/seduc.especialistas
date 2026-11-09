@@ -43,7 +43,8 @@ function telaLogin(msg = '', tipo = 'info') {
         + '<button class="btn grande" type="submit" id="entrar-senha">Entrar</button>'
         + '<button class="link" type="button" id="esqueci">Esqueci minha senha / primeiro acesso</button></form>'
         + '<div class="ou"><span>ou</span></div><button class="btn sec grande" id="entrar"><span class="g">G</span> Entrar com Google</button>')
-    + '<p class="rodape-login">Acesso restrito à equipe autorizada pela Secretaria de Educação. Os dados de crianças são protegidos pela LGPD (Lei 13.709/2018).</p>'
+    + '<p class="rodape-login">Acesso restrito à equipe autorizada pela Secretaria de Educação. Os dados de crianças são protegidos pela LGPD (Lei 13.709/2018).</p>
+    + '<p class="credito-infotec">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></p>''
     + '</section></main>';
   document.getElementById('entrar')?.addEventListener('click', async () => { try { await dados.entrar(); } catch (e) { if (e.code !== 'auth/popup-closed-by-user') telaLogin('Não foi possível entrar: ' + esc(e.message), 'erro'); } });
   document.getElementById('sair')?.addEventListener('click', () => dados.sair());
@@ -130,7 +131,7 @@ function moldura() {
   raiz.innerHTML = '<div class="casca">'
     + '<aside class="lateral"><a class="marca" href="#/painel"><span class="marca-logo"><img src="' + LOGO_SEDUC + '" alt="Secretaria Municipal de Educação"></span><div><strong>SEDUC</strong><small>Especialistas</small></div></a>'
     + '<nav aria-label="Principal">' + menu().map(k => '<a href="#/' + k + '" class="nav' + (atual === k ? ' ativo' : '') + '"' + (atual === k ? ' aria-current="page"' : '') + '>' + svg(PAGINAS[k].icone) + '<span>' + PAGINAS[k].titulo + '</span></a>').join('') + '</nav>'
-    + '<div class="lateral-rodape">Rede Municipal de Ensino<br>Frei Inocêncio/MG<br><button class="link claro" id="ver-lgpd">Privacidade (LGPD)</button></div></aside>'
+    + '<div class="lateral-rodape">Rede Municipal de Ensino<br>Frei Inocêncio/MG<br><button class="link claro" id="ver-lgpd">Privacidade (LGPD)</button><span class="credito-infotec">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></span></div></aside>'
     + '<div class="area"><header class="topo"><button class="icone-btn menu-movel" id="abrir-menu" aria-label="Abrir menu">☰</button>'
     + '<button class="inst-atual" id="trocar-inst" title="Trocar instituição">' + (S.instituicao ? seloEscola(S.instituicao, 'mini') : '<span class="selo-escola mini"><img src="' + LOGO_SEDUC + '" alt=""></span>') + '<small>Instituição</small><strong>' + esc(S.instituicao ? escolaCurta(S.instituicao) : 'Todas as instituições') + '</strong><span aria-hidden="true">⇄</span></button>'
     + '<span class="conexao" id="conexao" hidden></span>'
