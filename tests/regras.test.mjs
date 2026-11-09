@@ -1,0 +1,641 @@
+// Testes das regras de segurança no emulador do Firestore (dados fictícios).
+// Executar: npm run test:regras   (requer Java 21+)
+import { test, before, after, beforeEach } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, collection, query, where, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { instante, somarDias, diaMunicipal, diaDaSemana, prepararJornada, numeroDoDia } from '../js/dominio.js';
+import assert from 'node:assert/strict';
+
+let env;
+const ESC_A = 'monteiro-lobato', ESC_B = 'prefeito-jose-pedro';
+// Próxima terça-feira (municipal) para agendamentos futuros
+let terca = somarDias(diaMunicipal(Date.now()), 1);
+while (diaDaSemana(terca) !== 2) terca = somarDias(terca, 1);
+const T = h => Timestamp.fromDate(instante(terca, h));
+const jornadaFono = prepararJornada([{ dia: 2, inicio: '08:00', fim: '11:00', escola_id: ESC_A }]);
+
+const usuarios = {
+  admin: { nome: 'Admin', email: 'admin@teste.br', perfil: 'superadmin', ativo: true },
+  sec: { nome: 'Secretaria', email: 'sec@teste.br', perfil: 'secretaria', ativo: true, gerenciar: true },
+  secLeitura: { nome: 'Sec Leitura', email: 'sec2@teste.br', perfil: 'secretaria', ativo: true, gerenciar: false },
+  dirA: { nome: 'Direção A', email: 'dira@teste.br', perfil: 'direcao', ativo: true, escolas: [ESC_A] },
+  secEscA: { nome: 'Secretaria Escolar A', email: 'secesc@teste.br', perfil: 'secretaria_escolar', cargo: 'Secretário(a) escolar', ativo: true, escolas: [ESC_A] },
+  pedA: { nome: 'Pedagógica A', email: 'peda@teste.br', perfil: 'pedagogico', ativo: true, escolas: [ESC_A] },
+  fono: { nome: 'Fono', email: 'fono@teste.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', ...jornadaFono },
+  psico: { nome: 'Psicopedagoga', email: 'psico@teste.br', perfil: 'especialista', ativo: true, especialidade: 'psicopedagogia', jornada: [], slots: [] },
+  inativa: { nome: 'Inativa', email: 'inativa@teste.br', perfil: 'especialista', ativo: false, especialidade: 'neuropsicologia' },
+  pend: { nome: 'Pendente', email: 'pend@teste.br', perfil: 'pendente', ativo: false }
+};
+const db = uid => env.authenticatedContext(uid, { email: (usuarios[uid]?.email || uid + '@teste.br'), email_verified: true }).firestore();
+
+before(async () => {
+  env = await initializeTestEnvironment({ projectId: 'demo-seduc', firestore: { rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8') } });
+});
+after(async () => { await env?.cleanup(); });
+beforeEach(async () => {
+  await env.clearFirestore();
+  await env.withSecurityRulesDisabled(async c => {
+    const f = c.firestore();
+    for (const [uid, u] of Object.entries(usuarios)) await setDoc(doc(f, 'usuarios', uid), u);
+    await setDoc(doc(f, 'escolas', ESC_A), { nome: 'EM Monteiro Lobato', tipo: 'escola' });
+    await setDoc(doc(f, 'escolas', ESC_B), { nome: 'EM Prefeito José Pedro', tipo: 'escola' });
+    await setDoc(doc(f, 'estudantes', 'alunoA'), { nome: 'Aluno A', escola_id: ESC_A, situacao: 'ativo', criado_por: 'fono', criado_em: Timestamp.now() });
+    await setDoc(doc(f, 'estudantes', 'alunoB'), { nome: 'Aluno B', escola_id: ESC_B, situacao: 'ativo', criado_por: 'fono', criado_em: Timestamp.now() });
+    await setDoc(doc(f, 'estudantes_clinico', 'alunoA'), { necessidade_informada: 'TEA' });
+  });
+});
+
+// ---------- helpers ----------
+const COD_AG = 'C261103-AG01';
+function loteAtendimento(f, uid, { id = 'at1', aluno = 'alunoA', escola = ESC_A, esp = 'fonoaudiologia', ag = '', codigo = ag ? COD_AG : 'C261103-AT01', texto = 'Consciência fonológica' } = {}) {
+  const b = writeBatch(f);
+  b.set(doc(f, 'atendimentos', id), { estudante_id: aluno, escola_id: escola, profissional_uid: uid, profissional_nome: 'X', especialidade: esp, tipo: 'sessao', evolucao: 'avancou', data: Timestamp.now(), duracao_min: 45, agendamento_id: ag, codigo, situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+  b.set(doc(f, 'atendimentos_registro', id), { estudante_id: aluno, profissional_uid: uid, trabalhado: texto, desenvolvido: 'Boa resposta', orientacoes: '', versao: 1 });
+  return b;
+}
+function loteAgenda(f, { id = 'ag1', criador, prof = 'fono', aluno = 'alunoA', escola = ESC_A, hora = '09:00', dur = 30, esp = 'fonoaudiologia' } = {}) {
+  const b = writeBatch(f), ini = instante(terca, hora);
+  b.set(doc(f, 'agendamentos', id), { estudante_id: aluno, escola_id: escola, profissional_uid: prof, profissional_nome: 'Fono', especialidade: esp, inicio: Timestamp.fromDate(ini), duracao_min: dur, status: 'agendado', codigo: COD_AG, criado_por: criador, criado_em: serverTimestamp() });
+  const partes = dur === 60 ? [ini.getTime(), ini.getTime() + 1800000] : [ini.getTime()];
+  for (const t of partes) b.set(doc(f, 'reservas', prof + '_' + t), { agendamento_id: id, profissional_uid: prof, inicio: Timestamp.fromMillis(t) });
+  return b;
+}
+
+// ---------- contas ----------
+test('primeiro login cria conta pendente e não se autopromove', async () => {
+  const f = env.authenticatedContext('novo', { email: 'novo@teste.br', email_verified: true }).firestore();
+  await assertFails(setDoc(doc(f, 'usuarios', 'novo'), { nome: 'Novo', email: 'novo@teste.br', perfil: 'superadmin', ativo: true, criado_em: serverTimestamp() }));
+  await assertFails(setDoc(doc(f, 'usuarios', 'novo'), { nome: 'Novo', email: 'novo@teste.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', escolas: [], criado_em: serverTimestamp() }));
+  await assertSucceeds(setDoc(doc(f, 'usuarios', 'novo'), { nome: 'Novo', email: 'novo@teste.br', perfil: 'pendente', ativo: false, criado_em: serverTimestamp() }));
+  await assertFails(getDoc(doc(f, 'estudantes', 'alunoA')));
+});
+
+test('convite por e-mail libera a especialista no primeiro login', async () => {
+  await assertSucceeds(setDoc(doc(db('sec'), 'convites', 'nova@teste.br'), { email: 'nova@teste.br', nome: 'Nova', perfil: 'especialista', especialidade: 'neuropsicologia', escolas: [], ativo: true, criado_por: 'sec', criado_em: serverTimestamp() }));
+  await assertSucceeds(setDoc(doc(db('sec'), 'convites', 'outra@teste.br'), { email: 'outra@teste.br', nome: 'X', perfil: 'secretaria', especialidade: '', escolas: [], ativo: true, criado_por: 'sec', criado_em: serverTimestamp() }));
+  const f = env.authenticatedContext('nova', { email: 'nova@teste.br', email_verified: true }).firestore();
+  await assertFails(setDoc(doc(f, 'usuarios', 'nova'), { nome: 'Nova', email: 'nova@teste.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', escolas: [], criado_em: serverTimestamp() }));
+  await assertSucceeds(setDoc(doc(f, 'usuarios', 'nova'), { nome: 'Nova', email: 'nova@teste.br', perfil: 'especialista', ativo: true, especialidade: 'neuropsicologia', escolas: [], criado_em: serverTimestamp() }));
+});
+
+test('hierarquia: Secretaria de Educação tem os mesmos poderes da Administração', async () => {
+  const up = (uid, d) => ({ ...d, atualizado_em: serverTimestamp(), atualizado_por: uid });
+  await assertSucceeds(updateDoc(doc(db('sec'), 'usuarios', 'pend'), up('sec', { perfil: 'especialista', ativo: true, especialidade: 'neuropsicologia' })));
+  await assertSucceeds(updateDoc(doc(db('secLeitura'), 'usuarios', 'psico'), up('secLeitura', { nome: 'Psico Renomeada' })));
+  await assertSucceeds(updateDoc(doc(db('sec'), 'usuarios', 'sec'), up('sec', { nome: 'Eu mesma' })));
+  await assertFails(updateDoc(doc(db('sec'), 'usuarios', 'sec'), up('sec', { ativo: false })));        // não perde o próprio acesso
+  await assertFails(updateDoc(doc(db('sec'), 'usuarios', 'sec'), up('sec', { perfil: 'direcao' })));
+  await assertFails(updateDoc(doc(db('fono'), 'usuarios', 'fono'), { slots: [1, 2, 3], atualizado_em: serverTimestamp(), atualizado_por: 'fono' }));
+  await assertFails(updateDoc(doc(db('dirA'), 'usuarios', 'fono'), up('dirA', { nome: 'X' })));
+});
+
+test('conta inativa não lê nada', async () => {
+  await assertFails(getDoc(doc(db('inativa'), 'estudantes', 'alunoA')));
+  await assertFails(getDocs(collection(db('inativa'), 'escolas')));
+});
+
+// ---------- alunos ----------
+test('equipe vê todas as escolas; direção só a própria', async () => {
+  await assertSucceeds(getDocs(collection(db('psico'), 'estudantes')));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'estudantes', 'alunoA')));
+  await assertFails(getDoc(doc(db('dirA'), 'estudantes', 'alunoB')));
+  await assertFails(getDocs(collection(db('dirA'), 'estudantes')));
+  await assertSucceeds(getDocs(query(collection(db('dirA'), 'estudantes'), where('escola_id', 'in', [ESC_A]))));
+});
+
+test('cadastro de aluno: direção na própria escola; dados clínicos só equipe', async () => {
+  const novo = (uid, escola) => ({ nome: 'Novo Aluno', escola_id: escola, situacao: 'ativo', criado_por: uid, criado_em: serverTimestamp() });
+  await assertSucceeds(setDoc(doc(db('dirA'), 'estudantes', 'n1'), novo('dirA', ESC_A)));
+  await assertFails(setDoc(doc(db('dirA'), 'estudantes', 'n2'), novo('dirA', ESC_B)));
+  await assertSucceeds(setDoc(doc(db('psico'), 'estudantes', 'n3'), novo('psico', ESC_B)));
+  await assertSucceeds(setDoc(doc(db('secLeitura'), 'estudantes', 'n4'), novo('secLeitura', ESC_B)));
+  await assertFails(deleteDoc(doc(db('admin'), 'estudantes', 'alunoA')));
+  await assertSucceeds(getDoc(doc(db('psico'), 'estudantes_clinico', 'alunoA')));
+  await assertFails(getDoc(doc(db('dirA'), 'estudantes_clinico', 'alunoA')));
+  await assertSucceeds(getDoc(doc(db('sec'), 'estudantes_clinico', 'alunoA')));
+});
+
+// ---------- prontuário ----------
+test('especialista registra atendimento na própria especialidade', async () => {
+  await assertSucceeds(loteAtendimento(db('fono'), 'fono').commit());
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'at2', esp: 'psicopedagogia' }).commit());
+  await assertFails(loteAtendimento(db('fono'), 'psico', { id: 'at3', esp: 'psicopedagogia' }).commit());
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'at4', escola: ESC_B }).commit()); // escola diferente da do aluno
+  await assertFails(loteAtendimento(db('dirA'), 'dirA', { id: 'at5' }).commit());
+  await assertFails(loteAtendimento(db('admin'), 'admin', { id: 'at6' }).commit());
+});
+
+test('prontuário compartilhado: equipe lê, gestão e direção só metadados', async () => {
+  await loteAtendimento(db('fono'), 'fono').commit();
+  await assertSucceeds(getDoc(doc(db('psico'), 'atendimentos_registro', 'at1')));
+  await assertSucceeds(getDocs(query(collection(db('psico'), 'atendimentos_registro'), where('estudante_id', '==', 'alunoA'))));
+  await assertSucceeds(getDoc(doc(db('admin'), 'atendimentos_registro', 'at1')));
+  await assertSucceeds(getDoc(doc(db('sec'), 'atendimentos_registro', 'at1')));
+  await assertFails(getDoc(doc(db('dirA'), 'atendimentos_registro', 'at1')));
+  await assertSucceeds(getDoc(doc(db('sec'), 'atendimentos', 'at1')));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'atendimentos', 'at1')));
+});
+
+test('retificação só pela autora, com versão imutável; nada é apagado', async () => {
+  await loteAtendimento(db('fono'), 'fono').commit();
+  const f = db('fono');
+  const atual = (await getDoc(doc(f, 'atendimentos', 'at1'))).data(), reg = (await getDoc(doc(f, 'atendimentos_registro', 'at1'))).data();
+  // sem versão: recusado
+  await assertFails(updateDoc(doc(f, 'atendimentos_registro', 'at1'), { trabalhado: 'Alterado', versao: 2 }));
+  const ret = (ff, autor) => {
+    const b = writeBatch(ff);
+    b.set(doc(ff, 'atendimentos_versoes', 'at1_1'), { atendimento_id: 'at1', versao: 1, autor_uid: autor, em: serverTimestamp(), motivo: 'Correção de digitação', atendimento: atual, registro: reg });
+    b.update(doc(ff, 'atendimentos', 'at1'), { evolucao: 'estavel', versao: 2, atualizado_em: serverTimestamp() });
+    b.update(doc(ff, 'atendimentos_registro', 'at1'), { trabalhado: 'Alterado', versao: 2 });
+    return b.commit();
+  };
+  await assertFails(ret(db('psico'), 'psico'));
+  await assertSucceeds(ret(f, 'fono'));
+  await assertFails(updateDoc(doc(f, 'atendimentos_versoes', 'at1_1'), { motivo: 'outro' }));
+  await assertFails(deleteDoc(doc(f, 'atendimentos', 'at1')));
+  await assertFails(deleteDoc(doc(f, 'atendimentos_registro', 'at1')));
+  // versão com conteúdo falso é recusada
+  const atual2 = (await getDoc(doc(f, 'atendimentos', 'at1'))).data();
+  const b = writeBatch(f);
+  b.set(doc(f, 'atendimentos_versoes', 'at1_2'), { atendimento_id: 'at1', versao: 2, autor_uid: 'fono', em: serverTimestamp(), motivo: 'x', atendimento: { ...atual2, tipo: 'alta' }, registro: { ...reg, trabalhado: 'Alterado', versao: 2 } });
+  b.update(doc(f, 'atendimentos', 'at1'), { evolucao: 'regrediu', versao: 3, atualizado_em: serverTimestamp() });
+  await assertFails(b.commit());
+});
+
+test('anulação: autora ou administração, com motivo', async () => {
+  await loteAtendimento(db('fono'), 'fono').commit();
+  const anular = async (uid) => {
+    const f = db(uid);
+    let atual, reg;
+    await env.withSecurityRulesDisabled(async c => {
+      atual = (await getDoc(doc(c.firestore(), 'atendimentos', 'at1'))).data();
+      reg = (await getDoc(doc(c.firestore(), 'atendimentos_registro', 'at1'))).data();
+    });
+    const b = writeBatch(f);
+    b.set(doc(f, 'atendimentos_versoes', 'at1_' + atual.versao), { atendimento_id: 'at1', versao: atual.versao, autor_uid: uid, em: serverTimestamp(), motivo: 'Aluno errado', atendimento: atual, registro: reg });
+    b.update(doc(f, 'atendimentos', 'at1'), { situacao: 'anulado', motivo_anulacao: 'Aluno errado', anulado_por: uid, versao: atual.versao + 1, atualizado_em: serverTimestamp() });
+    return b.commit();
+  };
+  await assertFails(anular('psico'));
+  await assertFails(anular('dirA'));
+  await assertSucceeds(anular('sec'));
+});
+
+// ---------- agenda ----------
+test('agendamento dentro da jornada com reserva atômica', async () => {
+  await assertSucceeds(loteAgenda(db('fono'), { criador: 'fono' }).commit());
+  // mesmo horário: conflito
+  await assertFails(loteAgenda(db('sec'), { id: 'ag2', criador: 'sec' }).commit());
+  // fora da jornada (11:00)
+  await assertFails(loteAgenda(db('sec'), { id: 'ag3', criador: 'sec', hora: '11:00' }).commit());
+  // 60 min terminando fora da jornada (10:30-11:30)
+  await assertFails(loteAgenda(db('sec'), { id: 'ag4', criador: 'sec', hora: '10:30', dur: 60 }).commit());
+  await assertSucceeds(loteAgenda(db('sec'), { id: 'ag5', criador: 'sec', hora: '10:00', dur: 60 }).commit());
+  // sem reserva
+  await assertFails(setDoc(doc(db('sec'), 'agendamentos', 'ag6'), { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', inicio: T('08:00'), duracao_min: 30, status: 'agendado', codigo: COD_AG, criado_por: 'sec', criado_em: serverTimestamp() }));
+  // especialidade não confere
+  await assertFails(loteAgenda(db('sec'), { id: 'ag7', criador: 'sec', hora: '08:00', esp: 'psicopedagogia' }).commit());
+  // profissional sem jornada
+  await assertFails(loteAgenda(db('sec'), { id: 'ag8', criador: 'sec', prof: 'psico', esp: 'psicopedagogia' }).commit());
+  // especialista não agenda em nome de outra
+  await assertFails(loteAgenda(db('psico'), { id: 'ag9', criador: 'psico', hora: '08:00' }).commit());
+});
+
+test('direção agenda apenas alunos da própria escola', async () => {
+  await assertSucceeds(loteAgenda(db('dirA'), { criador: 'dirA', hora: '08:00' }).commit());
+  await assertFails(loteAgenda(db('dirA'), { id: 'ag2', criador: 'dirA', hora: '08:30', aluno: 'alunoB', escola: ESC_B }).commit());
+});
+
+test('cancelamento libera o horário para novo agendamento', async () => {
+  await loteAgenda(db('fono'), { criador: 'fono' }).commit();
+  const ini = instante(terca, '09:00').getTime(), f = db('dirA');
+  const semReserva = writeBatch(f);
+  semReserva.update(doc(f, 'agendamentos', 'ag1'), { status: 'cancelado', motivo: 'Aluno doente', alterado_por: 'dirA', alterado_em: serverTimestamp() });
+  await assertFails(semReserva.commit());
+  const b = writeBatch(f);
+  b.update(doc(f, 'agendamentos', 'ag1'), { status: 'cancelado', motivo: 'Aluno doente', alterado_por: 'dirA', alterado_em: serverTimestamp() });
+  b.delete(doc(f, 'reservas', 'fono_' + ini));
+  await assertSucceeds(b.commit());
+  await assertSucceeds(loteAgenda(db('fono'), { id: 'ag2', criador: 'fono' }).commit());
+  // reserva de agendamento ativo não pode ser apagada avulsa
+  await assertFails(deleteDoc(doc(db('admin'), 'reservas', 'fono_' + ini)));
+});
+
+test('falta só depois do horário; realizado só com o registro da profissional', async () => {
+  await loteAgenda(db('fono'), { criador: 'fono' }).commit();
+  await assertFails(updateDoc(doc(db('fono'), 'agendamentos', 'ag1'), { status: 'falta', motivo: '', alterado_por: 'fono', alterado_em: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db('fono'), 'agendamentos', 'ag1'), { status: 'realizado', atendimento_id: 'x', alterado_por: 'fono', alterado_em: serverTimestamp() }));
+  const f = db('fono'), b = loteAtendimento(f, 'fono', { id: 'at9', ag: 'ag1' });
+  b.update(doc(f, 'agendamentos', 'ag1'), { status: 'realizado', atendimento_id: 'at9', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  await assertSucceeds(b.commit());
+  // agendamento passado: falta permitida
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'agendamentos', 'agP'), { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', inicio: Timestamp.fromMillis(Date.now() - 3600000), duracao_min: 30, status: 'agendado', criado_por: 'fono', criado_em: Timestamp.now() }));
+  await assertFails(updateDoc(doc(db('dirA'), 'agendamentos', 'agP'), { status: 'falta', motivo: '', alterado_por: 'dirA', alterado_em: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('fono'), 'agendamentos', 'agP'), { status: 'falta', motivo: 'Não compareceu', alterado_por: 'fono', alterado_em: serverTimestamp() }));
+});
+
+// ---------- relatórios ----------
+test('relatórios descritivos: emitidos pela equipe, imutáveis; direção da escola só lê', async () => {
+  const r = { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', registro_profissional: 'CRFa 6-0000', tipo: 'relatorio', titulo: 'Relatório', destinatario: 'Família', periodo_de: '2026-01-01', periodo_ate: '2026-06-30', texto: 'Texto', criado_em: serverTimestamp() };
+  await assertSucceeds(setDoc(doc(db('fono'), 'relatorios', 'r1'), r));
+  await assertFails(setDoc(doc(db('fono'), 'relatorios', 'r2'), { ...r, especialidade: 'neuropsicologia' }));
+  await assertFails(updateDoc(doc(db('fono'), 'relatorios', 'r1'), { texto: 'Mudado' }));
+  await assertSucceeds(getDoc(doc(db('psico'), 'relatorios', 'r1')));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'relatorios', 'r1')));
+  await assertFails(setDoc(doc(db('dirA'), 'relatorios', 'r3'), { ...r, profissional_uid: 'dirA' }));
+  await assertFails(updateDoc(doc(db('dirA'), 'relatorios', 'r1'), { texto: 'Mudado' }));
+});
+
+// ---------- exclusão de usuários ----------
+const atualizacao = (por, d) => ({ ...d, atualizado_em: serverTimestamp(), atualizado_por: por });
+
+test('excluir acesso: gestão bloqueia a conta, que deixa de ler; restaurar devolve', async () => {
+  await assertSucceeds(updateDoc(doc(db('sec'), 'usuarios', 'psico'), atualizacao('sec', { ativo: false, excluido: true, motivo_exclusao: 'Fim do contrato', excluido_em: serverTimestamp() })));
+  await assertFails(getDoc(doc(db('psico'), 'estudantes', 'alunoA')));
+  await assertFails(loteAtendimento(db('psico'), 'psico', { id: 'atX', esp: 'psicopedagogia' }).commit());
+  await assertSucceeds(updateDoc(doc(db('sec'), 'usuarios', 'psico'), atualizacao('sec', { ativo: true, excluido: false, motivo_exclusao: '' })));
+  await assertSucceeds(getDoc(doc(db('psico'), 'estudantes', 'alunoA')));
+});
+
+test('excluir acesso: sem autoexclusão, sem excluir administrador, sem apagar quem já teve acesso', async () => {
+  await assertFails(updateDoc(doc(db('admin'), 'usuarios', 'admin'), atualizacao('admin', { excluido: true })));
+  await assertFails(updateDoc(doc(db('sec'), 'usuarios', 'sec'), atualizacao('sec', { ativo: false, excluido: true })));
+  await assertFails(updateDoc(doc(db('fono'), 'usuarios', 'psico'), atualizacao('fono', { ativo: false, excluido: true })));
+  await assertFails(deleteDoc(doc(db('admin'), 'usuarios', 'fono')));
+  await assertFails(deleteDoc(doc(db('dirA'), 'usuarios', 'pend')));
+  await assertSucceeds(deleteDoc(doc(db('secLeitura'), 'usuarios', 'pend')));
+});
+
+test('atendimentos de profissional excluída continuam no prontuário', async () => {
+  await loteAtendimento(db('fono'), 'fono').commit();
+  await updateDoc(doc(db('admin'), 'usuarios', 'fono'), atualizacao('admin', { ativo: false, excluido: true, motivo_exclusao: 'Saiu' }));
+  await assertSucceeds(getDoc(doc(db('psico'), 'atendimentos_registro', 'at1')));
+  await assertFails(deleteDoc(doc(db('admin'), 'atendimentos', 'at1')));
+  // e não pode mais receber agendamentos
+  await assertFails(loteAgenda(db('sec'), { criador: 'sec' }).commit());
+});
+
+test('conta criada na versão antiga pode ser regravada só com os campos válidos', async () => {
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'usuarios', 'antiga'), { nome: 'Antiga', email: 'antiga@teste.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', vinculos_legados: ['x'], termos_aceitos: true, criado_em: Timestamp.fromMillis(1) }));
+  await assertFails(updateDoc(doc(db('admin'), 'usuarios', 'antiga'), atualizacao('admin', { nome: 'Antiga Editada' })));
+  await assertSucceeds(setDoc(doc(db('admin'), 'usuarios', 'antiga'), atualizacao('admin', { nome: 'Antiga Editada', email: 'antiga@teste.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', criado_em: Timestamp.fromMillis(1), jornada: [], slots: [] })));
+  // trocar o e-mail não é permitido
+  await assertFails(setDoc(doc(db('admin'), 'usuarios', 'antiga'), atualizacao('admin', { nome: 'Antiga', email: 'outro@teste.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', criado_em: Timestamp.fromMillis(1) })));
+});
+
+// ---------- fluxo completo de um atendimento ----------
+test('fluxo: encaminhar → agendar → remarcar → realizar → retificar → alta', async () => {
+  // direção cadastra o aluno com o motivo do encaminhamento
+  const dir = db('dirA'), b0 = writeBatch(dir);
+  b0.set(doc(dir, 'estudantes', 'novo'), { nome: 'Criança Encaminhada', escola_id: ESC_A, situacao: 'ativo', criado_por: 'dirA', criado_em: serverTimestamp() });
+  b0.set(doc(dir, 'estudantes_privado', 'novo'), { responsavel: 'Mãe', motivo_encaminhamento: 'Não reconhece letras', atualizado_por: 'dirA', atualizado_em: serverTimestamp() });
+  await assertSucceeds(b0.commit());
+  // direção agenda nos horários livres da fono
+  await assertSucceeds(loteAgenda(dir, { id: 'ag1', criador: 'dirA', aluno: 'novo', hora: '08:00' }).commit());
+  // remarcação: novo horário primeiro, depois cancela o antigo
+  await assertSucceeds(loteAgenda(db('fono'), { id: 'ag2', criador: 'fono', aluno: 'novo', hora: '09:30' }).commit());
+  const f = db('fono'), bc = writeBatch(f);
+  bc.update(doc(f, 'agendamentos', 'ag1'), { status: 'cancelado', motivo: 'Remarcado', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  bc.delete(doc(f, 'reservas', 'fono_' + instante(terca, '08:00').getTime()));
+  await assertSucceeds(bc.commit());
+  // a fono registra o atendimento do agendamento (avaliação), que vira "realizado"
+  const br = loteAtendimento(f, 'fono', { id: 'av1', aluno: 'novo', ag: 'ag2' });
+  br.update(doc(f, 'agendamentos', 'ag2'), { status: 'realizado', atendimento_id: 'av1', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  await assertSucceeds(br.commit());
+  // não pode registrar duas vezes o mesmo agendamento
+  const bdup = loteAtendimento(f, 'fono', { id: 'av2', aluno: 'novo', ag: 'ag2' });
+  bdup.update(doc(f, 'agendamentos', 'ag2'), { status: 'realizado', atendimento_id: 'av2', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  await assertFails(bdup.commit());
+  // outra especialista lê, a direção vê só metadados
+  await assertSucceeds(getDoc(doc(db('psico'), 'atendimentos_registro', 'av1')));
+  await assertFails(getDoc(doc(dir, 'atendimentos_registro', 'av1')));
+  await assertSucceeds(getDoc(doc(dir, 'atendimentos', 'av1')));
+  // retificação da autora com versão
+  const a1 = (await getDoc(doc(f, 'atendimentos', 'av1'))).data(), r1 = (await getDoc(doc(f, 'atendimentos_registro', 'av1'))).data();
+  const bv = writeBatch(f);
+  bv.set(doc(f, 'atendimentos_versoes', 'av1_1'), { atendimento_id: 'av1', versao: 1, autor_uid: 'fono', em: serverTimestamp(), motivo: 'Tipo correto é avaliação', atendimento: a1, registro: r1 });
+  bv.update(doc(f, 'atendimentos', 'av1'), { tipo: 'avaliacao', versao: 2, atualizado_em: serverTimestamp() });
+  bv.update(doc(f, 'atendimentos_registro', 'av1'), { trabalhado: 'Avaliação de linguagem oral', versao: 2 });
+  await assertSucceeds(bv.commit());
+  // alta registrada como novo atendimento avulso (sem agendamento)
+  const ba = writeBatch(f);
+  ba.set(doc(f, 'atendimentos', 'alta1'), { estudante_id: 'novo', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'alta', evolucao: 'avancou', data: Timestamp.now(), duracao_min: 30, agendamento_id: '', codigo: 'C261103-AL01', situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+  ba.set(doc(f, 'atendimentos_registro', 'alta1'), { estudante_id: 'novo', profissional_uid: 'fono', trabalhado: 'Objetivos atingidos', versao: 1 });
+  await assertSucceeds(ba.commit());
+  // atendimento no futuro é recusado
+  const bfut = writeBatch(f);
+  bfut.set(doc(f, 'atendimentos', 'fut'), { estudante_id: 'novo', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'sessao', evolucao: 'avancou', data: Timestamp.fromMillis(Date.now() + 86400000), duracao_min: 30, agendamento_id: '', codigo: 'C261103-AL01', situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+  bfut.set(doc(f, 'atendimentos_registro', 'fut'), { estudante_id: 'novo', profissional_uid: 'fono', trabalhado: 'x', versao: 1 });
+  await assertFails(bfut.commit());
+  // aluno arquivado não recebe novos atendimentos, mas o prontuário continua legível
+  await updateDoc(doc(db('admin'), 'estudantes', 'novo'), { situacao: 'arquivado', motivo_arquivamento: 'Transferido', atualizado_por: 'admin', atualizado_em: serverTimestamp() });
+  await assertFails(loteAtendimento(f, 'fono', { id: 'av3', aluno: 'novo' }).commit());
+  await assertSucceeds(getDoc(doc(db('psico'), 'atendimentos_registro', 'av1')));
+});
+
+// ---------- v2.1: login com senha, criação de contas, termo LGPD, 500 caracteres, código ----------
+const ctx = (uid, token) => env.authenticatedContext(uid, token).firestore();
+
+test('login por e-mail e senha vale; Google sem e-mail verificado não', async () => {
+  await assertSucceeds(getDoc(doc(ctx('fono', { email: 'fono@teste.br', email_verified: false, firebase: { sign_in_provider: 'password' } }), 'estudantes', 'alunoA')));
+  await assertFails(getDoc(doc(ctx('fono', { email: 'fono@teste.br', email_verified: false, firebase: { sign_in_provider: 'google.com' } }), 'estudantes', 'alunoA')));
+});
+
+test('convite só é usado por e-mail verificado (senha criada por terceiros não reivindica convite)', async () => {
+  await setDoc(doc(db('sec'), 'convites', 'alvo@teste.br'), { email: 'alvo@teste.br', nome: 'Alvo', perfil: 'especialista', especialidade: 'neuropsicologia', escolas: [], ativo: true, criado_por: 'sec', criado_em: serverTimestamp() });
+  const intruso = ctx('intruso', { email: 'alvo@teste.br', email_verified: false, firebase: { sign_in_provider: 'password' } });
+  await assertFails(setDoc(doc(intruso, 'usuarios', 'intruso'), { nome: 'X', email: 'alvo@teste.br', perfil: 'especialista', ativo: true, especialidade: 'neuropsicologia', escolas: [], criado_em: serverTimestamp() }));
+  await assertSucceeds(setDoc(doc(intruso, 'usuarios', 'intruso'), { nome: 'X', email: 'alvo@teste.br', perfil: 'pendente', ativo: false, criado_em: serverTimestamp() }));
+});
+
+test('gestão cria a conta de quem recebe login e senha, sem conceder gerência', async () => {
+  const conta = (extra = {}) => ({ nome: 'Joana', email: 'joana@teste.br', perfil: 'especialista', especialidade: 'fonoaudiologia', escolas: [ESC_A], jornada: [], slots: [], ativo: true, excluido: false, gerenciar: false, criado_em: serverTimestamp(), ...extra });
+  await assertSucceeds(setDoc(doc(db('sec'), 'usuarios', 'joana'), conta()));
+  await assertSucceeds(setDoc(doc(db('secLeitura'), 'usuarios', 'joana2'), conta()));
+  await assertFails(setDoc(doc(db('fono'), 'usuarios', 'joana3'), conta()));
+  await assertSucceeds(setDoc(doc(db('sec'), 'usuarios', 'joana4'), conta({ perfil: 'secretaria', especialidade: '' })));
+  await assertFails(setDoc(doc(db('dirA'), 'usuarios', 'joana5'), conta()));
+  await assertSucceeds(setDoc(doc(db('admin'), 'usuarios', 'joana6'), conta({ perfil: 'superadmin', especialidade: '' })));
+  await assertSucceeds(setDoc(doc(db('admin'), 'usuarios', 'joana7'), conta({ perfil: 'secretaria', especialidade: '' })));
+});
+
+test('termo LGPD: a pessoa registra o próprio aceite e nada mais', async () => {
+  await assertSucceeds(updateDoc(doc(db('fono'), 'usuarios', 'fono'), { termo_lgpd: 'lgpd-2026-10', termo_lgpd_em: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db('fono'), 'usuarios', 'fono'), { termo_lgpd: 'lgpd-2026-11', termo_lgpd_em: serverTimestamp(), especialidade: 'neuropsicologia' }));
+  await assertFails(updateDoc(doc(db('fono'), 'usuarios', 'psico'), { termo_lgpd: 'lgpd-2026-10', termo_lgpd_em: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db('inativa'), 'usuarios', 'inativa'), { termo_lgpd: 'lgpd-2026-10', termo_lgpd_em: serverTimestamp() }));
+});
+
+test('registro da consulta: até 4000 caracteres por campo', async () => {
+  await assertSucceeds(loteAtendimento(db('fono'), 'fono', { id: 'c1', texto: 'x'.repeat(4000) }).commit());
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'c2', texto: 'x'.repeat(4001) }).commit());
+});
+
+test('código único: obrigatório e igual ao do agendamento', async () => {
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'k1', codigo: '' }).commit());
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'k2', codigo: 'abc' }).commit());
+  await loteAgenda(db('fono'), { criador: 'fono' }).commit();
+  const f = db('fono');
+  const errado = loteAtendimento(f, 'fono', { id: 'k3', ag: 'ag1', codigo: 'C261103-ZZZZ' });
+  errado.update(doc(f, 'agendamentos', 'ag1'), { status: 'realizado', atendimento_id: 'k3', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  await assertFails(errado.commit());
+  const certo = loteAtendimento(f, 'fono', { id: 'k4', ag: 'ag1' });
+  certo.update(doc(f, 'agendamentos', 'ag1'), { status: 'realizado', atendimento_id: 'k4', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  await assertSucceeds(certo.commit());
+});
+
+// ---------- v2.2: adaptações escolares ----------
+test('calendário escolar: só a gestão bloqueia; agendamento em dia bloqueado é recusado', async () => {
+  const n = numeroDoDia(terca), bloq = (f, por, escola = '') => setDoc(doc(f, 'bloqueios', 'd' + n + (escola ? '_' + escola : '')), { dia: n, data: terca, escola_id: escola, motivo: 'Conselho de classe', criado_por: por, criado_em: serverTimestamp() });
+  await assertFails(bloq(db('fono'), 'fono'));
+  await assertFails(bloq(db('dirA'), 'dirA'));
+  await assertFails(setDoc(doc(db('sec'), 'bloqueios', 'dqualquer'), { dia: n, data: terca, escola_id: '', motivo: 'X', criado_por: 'sec', criado_em: serverTimestamp() }));
+  await assertSucceeds(bloq(db('sec'), 'sec', ESC_B));
+  await assertSucceeds(loteAgenda(db('fono'), { criador: 'fono' }).commit()); // ESC_A não bloqueada
+  await assertSucceeds(bloq(db('sec'), 'sec'));
+  await assertFails(loteAgenda(db('fono'), { id: 'ag2', criador: 'fono', hora: '10:00' }).commit()); // rede toda bloqueada
+  await assertSucceeds(getDoc(doc(db('fono'), 'bloqueios', 'd' + n)));
+  await assertSucceeds(deleteDoc(doc(db('sec'), 'bloqueios', 'd' + n)));
+  await assertSucceeds(loteAgenda(db('fono'), { id: 'ag3', criador: 'fono', hora: '10:00' }).commit());
+});
+
+test('orientação para a escola: a direção lê; tipos escolares aceitos', async () => {
+  const f = db('fono'), b = writeBatch(f);
+  b.set(doc(f, 'atendimentos', 'os1'), { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'observacao_sala', evolucao: 'nao_avaliado', data: Timestamp.now(), duracao_min: 50, agendamento_id: '', codigo: 'C261103-OS01', orientacao_escola: 'Dar comandos curtos, um de cada vez.', situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+  b.set(doc(f, 'atendimentos_registro', 'os1'), { estudante_id: 'alunoA', profissional_uid: 'fono', trabalhado: 'Observação da aluna na aula de português.', versao: 1 });
+  await assertSucceeds(b.commit());
+  const vista = await getDoc(doc(db('dirA'), 'atendimentos', 'os1'));
+  assert.equal(vista.data().orientacao_escola, 'Dar comandos curtos, um de cada vez.');
+  await assertFails(getDoc(doc(db('dirA'), 'atendimentos_registro', 'os1')));
+});
+
+test('apagar definitivamente: só Administração/Secretaria, só conta já excluída', async () => {
+  await assertFails(deleteDoc(doc(db('admin'), 'usuarios', 'psico')));
+  await updateDoc(doc(db('admin'), 'usuarios', 'psico'), { ativo: false, excluido: true, motivo_exclusao: 'Teste', atualizado_em: serverTimestamp(), atualizado_por: 'admin' });
+  await assertFails(deleteDoc(doc(db('dirA'), 'usuarios', 'psico')));
+  await assertSucceeds(deleteDoc(doc(db('sec'), 'usuarios', 'psico')));
+});
+
+// ---------- v2.3: itens do PEC ----------
+test('registro SOAP aceito; antigo continua válido; limite de 10000 somando tudo', async () => {
+  const f = db('fono');
+  const soap = (id, reg) => { const b = writeBatch(f);
+    b.set(doc(f, 'atendimentos', id), { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'sessao', evolucao: 'avancou', data: Timestamp.now(), duracao_min: 30, agendamento_id: '', codigo: 'C261103-SP01', situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+    b.set(doc(f, 'atendimentos_registro', id), { estudante_id: 'alunoA', profissional_uid: 'fono', versao: 1, ...reg }); return b.commit(); };
+  await assertSucceeds(soap('s1', { subjetivo: 'Mãe relata trocas', objetivo: 'Discriminação auditiva', avaliacao: 'Melhora', plano: 'Manter' }));
+  await assertFails(soap('s2', { subjetivo: 'Só relato', objetivo: '' }));
+  await assertSucceeds(soap('s3a', { subjetivo: 'a'.repeat(4000), objetivo: 'x'.repeat(4000), plano: 'y'.repeat(2000) }));
+  await assertFails(soap('s3', { subjetivo: 'a'.repeat(4000), objetivo: 'x'.repeat(4000), plano: 'y'.repeat(2001) }));
+  await assertFails(soap('s4', { objetivo: 'ok', diagnostico_cid: 'F80' }));
+});
+
+test('problemas e condições: equipe registra e resolve; gestão e direção não leem', async () => {
+  const c = (f, uid, extra = {}) => setDoc(doc(f, 'condicoes', 'c1'), { estudante_id: 'alunoA', descricao: 'Troca de fonemas', observacao: '', situacao: 'ativo', especialidade: 'fonoaudiologia', registrado_por: uid, registrado_nome: 'Fono', criado_em: serverTimestamp(), ...extra });
+  await assertFails(c(db('dirA'), 'dirA'));
+  await assertFails(c(db('fono'), 'fono', { especialidade: 'psicopedagogia' }));
+  await assertSucceeds(c(db('fono'), 'fono'));
+  await assertSucceeds(getDoc(doc(db('psico'), 'condicoes', 'c1')));
+  await assertSucceeds(getDoc(doc(db('sec'), 'condicoes', 'c1')));
+  await assertFails(getDoc(doc(db('dirA'), 'condicoes', 'c1')));
+  await assertFails(updateDoc(doc(db('psico'), 'condicoes', 'c1'), { descricao: 'Outra coisa', atualizado_por: 'psico', atualizado_em: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('psico'), 'condicoes', 'c1'), { situacao: 'resolvido', resolvido_em: serverTimestamp(), resolvido_por: 'psico', atualizado_por: 'psico', atualizado_em: serverTimestamp() }));
+  await assertFails(deleteDoc(doc(db('admin'), 'condicoes', 'c1')));
+});
+
+test('lista do dia: chegada registrada pela profissional, gestão ou direção da escola', async () => {
+  await loteAgenda(db('fono'), { criador: 'fono' }).commit();
+  const chega = (uid, v = serverTimestamp()) => updateDoc(doc(db(uid), 'agendamentos', 'ag1'), { chegada_em: v, alterado_por: uid, alterado_em: serverTimestamp() });
+  await assertFails(chega('psico'));
+  await assertSucceeds(chega('dirA'));
+  await assertSucceeds(chega('fono', null));
+  await assertFails(chega('fono', Timestamp.fromMillis(1)));
+  await assertSucceeds(chega('fono'));
+  // depois da chegada, o atendimento é registrado normalmente
+  const f = db('fono'), b = loteAtendimento(f, 'fono', { id: 'ch1', ag: 'ag1' });
+  b.update(doc(f, 'agendamentos', 'ag1'), { status: 'realizado', atendimento_id: 'ch1', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  await assertSucceeds(b.commit());
+});
+
+test('troca de e-mail: a pessoa só grava o e-mail do próprio login confirmado', async () => {
+  const ctx = (uid, email, ok = true) => env.authenticatedContext(uid, { email, email_verified: ok }).firestore();
+  await assertSucceeds(updateDoc(doc(ctx('fono', 'Fono.Nova@Teste.br'), 'usuarios', 'fono'), { email: 'fono.nova@teste.br' }));
+  await assertFails(updateDoc(doc(ctx('psico', 'psico.nova@teste.br'), 'usuarios', 'psico'), { email: 'outro@teste.br' }));
+  await assertFails(updateDoc(doc(ctx('psico', 'psico.nova@teste.br', false), 'usuarios', 'psico'), { email: 'psico.nova@teste.br' }));
+  await assertFails(updateDoc(doc(ctx('psico', 'psico.nova@teste.br'), 'usuarios', 'psico'), { email: 'psico.nova@teste.br', perfil: 'superadmin' }));
+  await assertFails(updateDoc(doc(ctx('psico', 'psico@teste.br'), 'usuarios', 'fono'), { email: 'psico@teste.br' }));
+  await assertFails(updateDoc(doc(ctx('inativa', 'inativa2@teste.br'), 'usuarios', 'inativa'), { email: 'inativa2@teste.br' }));
+});
+
+// ---------- v2.2: fila de espera, frequência, acessos, metas ----------
+const pedido = (uid, nome, extra = {}) => ({ estudante_id: 'alunoA', escola_id: ESC_A, especialidade: 'fonoaudiologia', motivo: 'Troca letras na escrita e na fala.', prioridade: 'normal', situacao: 'aguardando', solicitante_uid: uid, solicitante_nome: nome, criado_em: serverTimestamp(), ...extra });
+test('fila de espera: direção pede na própria escola; agendado exige agendamento do mesmo aluno', async () => {
+  await assertSucceeds(setDoc(doc(db('dirA'), 'pedidos', 'p1'), pedido('dirA', 'Direção A')));
+  await assertFails(setDoc(doc(db('dirA'), 'pedidos', 'p2'), pedido('dirA', 'Direção A', { estudante_id: 'alunoB', escola_id: ESC_B })));
+  await assertFails(setDoc(doc(db('dirA'), 'pedidos', 'p3'), pedido('fono', 'Outra pessoa')));
+  await assertFails(setDoc(doc(db('fono'), 'pedidos', 'p4'), pedido('fono', 'Fono', { motivo: 'curto' })));
+  await assertSucceeds(setDoc(doc(db('fono'), 'pedidos', 'p5'), pedido('fono', 'Fono', { prioridade: 'alta' })));
+  await assertSucceeds(getDoc(doc(db('psico'), 'pedidos', 'p1')));
+  await assertSucceeds(getDocs(query(collection(db('dirA'), 'pedidos'), where('escola_id', 'in', [ESC_A]))));
+  await assertFails(getDocs(collection(db('dirA'), 'pedidos')));
+  const up = (uid, d) => updateDoc(doc(db(uid), 'pedidos', 'p1'), { ...d, atualizado_por: uid, atualizado_em: serverTimestamp() });
+  await assertFails(up('fono', { situacao: 'agendado', agendamento_id: 'nao-existe' }));
+  await loteAgenda(db('fono'), { criador: 'fono' }).commit();
+  await assertFails(up('fono', { situacao: 'agendado', agendamento_id: 'ag1', motivo: 'troquei o motivo' }));
+  await assertSucceeds(up('fono', { situacao: 'agendado', agendamento_id: 'ag1' }));
+  await assertFails(up('fono', { situacao: 'cancelado', motivo_cancelamento: 'já agendado não volta' }));
+  await assertFails(up('dirA', { prioridade: 'alta' }));
+  await assertSucceeds(updateDoc(doc(db('psico'), 'pedidos', 'p5'), { situacao: 'cancelado', motivo_cancelamento: 'Atendido sem agendamento', atualizado_por: 'psico', atualizado_em: serverTimestamp() }));
+  await assertFails(deleteDoc(doc(db('admin'), 'pedidos', 'p1')));
+});
+
+const hojeMun = () => diaMunicipal(Date.now());
+const entrada = (uid, extra = {}) => setDoc(doc(db(uid), 'frequencias', uid + '_' + (extra.dia || hojeMun())), { uid, nome: 'X', dia: hojeMun(), escola_id: ESC_A, situacao: 'presente', entrada: serverTimestamp(), registrado_por: uid, criado_em: serverTimestamp(), ...extra });
+test('frequência: entrada e saída da própria especialista no relógio do servidor', async () => {
+  await assertFails(entrada('fono', { dia: somarDias(hojeMun(), -1) }));
+  await assertFails(entrada('fono', { entrada: Timestamp.fromMillis(Date.now() - 3600e3) }));
+  await assertFails(setDoc(doc(db('psico'), 'frequencias', 'fono_' + hojeMun()), { uid: 'fono', nome: 'X', dia: hojeMun(), escola_id: '', situacao: 'presente', entrada: serverTimestamp(), registrado_por: 'psico', criado_em: serverTimestamp() }));
+  await assertFails(entrada('dirA'));
+  await assertSucceeds(entrada('fono'));
+  const id = 'fono_' + hojeMun();
+  await assertFails(updateDoc(doc(db('fono'), 'frequencias', id), { saida: Timestamp.fromMillis(Date.now() + 3600e3), atualizado_em: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('fono'), 'frequencias', id), { saida: serverTimestamp(), atualizado_em: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db('fono'), 'frequencias', id), { saida: serverTimestamp(), atualizado_em: serverTimestamp() }));
+  await assertFails(getDoc(doc(db('psico'), 'frequencias', id)));
+  await assertSucceeds(getDoc(doc(db('sec'), 'frequencias', id)));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'frequencias', id)));
+  await assertSucceeds(getDocs(query(collection(db('fono'), 'frequencias'), where('uid', '==', 'fono'))));
+  // ausência justificada pela própria especialista; abono só pela gestão, com motivo
+  const aus = (uid, situacao, j = 'Atestado médico') => setDoc(doc(db(uid), 'frequencias', uid + '_2026-12-01'), { uid, nome: 'X', dia: '2026-12-01', escola_id: '', situacao, justificativa: j, registrado_por: uid, criado_em: serverTimestamp() });
+  await assertFails(aus('psico', 'abonada')); await assertFails(aus('psico', 'atestado', ' '));
+  await assertSucceeds(aus('psico', 'atestado'));
+  const ajuste = (uid, d) => updateDoc(doc(db(uid), 'frequencias', id), { ...d, atualizado_por: uid, atualizado_em: serverTimestamp() });
+  await assertFails(ajuste('sec', { situacao: 'abonada' }));
+  await assertFails(ajuste('dirA', { situacao: 'abonada', ajuste_motivo: 'Reunião externa' }));
+  await assertSucceeds(ajuste('sec', { situacao: 'abonada', ajuste_motivo: 'Reunião externa' }));
+  await assertFails(deleteDoc(doc(db('admin'), 'frequencias', id)));
+});
+
+test('acessos aos prontuários: cada um registra o próprio; só a administração lê', async () => {
+  const ac = (uid, perfil, extra = {}) => setDoc(doc(collection(db(uid), 'acessos')), { uid, nome: 'X', perfil, estudante_id: 'alunoA', escola_id: ESC_A, acao: 'prontuario', em: serverTimestamp(), ...extra });
+  await assertSucceeds(ac('fono', 'especialista')); await assertSucceeds(ac('dirA', 'direcao'));
+  await assertFails(ac('fono', 'superadmin')); await assertFails(ac('fono', 'especialista', { uid: 'psico' }));
+  await assertFails(ac('fono', 'especialista', { em: Timestamp.fromMillis(1) })); await assertFails(ac('inativa', 'especialista'));
+  await assertSucceeds(getDocs(query(collection(db('admin'), 'acessos'), where('estudante_id', '==', 'alunoA'))));
+  await assertSucceeds(getDocs(query(collection(db('sec'), 'acessos'), where('estudante_id', '==', 'alunoA'))));
+  await assertFails(getDocs(query(collection(db('dirA'), 'acessos'), where('estudante_id', '==', 'alunoA'))));
+  await assertFails(getDocs(query(collection(db('fono'), 'acessos'), where('uid', '==', 'fono'))));
+});
+
+test('plano de metas: especialidade da autora; marcação no registro da consulta', async () => {
+  const plano = (uid, esp, metas = [{ id: 'm1', texto: 'Produzir /r/', situacao: 'ativa' }]) => setDoc(doc(db(uid), 'planos', 'alunoA_' + esp), { estudante_id: 'alunoA', especialidade: esp, metas, profissional_uid: uid, profissional_nome: 'X', atualizado_nome: 'X', criado_em: serverTimestamp(), atualizado_por: uid, atualizado_em: serverTimestamp() });
+  await assertFails(plano('fono', 'psicopedagogia'));
+  await assertFails(plano('fono', 'fonoaudiologia', []));
+  await assertFails(plano('dirA', 'fonoaudiologia'));
+  await assertSucceeds(plano('fono', 'fonoaudiologia'));
+  await assertSucceeds(getDoc(doc(db('psico'), 'planos', 'alunoA_fonoaudiologia')));
+  await assertFails(getDoc(doc(db('dirA'), 'planos', 'alunoA_fonoaudiologia')));
+  await assertFails(updateDoc(doc(db('psico'), 'planos', 'alunoA_fonoaudiologia'), { metas: [], atualizado_por: 'psico', atualizado_nome: 'P', atualizado_em: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('fono'), 'planos', 'alunoA_fonoaudiologia'), { metas: [{ id: 'm1', texto: 'Produzir /r/', situacao: 'atingida' }], atualizado_por: 'fono', atualizado_nome: 'Fono', atualizado_em: serverTimestamp() }));
+  // notas das metas no registro da consulta
+  const f = db('fono'), b = loteAtendimento(f, 'fono', { id: 'mt1' });
+  b.set(doc(f, 'atendimentos_registro', 'mt1'), { estudante_id: 'alunoA', profissional_uid: 'fono', objetivo: 'Treino', metas: { m1: 3 }, versao: 1 });
+  await assertSucceeds(b.commit());
+  const b2 = loteAtendimento(f, 'fono', { id: 'mt2' });
+  b2.set(doc(f, 'atendimentos_registro', 'mt2'), { estudante_id: 'alunoA', profissional_uid: 'fono', objetivo: 'Treino', metas: Object.fromEntries(Array.from({ length: 9 }, (_, i) => ['m' + i, 3])), versao: 1 });
+  await assertFails(b2.commit());
+});
+
+test('cópia de segurança: só a administração lista contatos e dados clínicos', async () => {
+  await assertSucceeds(getDocs(collection(db('admin'), 'estudantes_clinico')));
+  await assertSucceeds(getDocs(collection(db('admin'), 'estudantes_privado')));
+  await assertSucceeds(getDocs(collection(db('sec'), 'estudantes_privado')));
+  await assertFails(getDocs(collection(db('dirA'), 'estudantes_privado')));
+  await assertFails(getDocs(collection(db('psico'), 'estudantes_clinico')));
+});
+
+test('equipe pedagógica: cadastra aluno e pede atendimento só na própria escola; não agenda nem lê clínico', async () => {
+  const f = db('pedA');
+  await assertSucceeds(setDoc(doc(f, 'estudantes', 'np1'), { nome: 'Aluno Novo', escola_id: ESC_A, situacao: 'ativo', criado_por: 'pedA', criado_em: serverTimestamp() }));
+  await assertFails(setDoc(doc(f, 'estudantes', 'np2'), { nome: 'Aluno Outra', escola_id: ESC_B, situacao: 'ativo', criado_por: 'pedA', criado_em: serverTimestamp() }));
+  await assertSucceeds(setDoc(doc(f, 'estudantes_privado', 'np1'), { mae: 'Mãe', telefone: '33999990000', motivo_encaminhamento: 'Não acompanha a leitura', atualizado_por: 'pedA', atualizado_em: serverTimestamp() }));
+  await assertSucceeds(getDoc(doc(f, 'estudantes', 'alunoA'))); await assertFails(getDoc(doc(f, 'estudantes', 'alunoB')));
+  await assertFails(getDoc(doc(f, 'estudantes_clinico', 'alunoA')));
+  await assertSucceeds(setDoc(doc(f, 'pedidos', 'pp1'), pedido('pedA', 'Pedagógica A')));
+  await assertFails(setDoc(doc(f, 'pedidos', 'pp2'), pedido('pedA', 'Pedagógica A', { estudante_id: 'alunoB', escola_id: ESC_B })));
+  await assertSucceeds(setDoc(doc(db('dirA'), 'pedidos', 'pp3'), pedido('dirA', 'Direção A')));
+  const cancela = (id, uid) => updateDoc(doc(db(uid), 'pedidos', id), { situacao: 'cancelado', motivo_cancelamento: 'Família não autorizou', atualizado_por: uid, atualizado_em: serverTimestamp() });
+  await assertFails(cancela('pp3', 'pedA')); // pedido feito pela direção
+  await assertSucceeds(cancela('pp1', 'pedA'));
+  await assertFails(loteAgenda(db('pedA'), { criador: 'pedA' }).commit());
+  await loteAtendimento(db('fono'), 'fono').commit();
+  await assertSucceeds(getDoc(doc(f, 'atendimentos', 'at1'))); await assertFails(getDoc(doc(f, 'atendimentos_registro', 'at1')));
+  // a direção cria e desativa o acesso da equipe pedagógica da própria escola
+  const novaConta = (uid, id, extra = {}) => setDoc(doc(db(uid), 'usuarios', id), { nome: 'Coordenadora', email: id + '@teste.br', perfil: 'pedagogico', ativo: true, excluido: false, gerenciar: false, especialidade: '', escolas: [ESC_A], criado_em: serverTimestamp(), ...extra });
+  await assertSucceeds(novaConta('dirA', 'coordA'));
+  await assertFails(novaConta('dirA', 'coordB', { escolas: [ESC_B] }));
+  await assertFails(novaConta('dirA', 'coordC', { perfil: 'direcao' }));
+  await assertSucceeds(novaConta('dirA', 'secEsc2', { perfil: 'secretaria_escolar', cargo: 'Secretário(a) escolar' }));
+  await assertFails(novaConta('secEscA', 'coordG'));
+  await assertFails(novaConta('dirA', 'coordH', { perfil: 'especialista', especialidade: 'fonoaudiologia' }));
+  await assertFails(novaConta('dirA', 'coordD', { escolas: [] }));
+  await assertFails(novaConta('pedA', 'coordE'));
+  await assertFails(novaConta('fono', 'coordF'));
+  const mudar = (uid, id, d) => updateDoc(doc(db(uid), 'usuarios', id), { ...d, atualizado_em: serverTimestamp(), atualizado_por: uid });
+  await assertSucceeds(mudar('dirA', 'coordA', { ativo: false, excluido: true, motivo_exclusao: 'Mudou de escola' }));
+  await assertFails(mudar('dirA', 'coordA', { perfil: 'secretaria' }));
+  await assertFails(mudar('dirA', 'fono', { ativo: false }));
+  await assertFails(mudar('dirA', 'dirA', { escolas: [ESC_A, ESC_B] }));
+  // a gestão cria o acesso da equipe pedagógica
+  await assertSucceeds(setDoc(doc(db('sec'), 'convites', 'coord@teste.br'), { email: 'coord@teste.br', nome: 'Coordenação', perfil: 'pedagogico', especialidade: '', escolas: [ESC_A], ativo: true, criado_por: 'sec', criado_em: serverTimestamp() }));
+});
+
+test('documentos emitidos: direção da escola lê e a impressão registra nome e cargo', async () => {
+  const rel = (id, escola, aluno) => setDoc(doc(db('fono'), 'relatorios', id), { estudante_id: aluno, escola_id: escola, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', tipo: 'parecer', titulo: 'Parecer', texto: 'Texto', criado_em: serverTimestamp() });
+  await assertSucceeds(rel('r1', ESC_A, 'alunoA')); await assertSucceeds(rel('r2', ESC_B, 'alunoB'));
+  await assertSucceeds(getDoc(doc(db('dirA'), 'relatorios', 'r1')));
+  await assertFails(getDoc(doc(db('dirA'), 'relatorios', 'r2')));
+  await assertSucceeds(getDocs(query(collection(db('dirA'), 'relatorios'), where('estudante_id', '==', 'alunoA'), where('escola_id', '==', ESC_A))));
+  await assertFails(getDocs(query(collection(db('dirA'), 'relatorios'), where('estudante_id', '==', 'alunoA'))));
+  await assertFails(getDoc(doc(db('pedA'), 'relatorios', 'r1')));
+  await assertSucceeds(getDoc(doc(db('sec'), 'relatorios', 'r1')));
+  await assertSucceeds(getDoc(doc(db('secEscA'), 'relatorios', 'r1')));
+  await assertFails(getDoc(doc(db('secEscA'), 'relatorios', 'r2')));
+  const imp = extra => setDoc(doc(collection(db('dirA'), 'acessos')), { uid: 'dirA', nome: 'Direção A', perfil: 'direcao', cargo: 'Vice-diretor(a)', estudante_id: 'alunoA', escola_id: ESC_A, acao: 'relatorio', documento: 'r1', em: serverTimestamp(), ...extra });
+  await assertSucceeds(imp()); await assertFails(imp({ cargo: 'x'.repeat(81) }));
+  // cargo na conta: gestão define; usuário não altera o próprio cargo
+  await assertSucceeds(updateDoc(doc(db('sec'), 'usuarios', 'dirA'), { cargo: 'Diretor(a)', atualizado_em: serverTimestamp(), atualizado_por: 'sec' }));
+  await assertFails(updateDoc(doc(db('dirA'), 'usuarios', 'dirA'), { cargo: 'Secretário(a) escolar', atualizado_em: serverTimestamp(), atualizado_por: 'dirA' }));
+});
+
+// ---------- mudança de escola do aluno (correção do cadastro ou transferência) ----------
+test('mudança de escola: agendamento em aberto e pedido da fila acompanham o aluno no mesmo lote', async () => {
+  await assertSucceeds(loteAgenda(db('fono'), { criador: 'fono' }).commit());
+  await assertSucceeds(setDoc(doc(db('dirA'), 'pedidos', 'p1'), pedido('dirA', 'Direção A')));
+  const lote = (uid, escolaAluno, escolaItens = escolaAluno) => {
+    const f = db(uid), b = writeBatch(f);
+    b.update(doc(f, 'estudantes', 'alunoA'), { escola_id: escolaAluno, atualizado_por: uid, atualizado_em: serverTimestamp() });
+    b.update(doc(f, 'agendamentos', 'ag1'), { escola_id: escolaItens, alterado_por: uid, alterado_em: serverTimestamp() });
+    b.update(doc(f, 'pedidos', 'p1'), { escola_id: escolaItens, atualizado_por: uid, atualizado_em: serverTimestamp() });
+    return b.commit();
+  };
+  // sem mudar o aluno, não dá para mover os itens para outra escola
+  await assertFails(updateDoc(doc(db('fono'), 'agendamentos', 'ag1'), { escola_id: ESC_B, alterado_por: 'fono', alterado_em: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db('fono'), 'pedidos', 'p1'), { escola_id: ESC_B, atualizado_por: 'fono', atualizado_em: serverTimestamp() }));
+  // direção da escola A não leva o aluno para a escola B
+  await assertFails(lote('dirA', ESC_B));
+  // itens precisam ir para a mesma escola do aluno
+  await assertFails(lote('psico', ESC_B, ESC_A + 'x'));
+  // especialista corrige a escola: aluno, agendamento e pedido passam juntos
+  await assertSucceeds(lote('psico', ESC_B));
+  await env.withSecurityRulesDisabled(async c => {
+    const f = c.firestore();
+    assert.equal((await getDoc(doc(f, 'agendamentos', 'ag1'))).data().escola_id, ESC_B);
+    assert.equal((await getDoc(doc(f, 'pedidos', 'p1'))).data().escola_id, ESC_B);
+  });
+  // a mudança de escola não altera outros campos do agendamento
+  const f = db('psico'), b = writeBatch(f);
+  b.update(doc(f, 'estudantes', 'alunoA'), { escola_id: ESC_A, atualizado_por: 'psico', atualizado_em: serverTimestamp() });
+  b.update(doc(f, 'agendamentos', 'ag1'), { escola_id: ESC_A, duracao_min: 60, alterado_por: 'psico', alterado_em: serverTimestamp() });
+  await assertFails(b.commit());
+});

@@ -1,0 +1,88 @@
+/* Documentos impressos / PDF — A4, padrão oficial da Secretaria Municipal de Educação. */
+@page {
+  size: A4; margin: 16mm 15mm 18mm;
+  @bottom-left { font: 7.5pt Arial, Helvetica, sans-serif; color: #444; }
+  @bottom-right { font: 7.5pt Arial, Helvetica, sans-serif; color: #444; }
+  @top-left { font: 7.5pt Arial, Helvetica, sans-serif; color: #666; }
+}
+* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; font-size: 10pt; line-height: 1.45; margin: 0; }
+@media screen { body { max-width: 190mm; margin: 12mm auto; padding: 0 6mm; } }
+b, strong { font-weight: 700; }
+
+/* cabeçalho */
+.doc-cab { margin-bottom: 5mm; }
+.doc-cab-linha { display: grid; grid-template-columns: 24mm 1fr 24mm; align-items: center; gap: 4mm; padding-bottom: 3mm; border-bottom: 1.5pt solid #102336; }
+.doc-logo { width: 24mm; height: 22mm; object-fit: contain; display: block; }
+.doc-cab-txt { display: grid; text-align: center; font-size: 8.5pt; color: #333; line-height: 1.35; }
+.doc-cab-txt strong { font-size: 10.5pt; color: #102336; letter-spacing: .02em; }
+.doc-cab-txt em { font-style: normal; font-weight: 700; color: #102336; margin-top: 1mm; }
+.doc-titulo { background: #102336; color: #fff; text-align: center; padding: 2.5mm 4mm; margin-top: 3mm; border-radius: 1.5mm; }
+.doc-titulo h1 { margin: 0; font-size: 12.5pt; text-transform: uppercase; letter-spacing: .04em; color: #fff; }
+.doc-titulo p { margin: .8mm 0 0; font-size: 8.5pt; color: #d8e2ec; }
+
+/* identificação do aluno */
+.doc-id { display: grid; grid-template-columns: repeat(4, 1fr); border: .75pt solid #8a98a6; border-radius: 1.5mm; overflow: hidden; margin-bottom: 4mm; }
+.id-campo { padding: 1.5mm 2.5mm; border-right: .5pt solid #c9d2db; border-bottom: .5pt solid #c9d2db; min-height: 10mm; }
+.id-campo small { display: block; font-size: 7pt; text-transform: uppercase; letter-spacing: .05em; color: #5a6a79; }
+.id-campo b { font-size: 9.5pt; font-weight: 600; }
+.id-campo.largo2 { grid-column: span 2; } .id-campo.largo3 { grid-column: span 3; }
+
+/* seções */
+.doc-secao { margin-top: 5mm; }
+h2 { display: flex; align-items: center; gap: 2.5mm; font-size: 10.5pt; color: #102336; text-transform: uppercase; letter-spacing: .03em; margin: 0 0 2.5mm; padding-bottom: 1.2mm; border-bottom: .75pt solid #102336; break-after: avoid; }
+h2 span { display: inline-grid; place-items: center; width: 5.5mm; height: 5.5mm; border-radius: 50%; background: #102336; color: #fff; font-size: 8pt; }
+h3 { font-size: 10pt; color: #102336; margin: 4mm 0 1.5mm; break-after: avoid; }
+p { margin: 0 0 2mm; }
+.doc-dl { margin: 0; } .doc-dl dt { font-size: 8pt; text-transform: uppercase; letter-spacing: .04em; color: #5a6a79; margin-top: 1.5mm; } .doc-dl dd { margin: .5mm 0 0; }
+.doc-dest { background: #f2f5f8; border-left: 2pt solid #102336; padding: 1.5mm 3mm; }
+.doc-nota { font-size: 8.5pt; color: #555; font-style: italic; margin-top: 3mm; }
+
+/* tabelas */
+.doc-tab { width: 100%; border-collapse: collapse; margin: 0 0 2mm; font-size: 9pt; }
+.doc-tab th { background: #e9eef3; color: #102336; text-align: left; font-weight: 700; font-size: 8pt; text-transform: uppercase; letter-spacing: .03em; }
+.doc-tab th, .doc-tab td { border: .5pt solid #b5c0cb; padding: 1.6mm 2.2mm; vertical-align: top; }
+.doc-tab tbody tr:nth-child(even) td { background: #f7f9fb; }
+.doc-tab tr { break-inside: avoid; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.notas { display: flex; flex-wrap: wrap; gap: 1mm 2.5mm; } .notas i { font-style: normal; white-space: nowrap; color: #333; }
+.notas i b { display: inline-grid; place-items: center; min-width: 4.5mm; height: 4.5mm; border-radius: 1mm; background: #102336; color: #fff; font-size: 7.5pt; }
+.doc-tab td small { display: block; color: #555; margin-top: .8mm; }
+
+/* registro de atendimento */
+.doc-reg { border: .75pt solid #b5c0cb; border-left: 2.5pt solid var(--esp, #102336); border-radius: 1.5mm; margin-bottom: 3mm; break-inside: avoid; overflow: hidden; }
+.doc-reg.esp-fonoaudiologia { --esp: #3d6fd6; } .doc-reg.esp-neuropsicologia { --esp: #b8448f; } .doc-reg.esp-psicopedagogia { --esp: #c97a18; }
+.doc-reg header { display: flex; justify-content: space-between; align-items: center; background: #f2f5f8; padding: 1.5mm 3mm; font-size: 9.5pt; }
+.reg-esp { font-weight: 700; color: var(--esp); font-size: 8.5pt; text-transform: uppercase; letter-spacing: .04em; }
+.reg-meta { display: grid; grid-template-columns: 1.3fr 1.5fr .9fr 1.1fr; border-top: .5pt solid #d5dde5; border-bottom: .5pt solid #d5dde5; }
+.reg-meta span { padding: 1.2mm 3mm; font-size: 8.5pt; border-right: .5pt solid #e1e7ed; } .reg-meta span:last-child { border-right: 0; }
+.reg-meta small { display: block; font-size: 6.5pt; text-transform: uppercase; letter-spacing: .05em; color: #6a7987; }
+.reg-soap { width: 100%; border-collapse: collapse; font-size: 9pt; }
+.reg-soap th { width: 30mm; text-align: left; vertical-align: top; padding: 1.5mm 3mm; font-weight: 400; color: #4a5866; font-size: 8pt; }
+.reg-soap th b { display: inline-grid; place-items: center; width: 4.5mm; height: 4.5mm; border-radius: 1mm; background: var(--esp, #102336); color: #fff; font-size: 7.5pt; margin-right: 1.5mm; }
+.reg-soap td { padding: 1.5mm 3mm 1.5mm 0; white-space: pre-wrap; }
+.reg-soap tr + tr th, .reg-soap tr + tr td { border-top: .5pt dashed #dde3e9; }
+.reg-escola { margin: 0; padding: 1.5mm 3mm; background: #fbf7ee; border-top: .5pt solid #eadfc4; font-size: 8.5pt; }
+
+/* textos de relatório */
+.doc-texto { text-align: justify; hyphens: auto; font-size: 10.5pt; line-height: 1.6; margin-top: 2mm; }
+.doc-texto p { margin: 0 0 3mm; text-indent: 0; }
+.doc-texto ul { margin: 0 0 3mm 6mm; padding: 0; }
+
+/* indicadores (relatório gerencial) */
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin-bottom: 2mm; }
+.kpi { border: .75pt solid #b5c0cb; border-top: 2pt solid #102336; border-radius: 1.5mm; padding: 2mm 3mm; }
+.kpi small { display: block; font-size: 7.5pt; text-transform: uppercase; color: #5a6a79; } .kpi b { font-size: 16pt; color: #102336; }
+
+/* orientações para a escola */
+.orientacao { border-left: 2pt solid #c97a18; background: #fbf7ee; padding: 1.5mm 3mm; margin-bottom: 2mm; break-inside: avoid; }
+.orientacao small { color: #6d5a2e; font-size: 8pt; } .orientacao p { margin: .5mm 0 0; }
+
+/* fechamento */
+.doc-local { margin-top: 7mm; text-align: right; }
+.assinaturas { display: flex; flex-wrap: wrap; gap: 10mm 14mm; justify-content: center; margin-top: 14mm; break-inside: avoid; }
+.assinatura { display: grid; text-align: center; width: 70mm; font-size: 9pt; } .assinatura span { border-top: .75pt solid #000; margin-bottom: 1.2mm; }
+.assinatura small { color: #444; font-size: 8pt; }
+.doc-rodape { margin-top: 8mm; font-size: 7.5pt; color: #555; border-top: .5pt solid #b5c0cb; padding-top: 2mm; break-inside: avoid; }
+.doc-rodape p { margin: 1mm 0 0; }
+.doc-log { font-size: 8pt; color: #1a1a1a; background: #f2f5f8; border: .5pt solid #b5c0cb; border-radius: 1mm; padding: 1.2mm 2.5mm; }

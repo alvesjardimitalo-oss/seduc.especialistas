@@ -1,0 +1,44 @@
+name: Testes SEDUC Especialistas
+on:
+  push:
+    branches: [main, v2-prontuario]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Sintaxe
+        run: for f in js/*.js js/paginas/*.js; do node --check "$f"; done
+      - name: Regras de negócio
+        run: node --test tests/dominio.test.mjs
+      - name: Instalar ferramentas de teste
+        run: npm install --no-audit --no-fund && npm install --no-save --no-audit --no-fund playwright@1.55.0 && npx playwright install --with-deps chromium
+      - name: Regras de segurança do Firestore (emulador)
+        run: |
+          set -o pipefail
+          npm run test:regras 2>&1 | tee regras.log || {
+            msg=$(grep -E "not ok|^\s+error: |location: |^# (pass|fail)" regras.log | grep -v "^#.*evaluation" | head -60 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            echo "::error title=regras::$msg"; exit 1; }
+      - name: Interface no navegador (simulador, dados fictícios)
+        run: |
+          set -o pipefail
+          node tests/tela.local.mjs capturas 2>&1 | tee tela.log || { msg=$(tail -25 tela.log | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g'); echo "::error title=tela::$msg"; exit 1; }
+      - name: Guardar capturas de tela
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas
+          path: capturas/
+          retention-days: 7

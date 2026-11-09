@@ -1,0 +1,12 @@
+{
+  "name": "SEDUC Especialistas — Frei Inocêncio/MG",
+  "short_name": "SEDUC Especialistas",
+  "description": "Prontuário do atendimento especializado da Rede Municipal de Ensino de Frei Inocêncio/MG",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#102336",
+  "theme_color": "#102336",
+  "lang": "pt-BR",
+  "icons": [{ "src": "img/logos/seduc.png", "sizes": "300x293", "type": "image/png", "purpose": "any" }]
+}
