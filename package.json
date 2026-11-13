@@ -1,0 +1,24 @@
+{
+  "name": "seduc-especialistas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
+    "start": "node scripts/local-server.mjs",
+    "deploy": "npm run build && npx -y firebase-tools@latest deploy --project seduc-especialistas"
+  },
+  "dependencies": {
+    "firebase": "13.1.0",
+    "lucide": "^0.577.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase-tools": "^15.34.1",
+    "vite": "8.3.5"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.13.6"
+  }
+}
