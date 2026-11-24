@@ -10,7 +10,7 @@ const { chromium } = require('playwright');
 
 const raiz = new URL('..', import.meta.url).pathname, saida = process.argv[2] || '/tmp/capturas';
 await import('node:fs').then(fs => fs.mkdirSync(saida, { recursive: true }));
-const tipos = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.pdf': 'application/pdf', '.png': 'image/png' };
+const tipos = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.pdf': 'application/pdf', '.png': 'image/png', '.woff2': 'font/woff2' };
 const servidor = createServer(async (req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname); if (p === '/') p = '/index.html';
   if (p === '/js/firebase.js') p = '/tests/simulador-firebase.js';
