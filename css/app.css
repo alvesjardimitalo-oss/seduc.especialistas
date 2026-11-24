@@ -520,3 +520,32 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .nao-mostrar { font-weight: 600; font-size: .9rem; }
 .modal-novidades footer { align-items: center; } .modal-novidades footer .nao-mostrar { margin-right: auto; }
 .modal-novidades footer .btn.sec { display: none; }
+
+/* ---------- acompanhamento do dia ---------- */
+:root { --ac-realizada: #1a7f4b; --ac-falta: #c4552f; --ac-atendimento: #3d6fd6; --ac-horario: #7aa0e8; --ac-atrasada: #c98a12; --ac-chegou: #0d8f85; --ac-proxima: #c9d3dd; --ac-cancelada: #e4e9ee; }
+.ao-vivo { display: inline-flex; align-items: center; gap: .45rem; font-size: .82rem; font-weight: 600; color: var(--ok); background: #e3f4ea; border-radius: 20px; padding: .3rem .75rem; }
+.ao-vivo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulso 1.6s infinite; }
+.ao-vivo.off { color: #6d4507; background: #fcf1e1; } .ao-vivo.off::before { animation: none; }
+@keyframes pulso { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.acomp { display: grid; gap: 1.2rem; }
+.acomp .metricas { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } .acomp .metrica span { font-size: .8rem; }
+.ac-m-realizada { border-top-color: var(--ac-realizada); } .ac-m-falta { border-top-color: var(--ac-falta); } .ac-m-atendimento { border-top-color: var(--ac-atendimento); } .ac-m-atrasada { border-top-color: var(--ac-atrasada); }
+.ac-realizada { --ac: var(--ac-realizada); } .ac-falta { --ac: var(--ac-falta); } .ac-atendimento { --ac: var(--ac-atendimento); } .ac-horario { --ac: var(--ac-horario); }
+.ac-atrasada { --ac: var(--ac-atrasada); } .ac-chegou { --ac: var(--ac-chegou); } .ac-proxima { --ac: var(--ac-proxima); } .ac-cancelada { --ac: var(--ac-cancelada); }
+.barra100 span.ac-realizada, .barra100 span.ac-falta, .barra100 span.ac-atendimento, .barra100 span.ac-horario, .barra100 span.ac-atrasada, .barra100 span.ac-chegou, .barra100 span.ac-proxima,
+.legenda i.ac-realizada, .legenda i.ac-falta, .legenda i.ac-atendimento, .legenda i.ac-horario, .legenda i.ac-atrasada, .legenda i.ac-chegou, .legenda i.ac-proxima { background: var(--ac); }
+.barra100 span.ac-atrasada, .legenda i.ac-atrasada { background: repeating-linear-gradient(135deg, var(--ac-atrasada) 0 4px, #f3dca8 4px 7px); }
+.ac-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 1.2rem; align-items: start; }
+.ac-prof .cartao-topo h2 { font-size: 1rem; } .ac-prof .cartao-topo { align-items: flex-start; }
+.ac-alerta { font-size: .75rem; font-weight: 700; color: #6d4507; background: #fcf1e1; border-radius: 20px; padding: .15rem .6rem; white-space: nowrap; }
+.ac-ok { font-size: .75rem; font-weight: 700; color: #234e9e; background: #e7eefc; border-radius: 20px; padding: .15rem .6rem; white-space: nowrap; }
+.ac-lista { display: grid; gap: .45rem; }
+.ac-linha { display: grid; grid-template-columns: 58px 1fr auto; grid-template-areas: "hora quem selo" "hora detalhe selo"; gap: .05rem .7rem; align-items: center; text-align: left; width: 100%;
+  background: #fff; border: 1px solid var(--linha); border-left: 5px solid var(--ac); border-radius: 10px; padding: .5rem .7rem; cursor: pointer; font: inherit; color: inherit; }
+.ac-linha:hover { box-shadow: var(--sombra); border-color: #c5d1dc; border-left-color: var(--ac); }
+.ac-hora { grid-area: hora; font-weight: 700; color: var(--marinho); font-variant-numeric: tabular-nums; } .ac-hora small { display: block; font-weight: 400; color: var(--suave); font-size: .72rem; }
+.ac-quem { grid-area: quem; min-width: 0; } .ac-quem strong { display: block; font-size: .9rem; } .ac-quem small { color: var(--suave); font-size: .75rem; }
+.ac-detalhe { grid-area: detalhe; font-size: .76rem; color: var(--suave); }
+.ac-selo { grid-area: selo; font-size: .74rem; font-weight: 700; border-radius: 20px; padding: .2rem .6rem; background: color-mix(in srgb, var(--ac) 16%, #fff); color: color-mix(in srgb, var(--ac) 80%, #000); white-space: nowrap; }
+.ac-linha.ac-atrasada { background: #fffaf0; } .ac-linha.ac-cancelada { opacity: .65; }
+@media (max-width: 560px) { .ac-grade { grid-template-columns: 1fr; } .ac-linha { grid-template-columns: 48px 1fr; grid-template-areas: "hora quem" "hora detalhe" "hora selo"; } .ac-selo { justify-self: start; } }

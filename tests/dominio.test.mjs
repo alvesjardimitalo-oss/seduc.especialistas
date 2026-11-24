@@ -328,3 +328,23 @@ test('painel da especialista: semana, mês e tendência dos alunos', () => {
   assert.deepEqual(t.map(x => [x.estudante_id, x.sinal]), [['a', 'atencao'], ['b', 'avancando']]);
   assert.deepEqual(t[0].evolucoes, ['avancou', 'regrediu']);
 });
+
+test('acompanhamento do dia: situação da consulta pelo relógio e pelo registro', () => {
+  const ini = d.instante('2026-11-24', '09:00').getTime(), min = 60000;
+  const a = { inicio: ini, duracao_min: 30, status: 'agendado' };
+  assert.equal(d.estadoConsulta(a, ini - min), 'proxima');
+  assert.equal(d.estadoConsulta({ ...a, chegada_em: ini - 5 * min }, ini - min), 'chegou');
+  assert.equal(d.estadoConsulta(a, ini + 10 * min), 'no_horario');
+  assert.equal(d.estadoConsulta(a, ini + 30 * min), 'aguardando_registro');
+  assert.equal(d.estadoConsulta({ ...a, duracao_min: 60 }, ini + 45 * min), 'no_horario');
+  // iniciada pela especialista: "em atendimento" até finalizar, mesmo depois do horário
+  assert.equal(d.estadoConsulta({ ...a, iniciado_em: ini + 2 * min }, ini + 90 * min), 'em_atendimento');
+  assert.equal(d.estadoConsulta({ ...a, iniciado_em: ini, status: 'realizado' }, ini + 90 * min), 'realizado');
+  for (const s of ['realizado', 'falta', 'cancelado']) assert.equal(d.estadoConsulta({ ...a, status: s }, ini + 90 * min), s);
+  const r = d.resumoDoDia([
+    { ...a, profissional_uid: 'p2', profissional_nome: 'Bruna' }, { ...a, status: 'realizado', profissional_uid: 'p1', profissional_nome: 'Ana' },
+    { ...a, inicio: ini + 60 * min, profissional_uid: 'p1', profissional_nome: 'Ana' }, { ...a, status: 'cancelado', profissional_uid: 'p1', profissional_nome: 'Ana' }], ini + 40 * min);
+  assert.deepEqual([r.totais.aguardando_registro, r.totais.realizado, r.totais.proxima, r.totais.cancelado], [1, 1, 1, 1]);
+  assert.equal(r.ativas, 3); assert.equal(r.ocorridas, 1);
+  assert.deepEqual(r.profissionais.map(p => [p.nome, p.itens.length]), [['Ana', 3], ['Bruna', 1]]);
+});

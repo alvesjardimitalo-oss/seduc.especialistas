@@ -7,5 +7,5 @@ export {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 export {
   getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence,
-  collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp
+  collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';

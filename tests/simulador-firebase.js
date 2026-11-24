@@ -64,12 +64,21 @@ export async function getDocs(q) {
   }
   return { docs, size: docs.length, empty: !docs.length };
 }
+const escutas = new Set();
+export function onSnapshot(q, proximo) {
+  const e = { q, proximo }; escutas.add(e);
+  getDocs(q).then(s => escutas.has(e) && proximo({ ...s, metadata: { fromCache: false } }));
+  window.__escutasAtivas = escutas.size;
+  return () => { escutas.delete(e); window.__escutasAtivas = escutas.size; };
+}
+const avisarEscutas = () => { for (const e of escutas) getDocs(e.q).then(s => escutas.has(e) && e.proximo({ ...s, metadata: { fromCache: false } })); };
 function aplicar(ops) {
   for (const o of ops) {
     if (o.op === 'set') banco.set(o.ref.caminho, resolver(o.d));
     if (o.op === 'update') { if (!banco.has(o.ref.caminho)) throw Object.assign(Error('not-found'), { code: 'not-found' }); banco.set(o.ref.caminho, { ...banco.get(o.ref.caminho), ...resolver(o.d) }); }
     if (o.op === 'delete') banco.delete(o.ref.caminho);
   }
+  avisarEscutas();
 }
 export function writeBatch() {
   const ops = [];

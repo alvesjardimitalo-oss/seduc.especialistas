@@ -302,6 +302,19 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', 
  * Janela ampliada da consulta (agendada ou avulsa): dados, código, presença, reagendar e registro.
  * Para agendamento em aberto: "O aluno compareceu?" Sim → registro; Não → falta (e opção de reagendar).
  */
+/**
+ * A especialista começa a consulta: grava o início (para o acompanhamento do dia) e abre o registro.
+ * Se as regras publicadas ainda não aceitarem o início, o registro abre normalmente (aviso uma vez por sessão).
+ */
+let avisouInicio = false;
+export async function iniciarEAtender(ag) {
+  try { await dados.iniciarAtendimento(ag); }
+  catch (e) {
+    console.warn('início do atendimento não registrado', e);
+    if (!avisouInicio) { avisouInicio = true; aviso('O horário de início não foi registrado agora (atualização pendente no servidor). Registre a consulta normalmente.', 'aviso'); }
+  }
+  return formAtendimento({ agendamento: ag });
+}
 export async function abrirConsulta(item) {
   if (!item) return;
   const avulso = item.tipo_item === 'atendimento';
@@ -322,6 +335,7 @@ export async function abrirConsulta(item) {
     + '<p>' + esc(formatarDataHora(item.inicio)) + ' · ' + (item.duracao_min || '') + ' min · ' + esc(nomeEscola(item.escola_id)) + '</p>'
     + '<p>' + esc(item.profissional_nome) + ' · ' + esc(ESPECIALIDADES[item.especialidade] || '') + '</p></div>'
     + '<span class="selo grande s-' + esc(status) + '">' + esc(STATUS_AGENDA[status]) + '</span></div>'
+    + (ag?.iniciado_em && status === 'agendado' ? '<p class="alerta-caixa info">Em atendimento desde ' + esc(horaMunicipal(ag.iniciado_em)) + '.</p>' : '')
     + (ag?.observacao ? '<p class="nota">Observação: ' + esc(ag.observacao) + '</p>' : '')
     + (ag?.motivo && status !== 'agendado' ? '<p class="alerta-caixa aviso">' + esc(status === 'falta' ? 'Falta: ' : 'Motivo: ') + esc(ag.motivo) + '</p>' : '')
     // Pergunta de presença
@@ -345,7 +359,7 @@ export async function abrirConsulta(item) {
   $$('[data-fechar-link]', form).forEach(a => a.addEventListener('click', () => document.getElementById('modal')?.remove()));
   $$('[data-c]', form).forEach(b => b.onclick = () => {
     const acao = b.dataset.c;
-    if (acao === 'sim') return formAtendimento({ agendamento: ag });
+    if (acao === 'sim') return iniciarEAtender(ag);
     if (acao === 'editar') return formAtendimento({ atendimento: { ...at, id: atendimentoId }, registro: reg });
     if (acao === 'reagendar') return formAgendar({ remarcar: ag });
     if (acao === 'whatsapp') return lembreteWhatsApp(ag);

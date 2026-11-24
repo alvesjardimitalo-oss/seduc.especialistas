@@ -639,3 +639,22 @@ test('mudança de escola: agendamento em aberto e pedido da fila acompanham o al
   b.update(doc(f, 'agendamentos', 'ag1'), { escola_id: ESC_A, duracao_min: 60, alterado_por: 'psico', alterado_em: serverTimestamp() });
   await assertFails(b.commit());
 });
+
+test('acompanhamento: início do atendimento pela própria especialista, uma vez, com hora do servidor', async () => {
+  await env.withSecurityRulesDisabled(async ctx => {
+    await setDoc(doc(ctx.firestore(), 'agendamentos', 'agAgora'), { estudante_id: 'alunoA', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia',
+      inicio: Timestamp.fromMillis(Date.now() - 10 * 60000), duracao_min: 30, status: 'agendado', codigo: COD_AG, criado_por: 'fono', criado_em: Timestamp.now() });
+  });
+  const inicia = (uid, id = 'agAgora', v = serverTimestamp(), extra = {}) => updateDoc(doc(db(uid), 'agendamentos', id), { iniciado_em: v, alterado_por: uid, alterado_em: serverTimestamp(), ...extra });
+  await assertFails(inicia('psico'));                                   // outra especialista
+  await assertFails(inicia('admin'));                                   // gestão acompanha, não inicia
+  await assertFails(inicia('dirA'));
+  await assertFails(inicia('fono', 'agAgora', Timestamp.fromMillis(1))); // hora tem de ser a do servidor
+  await assertFails(inicia('fono', 'agAgora', serverTimestamp(), { status: 'realizado' }));
+  await assertSucceeds(inicia('fono'));
+  await assertFails(inicia('fono'));                                    // só uma vez
+  await assertSucceeds(getDoc(doc(db('admin'), 'agendamentos', 'agAgora')));
+  // consulta futura (mais de 30 min): ainda não pode ser iniciada
+  await loteAgenda(db('fono'), { id: 'agFut', criador: 'fono', hora: '10:00' }).commit();
+  await assertFails(inicia('fono', 'agFut'));
+});

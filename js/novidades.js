@@ -1,12 +1,18 @@
 // Boletim de novidades: o que mudou e por quê, mostrado uma vez a cada pessoa afetada.
 // Ao publicar um boletim novo, troque VERSAO_NOVIDADES e a lista NOVIDADES.
 // Módulo só de dados (sem DOM): também é importado pelo teste de interface.
-export const VERSAO_NOVIDADES = '2026-11-24';
+export const VERSAO_NOVIDADES = '2026-11-24b';
 export const TITULO_NOVIDADES = 'Novidades de novembro de 2026';
 
 const GESTAO = ['superadmin', 'secretaria'], ESCOLA = ['direcao', 'secretaria_escolar', 'pedagogico'];
 /** para: perfis que veem o item ('todos' = qualquer perfil ativo). link: tela onde conferir. */
 export const NOVIDADES = [
+  { para: [...GESTAO, 'direcao', 'secretaria_escolar'], titulo: 'Acompanhamento do dia, em tempo real', link: '#/acompanhamento',
+    oque: 'Novo item no menu: cada consulta de hoje aparece com a situação atual — próxima, aluno chegou, em atendimento, realizada, não compareceu ou passou do horário sem registro — e muda sozinha, sem recarregar a página.',
+    porque: 'Antes a consulta continuava como “Agendada” até alguém abrir a agenda, mesmo depois do horário. Agora a administração vê na hora o que foi realizado, as faltas e o que ainda precisa de registro.' },
+  { para: ['especialista'], titulo: 'Início do atendimento registrado', link: '#/painel',
+    oque: 'Ao clicar em “Atender” (ou em “Sim — registrar consulta”), o sistema guarda o horário de início; ao salvar o registro, a consulta é finalizada como realizada.',
+    porque: 'Para a coordenação acompanhar o dia sem precisar perguntar: o que está em atendimento, o que terminou e o que ainda falta registrar. Nada muda no seu registro.' },
   { para: ['especialista'], titulo: 'Seu painel ganhou “Minha semana”, “Meu mês” e “Como estão meus alunos”', link: '#/painel',
     oque: 'No Painel, a semana aparece em quadradinhos de meia hora da sua jornada (agendada, realizada, sem registro, falta ou livre) com a escola de cada dia. Abaixo, o mês mostra agenda ocupada, comparecimento e horas cumpridas, e a lista de alunos mostra as últimas evoluções registradas, com quem precisa de atenção primeiro.',
     porque: 'Para ver de relance os horários livres, as consultas que ainda precisam de registro e os alunos que regrediram ou estão estáveis há muito tempo, sem abrir a agenda nem cada prontuário. Nenhum texto clínico aparece nesses quadros.' },
