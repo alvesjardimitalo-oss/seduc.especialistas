@@ -27,6 +27,8 @@ jobs:
       - name: Carregar código e regras revisadas
         uses: actions/checkout@v4
         with:
+          # Produção (GitHub Pages) roda a partir desta branch; publique apenas as regras dela.
+          ref: feature/mvp-especialistas
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -39,7 +41,7 @@ jobs:
       - name: Instalar dependências reprodutíveis
         run: npm ci --no-audit --no-fund
       - name: Testar regras de segurança no emulador
-        run: npm run test:rules
+        run: npm run test:regras
       - name: Autenticar no Firebase (conta de serviço)
         uses: google-github-actions/auth@v2
         with:
