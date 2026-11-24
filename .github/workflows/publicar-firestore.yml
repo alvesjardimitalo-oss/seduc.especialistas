@@ -27,7 +27,6 @@ jobs:
       - name: Carregar código e regras revisadas
         uses: actions/checkout@v4
         with:
-          ref: feature/mvp-especialistas
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:

@@ -6,8 +6,9 @@
     "dev": "node scripts/dev.mjs",
     "build": "vite build",
     "test": "node --test tests/*.test.mjs",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-seduc \"node scripts/test-firestore.mjs\" && firebase emulators:exec --only auth,firestore --project demo-seduc-tests \"node tests/equipe-auth.integration.mjs\"",
     "start": "node scripts/local-server.mjs",
-    "deploy": "npm run build && npx -y firebase-tools@latest deploy --project seduc-especialistas"
+    "deploy": "npm run build && npx --no-install firebase deploy --project seduc-especialistas"
   },
   "dependencies": {
     "firebase": "13.1.0",

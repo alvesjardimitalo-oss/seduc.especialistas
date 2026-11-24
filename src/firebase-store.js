@@ -555,6 +555,10 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
       "enrollments",
       ...(clinical() ? ["notes"] : []),
     ];
+    // Sem escolas autorizadas, a consulta "in []" falharia; não há o que ler.
+    if (!global() && !state.user.schoolIds?.length)
+      return { ...state, _historyPartial: false };
+    let partial = false;
     await Promise.all(
       tasks.map(async (t) => {
         const snap = await getDocs(
@@ -568,6 +572,7 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
           ),
         );
         const rows = snap.docs.map(unpack);
+        if (snap.size === PAGE) partial = true;
         state[t] = [
           ...state[t].filter((x) => x.studentId !== studentId),
           ...rows,
@@ -575,7 +580,22 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
       }),
     );
     await hydrate();
-    return state;
+    return { ...state, _historyPartial: partial };
+  }
+  // Consultas ainda agendadas de um profissional em um intervalo (aviso de afastamento).
+  async function scheduledBetween(professionalId, startMs, endMs) {
+    if (!manager()) return 0;
+    const r = await getCountFromServer(
+      query(
+        collection(db, "appointments"),
+        where("status", "==", "Agendado"),
+        where("professionalId", "==", professionalId),
+        where("startMs", ">=", startMs),
+        where("startMs", "<", endMs),
+        limit(10000),
+      ),
+    );
+    return r.data().count;
   }
   async function report(filters) {
     if (!admin() && !state.user.canExport)
@@ -616,6 +636,7 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
     formOptions,
     history,
     report,
+    scheduledBetween,
     async applyFilters(t, filters) {
       queryFilters[t] = filters;
       cache.delete(t);

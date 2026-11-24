@@ -341,13 +341,25 @@ test("attendance is independent of clinical completion and deduplicated", () => 
   assert.equal(s.attendance.length, 0);
   const d = {
     linkId: appointment.linkId,
-    day: "2030-11-04",
+    day: "2025-11-04",
     entry: "07:00",
     exit: "17:00",
     status: "Presente",
   };
   save(s, "a", "attendance", d);
   assert.throws(() => save(s, "a", "attendance", d), /já registrada/);
+  assert.throws(
+    () => save(s, "a", "attendance", { ...d, day: "2030-11-04" }),
+    /data futura/,
+  );
+  save(s, "a", "attendance", {
+    ...d,
+    day: "2030-11-05",
+    entry: "",
+    exit: "",
+    status: "Justificado",
+    reason: "Afastamento previsto",
+  });
 });
 test("transfers preserve original enrollment and require admin", () => {
   const { s, otherSchool } = fixture(),

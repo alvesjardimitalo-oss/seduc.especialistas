@@ -539,6 +539,10 @@ function validate(s, u, table, d, old) {
         );
       const day = date(d.day);
       fail(
+        d.status !== "Presente" || day <= today(),
+        "Não é possível registrar presença em data futura.",
+      );
+      fail(
         l.start <= day && (!l.end || l.end >= day) && l.status === "Ativo",
         "Vínculo não está vigente.",
       );
@@ -756,8 +760,8 @@ export function report(s, identity, filters = {}) {
   const rows = v.appointments.filter(
     (a) =>
       (!filters.schoolId || a.schoolId === filters.schoolId) &&
-      (!filters.from || a.start.slice(0, 10) >= filters.from) &&
-      (!filters.to || a.start.slice(0, 10) <= filters.to),
+      (!filters.from || localParts(a.start).day >= filters.from) &&
+      (!filters.to || localParts(a.start).day <= filters.to),
   );
   const totals = new Map();
   for (const a of rows) {

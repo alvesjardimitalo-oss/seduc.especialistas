@@ -1,6 +1,6 @@
 # SEDUC Especialistas — Especificação funcional v0.1
 
-> Documento de planejamento. O sistema não está implantado e não deve receber informações pessoais reais antes da homologação.
+> Documento de planejamento original. O sistema está em uso; para coleções, permissões e procedimentos vigentes, consulte o [guia operacional](OPERACAO.md) e `firestore.rules`. Os nomes da seção 11 correspondem ao modelo inicial (aplicação legada); a aplicação atual usa nomes em inglês (`users`, `students`, `appointments`…).
 
 ## 1. Objetivo e interface
 Centralizar o acompanhamento de alunos atendidos por profissionais especializados da rede municipal. Interface baseada visualmente no SISDIFI: fonte Public Sans; menu lateral azul-marinho (#102a45), destaque dourado (#c2912e), cartões brancos, fundo cinza-claro (#f1f3f6), formulários, tabelas e painéis responsivos. O banco de dados e as permissões serão **independentes** do SISDIFI.

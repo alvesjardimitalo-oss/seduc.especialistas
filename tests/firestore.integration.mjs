@@ -264,7 +264,7 @@ try {
       table: "attendance",
       data: {
         linkId: link.id,
-        day: "2030-11-04",
+        day: "2025-11-04",
         entry: "07:00",
         exit: "17:00",
         status: "Presente",

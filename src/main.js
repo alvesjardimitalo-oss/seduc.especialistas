@@ -109,7 +109,8 @@ let state = {},
   auth = null,
   currentUser = null,
   store = null,
-  unsubscribe = null;
+  unsubscribe = null,
+  searchTimer = null;
 const admin = () => state.user?.role === "superadmin";
 const manager = () =>
   admin() || (state.user?.role === "secretaria" && state.user?.manageUsers);
@@ -130,6 +131,15 @@ const canCreate = (t) =>
         : false;
 const today = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+// Dia no fuso municipal; ISO em UTC (slice) desloca registros após 21h.
+const localDay = (iso) => {
+  if (!iso) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso; // data sem horário
+  const d = new Date(iso);
+  return Number.isFinite(+d)
+    ? d.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })
+    : "";
+};
 const fmt = (d, time = false) =>
   d
     ? new Intl.DateTimeFormat("pt-BR", {
@@ -147,11 +157,13 @@ const pill = (v) =>
   `<span class="badge ${["Ativo", "Realizado", "Presente", "Concluído"].includes(v) ? "green" : ["Inativo", "Arquivado", "Cancelado", "Ausente", "Falta do aluno", "Falta do profissional"].includes(v) ? "red" : "amber"}">${esc(v)}</span>`;
 const button = (text, action, cls = "primary", ico = "plus") =>
   `<button class="${cls}" data-action="${action}">${icon(ico)}${esc(text)}</button>`;
+let toastTimer = null;
 function toast(message, error = false) {
   const el = document.querySelector("#toast");
   el.textContent = message;
   el.className = error ? "visible error" : "visible";
-  setTimeout(() => (el.className = ""), 6000);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.className = ""), 6000);
 }
 async function api(path, body) {
   if (store) {
@@ -251,7 +263,11 @@ const subtitles = {
 };
 function filtered(rows) {
   return rows.filter((x) => {
-    const d = x.start?.slice(0, 10) || x.day || x.createdAt?.slice(0, 10) || "";
+    const d =
+      x.dayKey ||
+      (x.start ? localDay(x.start) : "") ||
+      x.day ||
+      localDay(x.createdAt);
     return (
       (!schoolFilter || (x.schoolId || x.id) === schoolFilter) &&
       (!search ||
@@ -282,7 +298,7 @@ function dashboard() {
   const appointments = state.appointments || [],
     active = (state.students || []).filter((x) => x.status === "Ativo"),
     todayAppointments = appointments.filter(
-      (x) => x.start.slice(0, 10) === today(),
+      (x) => (x.dayKey || localDay(x.start)) === today(),
     ),
     future = (state._upcoming || appointments)
       .filter(
@@ -319,7 +335,7 @@ function dashboard() {
   ]
     .map(
       ([t, n, i, b], idx) =>
-        `<article class="stat"><div><span>${t}</span><div class="stat-icon s${idx}">${icon(i)}</div></div><strong>${n.toString().padStart(2, "0")}</strong><small>${b}</small></article>`,
+        `<article class="stat"><div><span>${t}</span><div class="stat-icon s${idx}">${icon(i)}</div></div><strong>${n >= 10000 ? "10.000+" : n.toString().padStart(2, "0")}</strong><small>${b}</small></article>`,
     )
     .join(
       "",
@@ -329,7 +345,7 @@ function dashboard() {
           .slice(0, 5)
           .map(
             (a) =>
-              `<div class="appointment-row"><div class="date-box"><strong>${new Date(a.start).getDate()}</strong><span>${new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(new Date(a.start))}</span></div><div><strong>${esc(name("students", a.studentId))}</strong><small>${esc(name("professionals", a.professionalId))} · ${esc(shortSchool(a.schoolId))}</small></div><span class="time">${fmt(a.start, true).split(", ")[1] || fmt(a.start, true)}</span>${pill(a.status)}</div>`,
+              `<div class="appointment-row"><div class="date-box"><strong>${new Intl.DateTimeFormat("pt-BR", { day: "numeric", timeZone: "America/Sao_Paulo" }).format(new Date(a.start))}</strong><span>${new Intl.DateTimeFormat("pt-BR", { month: "short", timeZone: "America/Sao_Paulo" }).format(new Date(a.start))}</span></div><div><strong>${esc(name("students", a.studentId))}</strong><small>${esc(name("professionals", a.professionalId))} · ${esc(shortSchool(a.schoolId))}</small></div><span class="time">${fmt(a.start, true).split(", ")[1] || fmt(a.start, true)}</span>${pill(a.status)}</div>`,
           )
           .join("")
       : empty(
@@ -468,7 +484,9 @@ const columns = {
 function editable(t, x) {
   if (t === "blocks") return false;
   return t === "users"
-    ? manager() && x.id !== state.user.id
+    ? manager() &&
+        x.id !== state.user.id &&
+        (admin() || (x.role !== "superadmin" && !x.manageUsers))
     : canCreate(t) &&
         (admin() ||
           !["appointments", "notes", "attendance", "referrals"].includes(t) ||
@@ -845,6 +863,24 @@ async function edit(table, row = {}, prefill = {}) {
       )
     )
       return;
+    if (table === "blocks" && store && data.professionalId && data.start && data.end) {
+      // Aviso apenas: falha na contagem nunca impede o cadastro do afastamento.
+      let pending = 0;
+      try {
+        pending = await store.scheduledBetween(
+          data.professionalId,
+          +new Date(data.start),
+          +new Date(data.end),
+        );
+      } catch {}
+      if (
+        pending &&
+        !confirm(
+          `Há ${pending} consulta(s) agendada(s) para esse profissional no período. O afastamento não as cancela automaticamente; será preciso remarcá-las. Continuar?`,
+        )
+      )
+        return;
+    }
     submit.disabled = true;
     document.querySelector("#form-error").textContent = "";
     try {
@@ -889,7 +925,7 @@ async function history(studentId) {
           "O acompanhamento começa aqui",
           "Os atendimentos desse aluno aparecerão em ordem cronológica.",
         )
-  }<h3>Histórico de matrículas</h3>${(state.enrollments || [])
+  }${state._historyPartial ? '<div class="info">Exibindo os primeiros registros encontrados. Parte do histórico mais antigo pode não aparecer; consulte a agenda filtrando por período.</div>' : ""}<h3>Histórico de matrículas</h3>${(state.enrollments || [])
     .filter((x) => x.studentId === studentId)
     .map(
       (x) =>
@@ -1050,12 +1086,18 @@ function bind() {
   const input = document.querySelector("#search");
   if (input) {
     input.oninput = () => {
-      const start = input.selectionStart;
-      search = input.value;
-      render();
-      const next = document.querySelector("#search");
-      next.focus();
-      next.setSelectionRange(start, start);
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const current = document.querySelector("#search");
+        if (!current) return;
+        const start = current.selectionStart;
+        search = current.value;
+        render();
+        const next = document.querySelector("#search");
+        if (!next) return;
+        next.focus();
+        next.setSelectionRange(start, start);
+      }, 250);
     };
   }
 }
