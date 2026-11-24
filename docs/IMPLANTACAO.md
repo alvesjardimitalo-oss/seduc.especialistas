@@ -5,7 +5,7 @@
    - Em **Authentication → Settings → User actions**, desmarque *Enable create (sign-up)* para que só a administração crie contas com senha.
    - Em **Authentication → Templates → Password reset**, ajuste o idioma para português; é o e-mail que a profissional recebe para criar a senha.
 2. **Authentication → Settings → Authorized domains:** inclua `alvesjardimitalo-oss.github.io`.
-3. **Publicar regras e índices:** no GitHub, abra Actions → *Publicar regras do Firestore SEDUC* → *Run workflow*. Escolha a branch `v2-prontuario` e digite `seduc-especialistas`.
+3. **Publicar regras e índices:** no GitHub, abra Actions → *Publicar regras do Firestore SEDUC* → *Run workflow*. Escolha a branch `feature/mvp-especialistas` (a que está publicada) e digite `seduc-especialistas`. Não dispare a partir da `main`: ela contém outra aplicação, com outras regras.
    - O workflow roda os testes antes de publicar.
    - Ele precisa do segredo `FIREBASE_SERVICE_ACCOUNT_SEDUC`.
    - Sem o segredo, use o Console: Firestore → Regras, cole o conteúdo de `firestore.rules` e publique. Depois crie os 3 índices de `firestore.indexes.json` (o próprio Firestore mostra o link de criação no primeiro erro de consulta).
@@ -16,7 +16,7 @@
 A conta de administrador **já existe** em `usuarios/{uid}`, com `perfil: "superadmin"` e `ativo: true`, e continua valendo. Se for preciso criar outra, faça isso pelo Console do Firestore. Nunca promova automaticamente o primeiro usuário.
 
 ## 3. Publicação do site
-GitHub → Settings → Pages → Branch `v2-prontuario`, pasta `/ (root)`. Depois do merge em `main`, troque para `main`.
+O sistema em uso é publicado pelo GitHub Pages a partir da branch **`feature/mvp-especialistas`**, pasta `/ (root)`. Cada merge nessa branch publica o site automaticamente (regras do Firestore são publicadas à parte, pelo workflow). A `main` contém outra aplicação (Vite/Firebase Hosting), que não está no ar: não aponte o Pages para ela.
 
 ## 4. Primeiro uso
 1. **Escolas:** clique em *Adicionar as 6 escolas da rede*. Depois complete INEP, telefone e direção.
