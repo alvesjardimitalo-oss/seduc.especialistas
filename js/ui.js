@@ -6,7 +6,12 @@ export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 export function aviso(msg, tipo = 'ok') {
   const el = document.createElement('div');
   el.className = 'toast toast-' + tipo; el.setAttribute('role', tipo === 'erro' ? 'alert' : 'status');
-  el.textContent = msg; document.body.append(el);
+  el.textContent = msg;
+  // Vários avisos ao mesmo tempo ficam empilhados, sem sobrepor o texto.
+  let pilha = document.getElementById('avisos');
+  if (!pilha) { pilha = document.createElement('div'); pilha.id = 'avisos'; pilha.className = 'avisos'; document.body.append(pilha); }
+  pilha.append(el);
+  while (pilha.children.length > 4) pilha.firstElementChild.remove();
   const dura = tipo === 'ok' ? 3800 : Math.min(12000, 4000 + msg.length * 40); // avisos longos e erros ficam mais tempo
   el.onclick = () => el.remove();
   setTimeout(() => el.classList.add('saindo'), dura); setTimeout(() => el.remove(), dura + 500);
