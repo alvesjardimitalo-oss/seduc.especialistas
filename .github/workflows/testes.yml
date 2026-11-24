@@ -1,7 +1,7 @@
 name: Testes SEDUC Especialistas
 on:
   push:
-    branches: [main, v2-prontuario]
+    branches: [main, v2-prontuario, feature/mvp-especialistas]
   pull_request:
   workflow_dispatch:
 jobs:

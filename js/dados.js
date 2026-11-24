@@ -77,7 +77,10 @@ export async function aceitarTermo(uid, versao) {
 export async function sair() {
   await signOut(auth);
   // Depois de encerrar, o Firestore permite abrir uma instância nova (documentação de terminate()).
-  try { await terminate(db); await clearIndexedDbPersistence(db); } catch { /* outra aba aberta: limpa na próxima saída */ }
+  try { await terminate(db); await clearIndexedDbPersistence(db); }
+  catch { // outra aba do sistema aberta: a cópia local não pôde ser apagada agora
+    window.dispatchEvent(new CustomEvent('seduc:copia-local-mantida'));
+  }
   db = abrirBanco();
 }
 

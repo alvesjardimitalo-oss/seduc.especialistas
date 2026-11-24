@@ -209,6 +209,7 @@ function atualizarConexao() {
 window.addEventListener('online', () => { atualizarConexao(); if (S.perfil) aviso('Internet de volta. Enviando o que ficou pendente.'); });
 window.addEventListener('offline', atualizarConexao);
 window.addEventListener('seduc:pendentes', atualizarConexao);
+window.addEventListener('seduc:copia-local-mantida', () => aviso('Você saiu, mas a cópia local dos dados não foi apagada porque o sistema está aberto em outra aba ou janela. Feche todas as abas do SEDUC Especialistas neste computador.', 'erro'));
 window.addEventListener('seduc:sincronizado', ev => aviso(ev.detail + ': enviado ao servidor.'));
 window.addEventListener('seduc:falha-sincronizar', ev => {
   console.error(ev.detail.erro);
