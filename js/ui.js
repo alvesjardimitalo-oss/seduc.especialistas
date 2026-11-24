@@ -56,7 +56,9 @@ export function modal({ titulo, corpo, botao = 'Salvar', aoSalvar, largo = false
     }
   };
   ativarContadores(form);
-  setTimeout(() => form.querySelector('input:not([type=hidden]),select,textarea')?.focus(), 30);
+  // Foco inicial no primeiro campo, mas só se a pessoa ainda não estiver num campo do formulário:
+  // sem essa checagem, quem já começou a digitar tinha o foco (e o texto) desviado para o primeiro campo.
+  setTimeout(() => { if (!form.contains(document.activeElement)) form.querySelector('input:not([type=hidden]),select,textarea')?.focus(); }, 30);
   return form;
 }
 export function fecharModal() { document.getElementById('modal')?.remove(); }
