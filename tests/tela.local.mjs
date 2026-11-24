@@ -91,6 +91,8 @@ try {
   assert.match(await pg.textContent('.item-fila.chegou'), /1º[\s\S]*Chegou às \d\d:\d\d/);
   await foto(pg, '01a-lista-do-dia');
   await pg.click('[data-atender=agH]'); await pg.waitForSelector('#modal [name=objetivo]');
+  // "Atender" registra o início do atendimento (acompanhamento do dia)
+  assert.ok(await pg.evaluate(() => window.__banco.get('agendamentos/agH').iniciado_em), 'início do atendimento gravado');
   assert.match(await pg.textContent('#modal'), /S — Subjetivo[\s\S]*O — Objetivo[\s\S]*A — Avaliação[\s\S]*P — Plano/);
   await pg.locator('#modal [data-fechar]').first().click(); await pg.waitForSelector('#modal', { state: 'detached' });
   // consulta vencida sem registro: "O aluno compareceu?" → Não → falta e reagendar
@@ -514,6 +516,19 @@ try {
   assert.equal(a2.escola_id, 'doutor-joao-souza-lima');
   assert.deepEqual(a2.escolas_anteriores.map(x => x.escola_id), ['monteiro-lobato']);
   await esp.close();
+
+  // acompanhamento do dia: a gestão vê a mudança feita por outra pessoa sem recarregar, e a escuta termina ao sair
+  const acomp = await sessao('admin');
+  await acomp.goto(url + '#/acompanhamento'); await acomp.waitForSelector('.ac-linha[data-ag=agH]');
+  assert.match(await acomp.textContent('#ao-vivo'), /Ao vivo/);
+  assert.equal(await acomp.evaluate(() => window.__escutasAtivas), 1);
+  await foto(acomp, '23-acompanhamento');
+  await acomp.evaluate(async () => { const fb = await import('/js/firebase.js'); await fb.writeBatch().update(fb.doc(null, 'agendamentos/agH'), { status: 'falta', alterado_em: Date.now() }).commit(); });
+  await acomp.waitForSelector('.ac-linha.ac-falta[data-ag=agH]');
+  assert.match(await acomp.textContent('.ac-linha[data-ag=agH]'), /Não compareceu/);
+  await acomp.click('a[href="#/painel"]'); await acomp.waitForSelector('#busca');
+  assert.equal(await acomp.evaluate(() => window.__escutasAtivas), 0, 'escuta encerrada ao sair da tela');
+  await acomp.close();
 
   // boletim de novidades: aparece uma vez, com os itens do perfil, e respeita "não exibir mais"
   const nov = await sessao('dir', { novidades: true });

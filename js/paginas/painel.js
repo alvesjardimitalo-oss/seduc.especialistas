@@ -2,7 +2,7 @@
 // Cada consulta abre em janela ampliada (ver abrirConsulta em formularios.js).
 import * as dados from '../dados.js';
 import { S, pode, escolaCurta, estudante, garantirAtendimentos, escopoEscolas, escolaAtual, especialistasDaEscola } from '../estado.js';
-import { formAtendimento, formAgendar, formAluno, abrirConsulta, eventos, lembreteWhatsApp, formPedido } from '../formularios.js';
+import { formAtendimento, formAgendar, formAluno, abrirConsulta, eventos, lembreteWhatsApp, formPedido, iniciarEAtender } from '../formularios.js';
 import { carregarPedidos, podePedir } from './fila.js';
 import { aviso, erro } from '../ui.js';
 import { ESPECIALIDADES, STATUS_AGENDA, TIPOS_ATENDIMENTO, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel, bloqueioDoDia, filaDoDia, resumoFila, jornadaPrevista,
@@ -125,7 +125,7 @@ export async function render(main, vigente) {
   const acharAg = id => lista.find(a => a.id === id);
   $$('[data-chegou]', main).forEach(b => b.onclick = async () => { b.disabled = true; try { await dados.marcarChegada(acharAg(b.dataset.chegou)); aviso('Chegada registrada.'); render(main, vigente); } catch (e) { erro(e); b.disabled = false; } });
   $$('[data-desfazer]', main).forEach(b => b.onclick = async () => { try { await dados.marcarChegada(acharAg(b.dataset.desfazer), true); render(main, vigente); } catch (e) { erro(e); } });
-  $$('[data-atender]', main).forEach(b => b.onclick = () => formAtendimento({ agendamento: acharAg(b.dataset.atender) }));
+  $$('[data-atender]', main).forEach(b => b.onclick = () => iniciarEAtender(acharAg(b.dataset.atender)));
   const form = $('#busca', main);
   let t;
   form.oninput = ev => {

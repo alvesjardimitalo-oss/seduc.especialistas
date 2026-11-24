@@ -15,12 +15,14 @@ import * as escolas from './paginas/escolas.js';
 import * as fila from './paginas/fila.js';
 import * as frequencia from './paginas/frequencia.js';
 import * as seguranca from './paginas/seguranca.js';
+import * as acompanhamento from './paginas/acompanhamento.js';
 
 const raiz = document.getElementById('app');
 const PAGINAS = {
   painel: { titulo: 'Painel', mod: painel, icone: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z' },
   alunos: { titulo: 'Alunos', mod: alunos, icone: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a7 7 0 0 1 14 0v1M17 11a3 3 0 1 0 0-6M22 21v-1a5 5 0 0 0-4-4.9' },
   aluno: { titulo: 'Prontuário', mod: prontuario, menu: false },
+  acompanhamento: { titulo: 'Acompanhamento', mod: acompanhamento, icone: 'M3 12h4l3-8 4 16 3-8h4' },
   agenda: { titulo: 'Agenda', mod: agenda, icone: 'M3 5h18v16H3zM3 10h18M8 3v4M16 3v4' },
   fila: { titulo: 'Fila de espera', mod: fila, icone: 'M4 6h16M4 12h10M4 18h6M18 14v6M15 17h6' },
   frequencia: { titulo: 'Frequência', mod: frequencia, icone: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2' },
@@ -118,7 +120,7 @@ async function escolherInstituicao(forcar = false) {
 
 function menu() {
   const p = S.perfil.perfil;
-  const itens = ['painel', 'alunos', 'agenda', 'fila'];
+  const itens = ['painel', 'alunos', ...(pode.gestao() || ['direcao', 'secretaria_escolar'].includes(p) ? ['acompanhamento'] : []), 'agenda', 'fila'];
   if (p === 'especialista' || pode.gestao()) itens.push('frequencia');
   itens.push('relatorios', 'equipe');
   if (pode.gerenciar() || p === 'secretaria') itens.push('escolas');
@@ -209,14 +211,18 @@ function lerRota() {
 }
 
 let renderizando = 0;
+// Escutas em tempo real e relógios de uma tela são encerrados sempre que se troca de tela ou de conta.
+let limparTela = null;
+function encerrarTela() { try { limparTela?.(); } catch (e) { console.warn(e); } limparTela = null; }
 async function renderizar() {
+  encerrarTela();
   if (!S.perfil) return;
   const vez = ++renderizando;
   lerRota(); fecharModal(); moldura();
   const main = document.getElementById('conteudo');
   main.innerHTML = '<div class="carregando" role="status">Carregando…</div>';
   try {
-    await PAGINAS[S.rota.pagina].mod.render(main, () => vez === renderizando);
+    await PAGINAS[S.rota.pagina].mod.render(main, () => vez === renderizando, fn => { if (vez === renderizando) limparTela = fn; else fn(); });
     document.title = PAGINAS[S.rota.pagina].titulo + ' · SEDUC Especialistas';
   } catch (e) {
     if (vez !== renderizando) return;
@@ -257,6 +263,7 @@ async function iniciar() {
   if (!firebaseConfig?.projectId) { raiz.innerHTML = '<p>Configure js/config.js</p>'; return; }
   dados.iniciar(firebaseConfig);
   dados.observarSessao(async u => {
+    encerrarTela();
     S.user = u; S.perfil = null;
     if (!u) return telaLogin();
     raiz.innerHTML = '<div class="carregando tela-cheia">Verificando acesso…</div>';

@@ -395,6 +395,15 @@ service cloud.firestore {
             && (request.resource.data.chegada_em == request.time || request.resource.data.chegada_em == null)
             && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(resource.data.escola_id)))
           ||
+          // início do atendimento pela própria especialista: uma única vez, com a hora do servidor,
+          // a partir de 30 minutos antes do horário marcado (acompanhamento do dia)
+          (request.resource.data.status == 'agendado'
+            && soMudar(['iniciado_em', 'alterado_por', 'alterado_em'])
+            && resource.data.get('iniciado_em', null) == null
+            && request.resource.data.iniciado_em == request.time
+            && equipe() && resource.data.profissional_uid == request.auth.uid
+            && request.time >= resource.data.inicio - duration.value(30, 'm'))
+          ||
           // realizado: somente junto com o registro do atendimento pela profissional
           (request.resource.data.status == 'realizado'
             && soMudar(['status', 'atendimento_id', 'alterado_por', 'alterado_em'])

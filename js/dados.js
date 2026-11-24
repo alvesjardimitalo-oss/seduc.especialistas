@@ -5,7 +5,7 @@ import {
   signInWithEmailAndPassword, sendPasswordResetEmail, createUserWithEmailAndPassword,
   EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup, verifyBeforeUpdateEmail,
   getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence,
-  collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp
+  collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp, Timestamp, onSnapshot
 } from './firebase.js';
 import { MEIA_HORA, ms, gerarCodigo, diaMunicipal, idFrequencia, idPlano, cargoDe } from './dominio.js';
 import { serializavel, COLECOES } from './backup.js';
@@ -357,6 +357,21 @@ export async function listarAgendamentos({ de, ate, profissional, estudanteId, e
   return lista(await getDocs(query(c, ...periodo)));
 }
 
+/**
+ * Escuta em tempo real das consultas de um período (o dia, no acompanhamento): lê uma vez e depois só o que mudar.
+ * Escopo por escola em grupos de 10 (limite do "in"). Devolve a função que encerra a escuta.
+ */
+export function observarAgendamentos({ de, ate, escolas }, aoMudar, aoFalhar = () => {}) {
+  const c = collection(db, 'agendamentos'), periodo = [where('inicio', '>=', ts(de)), where('inicio', '<', ts(ate))];
+  const consultas = escolas ? pedacos(escolas).map(p => query(c, where('escola_id', 'in', p), ...periodo)) : [query(c, ...periodo)];
+  const partes = consultas.map(() => null);
+  const paradas = consultas.map((q, i) => onSnapshot(q, snap => {
+    partes[i] = lista(snap);
+    if (partes.every(Boolean)) aoMudar(partes.flat(), { doCache: snap.metadata?.fromCache === true });
+  }, aoFalhar));
+  return () => paradas.forEach(p => p());
+}
+
 const idReserva = (uid, t) => uid + '_' + t;
 export async function agendar(p) {
   const ref = doc(collection(db, 'agendamentos'));
@@ -375,6 +390,13 @@ export async function cancelarAgendamento(ag, motivo) {
   b.update(doc(db, 'agendamentos', ag.id), { status: 'cancelado', motivo, alterado_por: uidAtual(), alterado_em: serverTimestamp() });
   partes.forEach(t => b.delete(doc(db, 'reservas', idReserva(ag.profissional_uid, t))));
   await b.commit();
+}
+/** Início do atendimento pela própria especialista (acompanhamento do dia). Só uma vez, a partir de 30 min antes. */
+export async function iniciarAtendimento(ag) {
+  if (!ag?.id || ag.iniciado_em || ag.status !== 'agendado' || ag.profissional_uid !== uidAtual() || ms(ag.inicio) - 30 * 60000 > Date.now()) return false;
+  await enviar(writeBatch(db).update(doc(db, 'agendamentos', ag.id), { iniciado_em: serverTimestamp(), alterado_por: uidAtual(), alterado_em: serverTimestamp() }), 'Início do atendimento');
+  ag.iniciado_em = Timestamp.now();
+  return true;
 }
 export async function marcarFalta(ag, motivo) {
   await enviar(writeBatch(db).update(doc(db, 'agendamentos', ag.id), { status: 'falta', motivo: motivo || '', alterado_por: uidAtual(), alterado_em: serverTimestamp() }), 'Falta do aluno');

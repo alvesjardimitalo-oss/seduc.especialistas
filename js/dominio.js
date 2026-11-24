@@ -761,3 +761,35 @@ export function tendenciaDosAlunos(atendimentos = [], uid, n = 4) {
   const ordem = { atencao: 0, estavel: 1, avancando: 2 };
   return out.sort((a, b) => ordem[a.sinal] - ordem[b.sinal] || ms(b.ultimo) - ms(a.ultimo));
 }
+
+// ---------- acompanhamento do dia ----------
+export const ESTADOS_CONSULTA = Object.freeze({
+  aguardando_registro: 'Passou do horário, sem registro', no_horario: 'No horário, não iniciada', em_atendimento: 'Em atendimento',
+  chegou: 'Aluno chegou', proxima: 'Próxima', realizado: 'Realizada', falta: 'Não compareceu', cancelado: 'Cancelada'
+});
+/** Ordem de exibição: o que pede ação primeiro. */
+export const ORDEM_ESTADOS = ['aguardando_registro', 'no_horario', 'em_atendimento', 'chegou', 'proxima', 'realizado', 'falta', 'cancelado'];
+/**
+ * Situação de uma consulta agora. Registradas no banco: realizada (finalizada com o registro), falta, cancelada
+ * e em atendimento (a especialista iniciou). As demais dependem do relógio: próxima, aluno chegou,
+ * no horário sem início, ou passou do horário sem registro.
+ */
+export function estadoConsulta(a, agora = Date.now()) {
+  if (['realizado', 'falta', 'cancelado'].includes(a.status)) return a.status;
+  if (a.iniciado_em) return 'em_atendimento';
+  const ini = ms(a.inicio), fim = ini + (Number(a.duracao_min) || 30) * 60000;
+  if (agora >= fim) return 'aguardando_registro';
+  if (agora >= ini) return 'no_horario';
+  return a.chegada_em ? 'chegou' : 'proxima';
+}
+/** Totais do dia por situação e lista por profissional (ordenada por horário). */
+export function resumoDoDia(agendamentos = [], agora = Date.now()) {
+  const totais = Object.fromEntries(ORDEM_ESTADOS.map(k => [k, 0])), porProfissional = new Map();
+  for (const a of [...agendamentos].sort((x, y) => ms(x.inicio) - ms(y.inicio))) {
+    const estado = estadoConsulta(a, agora); totais[estado]++;
+    const p = porProfissional.get(a.profissional_uid) || { uid: a.profissional_uid, nome: a.profissional_nome || 'Profissional', especialidade: a.especialidade, itens: [] };
+    p.itens.push({ ...a, estado }); porProfissional.set(a.profissional_uid, p);
+  }
+  const ativas = agendamentos.length - totais.cancelado, ocorridas = totais.realizado + totais.falta;
+  return { totais, total: agendamentos.length, ativas, ocorridas, profissionais: [...porProfissional.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')) };
+}
