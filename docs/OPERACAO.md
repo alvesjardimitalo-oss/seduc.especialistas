@@ -15,8 +15,8 @@ A demonstração roda apenas em `127.0.0.1`, com aviso de dados fictícios. A pe
 ```sh
 npm test
 npm run build
-npx -y firebase-tools@latest login
-npx -y firebase-tools@latest deploy --only hosting,firestore --project seduc-especialistas
+npx --no-install firebase login
+npx --no-install firebase deploy --only hosting,firestore --project seduc-especialistas
 ```
 
 O frontend obtém a configuração pública Firebase em `/__/firebase/init.json`. O provedor Google deve estar habilitado. Nenhuma chave privada de serviço está no código. O primeiro usuário nunca é promovido automaticamente; o administrador inicial é configurado em operação administrativa autenticada.
@@ -24,7 +24,7 @@ O frontend obtém a configuração pública Firebase em `/__/firebase/init.json`
 Testes das regras com Java 21 ou superior:
 
 ```sh
-npx firebase emulators:exec --only firestore --project demo-seduc "node tests/firestore.integration.mjs"
+npm run test:rules
 ```
 
 `functions/` também contém uma API opcional para implantação futura com backend dedicado. Ela não está configurada para publicação no plano gratuito. `domain.mjs` compartilha a validação da interface e dos testes.
@@ -38,6 +38,7 @@ npx firebase emulators:exec --only firestore --project demo-seduc "node tests/fi
 - Apenas os oito próximos compromissos são buscados no painel. Nomes relacionados são resolvidos sob demanda e reutilizados em memória.
 - Uma única escuta em tempo real, no documento de autorização do usuário. Não há listeners de coleções nem atualização periódica automática.
 - Dados privados são buscados ao abrir a edição, conforme a permissão. Direção, secretaria e visualizador não carregam observações clínicas.
+- Datas de filtros, painel e relatórios seguem o dia no fuso America/Sao_Paulo (campo `dayKey`).
 - Relatórios usam o conjunto carregado. A exportação é bloqueada quando ainda existem páginas pendentes, evitando apresentar um resultado parcial como completo.
 
 Quatro usuários representam uma carga pequena para esse desenho. Não há garantia absoluta de permanência na cota: consultas manuais, regras de segurança, agregações, testes e outros clientes do projeto também consomem recursos. Acompanhe **Firestore → Uso** no console. O aplicativo não faz consultas periódicas ao painel de consumo.
@@ -53,5 +54,3 @@ As escolas autorizadas no perfil são uma concessão administrativa explícita. 
 Os índices precisam terminar de construir antes das consultas compostas. Os registros antigos permanecem preservados no banco, protegidos e separados das coleções da nova aplicação. O Git não contém cópia do banco nem informações pessoais reais.
 
 Backups agendados, retenção/descarte, notificações por e-mail e alertas externos de cota não são serviços ativados pela aplicação. Defina os procedimentos institucionais antes de ampliar o acesso.
-
-I've set up prototype Security Rules to keep the data in Firestore safe. They are designed to be secure for approved users with school-scoped access, separate private contact records, atomic scheduling and immutable audit records. However, you should review and verify them before broadly sharing your app. If you'd like, I can help you harden these rules.
