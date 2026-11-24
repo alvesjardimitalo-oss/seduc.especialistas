@@ -100,6 +100,9 @@ test('resumo gerencial por período, escola e profissional', () => {
 test('CSV com BOM e escape', () => {
   assert.equal(d.csv([['a;b', 'c"d'], [1, '']]), '﻿"a;b";"c""d"\r\n1;');
 });
+test('CSV neutraliza fórmulas em texto e mantém números', () => {
+  assert.equal(d.csv([['=HYPERLINK("x")', '+1', '@a', 'Ana', -2, '—']]), '﻿"\'=HYPERLINK(""x"")";\'+1;\'@a;Ana;-2;—');
+});
 
 test('importação do arquivo privado valida esquema e escolas', () => {
   const ok = { esquema: 'seduc_alunos_especiais_v1', alunos: [{ id: 'alu_' + 'a'.repeat(24), nome: 'Maria Teste', escola_id: 'monteiro-lobato', turma: '1º ano', deficiencia: 'TEA', ano_letivo: 2026 }] };

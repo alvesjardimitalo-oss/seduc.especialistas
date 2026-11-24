@@ -357,7 +357,12 @@ export function resumoGerencial({ atendimentos = [], agendamentos = [], filtros 
 }
 
 export function csv(linhas) {
-  const cel = v => { const s = String(v ?? ''); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  // Texto iniciado por = + - @ (ou tabulação) vira fórmula no Excel/LibreOffice: prefixa apóstrofo.
+  const cel = v => {
+    let s = String(v ?? '');
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
   return '﻿' + linhas.map(l => l.map(cel).join(';')).join('\r\n');
 }
 

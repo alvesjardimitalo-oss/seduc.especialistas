@@ -1,12 +1,12 @@
 name: Testes SEDUC Especialistas
 on:
   push:
-    branches: [main, v2-prontuario]
+    branches: [main, v2-prontuario, feature/mvp-especialistas]
   pull_request:
   workflow_dispatch:
 jobs:
   testes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
