@@ -62,7 +62,7 @@ Coleções: `usuarios`, `convites`, `escolas`, `estudantes`, `estudantes_privado
 Siga o guia em [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md). Resumo:
 
 1. Publique as regras e os índices pelo workflow **Publicar regras do Firestore** (aba Actions). O banco atual só tem dados de teste; as regras novas substituem as da versão anterior.
-2. Em GitHub → Settings → Pages, aponte a publicação para esta branch (ou para `main`, depois do merge).
+2. O GitHub Pages publica esta branch (`feature/mvp-especialistas`); cada merge aqui atualiza o site. A `main` contém outra aplicação e não deve ser publicada no Pages.
 3. Entre com a conta de administrador, adicione as escolas em **Escolas** e autorize as especialistas por e-mail em **Equipe**, com especialidade e jornada.
 
 ## Testes
