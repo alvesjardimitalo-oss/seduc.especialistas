@@ -703,3 +703,61 @@ export function situacaoDosAlunos(estudantes = [], acompanhamento = new Map()) {
   for (const e of estudantes) { if ((e.situacao || 'ativo') !== 'ativo') continue; r.total++; r[acompanhamento.get(e.id)?.estado || 'aguardando']++; }
   return r;
 }
+
+// ---------- painel da especialista ----------
+const horaDoSlot = s => pad(Math.floor((s % 48) / 2)) + ':' + ((s % 2) ? '30' : '00');
+/**
+ * Semana (segunda a sexta) da profissional em meias-horas da jornada: livre, agendada, realizada,
+ * falta, sem registro (já passou e continua "agendado") ou bloqueada pelo calendário escolar.
+ */
+export function semanaDaProfissional({ jornada = [], slots = [], agendamentos = [], hoje = diaMunicipal(Date.now()), agora = Date.now(), bloqueios = [] }) {
+  const segunda = somarDias(inicioDaSemana(hoje), 1), ativos = agendamentos.filter(a => a.status !== 'cancelado');
+  const porInicio = new Map();
+  for (const a of ativos) for (let i = 0; i < (a.duracao_min === 60 ? 2 : 1); i++) porInicio.set(ms(a.inicio) + i * MEIA_HORA, a);
+  return [0, 1, 2, 3, 4].map(n => {
+    const dia = somarDias(segunda, n), w = diaDaSemana(dia);
+    const doDia = slots.filter(s => Math.floor(s / 48) === w).sort((a, b) => a - b);
+    const faixas = jornada.filter(f => f.dia === w), escolas = [...new Set(faixas.map(f => f.escola_id).filter(Boolean))];
+    const bloqueio = bloqueioDoDia(dia, '', bloqueios) || (escolas.length && escolas.every(e => bloqueioDoDia(dia, e, bloqueios)) ? bloqueioDoDia(dia, escolas[0], bloqueios) : null);
+    const estados = doDia.map(s => {
+      const t = instante(dia, horaDoSlot(s)).getTime(), a = porInicio.get(t);
+      if (bloqueio) return 'bloqueado';
+      if (!a) return 'livre';
+      if (a.status === 'realizado') return 'realizado';
+      if (a.status === 'falta') return 'falta';
+      return ms(a.inicio) < agora ? 'pendente' : 'agendado';
+    });
+    return { dia, hoje: dia === hoje, escolas, bloqueio: bloqueio?.motivo || '', estados, ocupados: estados.filter(e => !['livre', 'bloqueado'].includes(e)).length, livres: estados.filter(e => e === 'livre').length };
+  });
+}
+/** Resumo do mês até hoje: agenda ocupada, comparecimento e horas cumpridas (ponto) sobre as previstas. */
+export function resumoDoMes({ jornada = [], agendamentos = [], registros = [], de, ate, bloqueios = [], agora = Date.now() }) {
+  const previstos = jornadaPrevista({ jornada, de, ate, bloqueios });
+  const horarios = previstos.reduce((s, p) => s + p.minutos / 30, 0);
+  const noPeriodo = agendamentos.filter(a => { const d = diaMunicipal(a.inicio); return d >= de && d <= ate && a.status !== 'cancelado'; });
+  const ocupados = noPeriodo.reduce((s, a) => s + (a.duracao_min === 60 ? 2 : 1), 0);
+  const ocorridos = noPeriodo.filter(a => ms(a.inicio) < agora && ['realizado', 'falta'].includes(a.status));
+  const realizados = ocorridos.filter(a => a.status === 'realizado').length;
+  const freq = resumoFrequencia({ registros, jornada, de, ate, bloqueios });
+  return { horarios, ocupados: Math.min(ocupados, horarios || ocupados), realizados, ocorridos: ocorridos.length, minutosPrevistos: freq.minutosPrevistos, minutosCumpridos: freq.minutosCumpridos };
+}
+/**
+ * Últimas evoluções de cada aluno atendido pela profissional (mais recente por último) e um sinal:
+ * 'atencao' (último Regrediu ou três Estável seguidos), 'avancando' (último Avançou) ou 'estavel'.
+ */
+export function tendenciaDosAlunos(atendimentos = [], uid, n = 4) {
+  const grupos = new Map();
+  for (const a of atendimentos) {
+    if (a.situacao === 'anulado' || a.profissional_uid !== uid) continue;
+    if (!grupos.has(a.estudante_id)) grupos.set(a.estudante_id, []); grupos.get(a.estudante_id).push(a);
+  }
+  const out = [];
+  for (const [id, lista] of grupos) {
+    const ult = lista.sort((a, b) => ms(a.data) - ms(b.data)).slice(-n), ev = ult.map(a => EVOLUCAO[a.evolucao] ? a.evolucao : 'nao_avaliado');
+    const avaliadas = ev.filter(e => e !== 'nao_avaliado'), ultima = avaliadas.at(-1);
+    const sinal = ultima === 'regrediu' || (avaliadas.length >= 3 && avaliadas.slice(-3).every(e => e === 'estavel')) ? 'atencao' : ultima === 'avancou' ? 'avancando' : 'estavel';
+    out.push({ estudante_id: id, escola_id: ult.at(-1).escola_id, evolucoes: ev, sinal, ultimo: ult.at(-1).data });
+  }
+  const ordem = { atencao: 0, estavel: 1, avancando: 2 };
+  return out.sort((a, b) => ordem[a.sinal] - ordem[b.sinal] || ms(b.ultimo) - ms(a.ultimo));
+}

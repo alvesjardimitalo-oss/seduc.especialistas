@@ -5,7 +5,8 @@ import { S, pode, escolaCurta, estudante, garantirAtendimentos, escopoEscolas, e
 import { formAtendimento, formAgendar, formAluno, abrirConsulta, eventos, lembreteWhatsApp, formPedido } from '../formularios.js';
 import { carregarPedidos, podePedir } from './fila.js';
 import { aviso, erro } from '../ui.js';
-import { ESPECIALIDADES, STATUS_AGENDA, TIPOS_ATENDIMENTO, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel, bloqueioDoDia, filaDoDia, resumoFila, jornadaPrevista } from '../dominio.js';
+import { ESPECIALIDADES, STATUS_AGENDA, TIPOS_ATENDIMENTO, DIAS, diaMunicipal, diaDaSemana, instante, somarDias, horaMunicipal, formatarData, ms, consultasDoPainel, bloqueioDoDia, filaDoDia, resumoFila, jornadaPrevista,
+  inicioDaSemana, semanaDaProfissional, resumoDoMes, tendenciaDosAlunos, EVOLUCAO } from '../dominio.js';
 import { esc, vazio, $, $$ } from '../ui.js';
 
 const filtros = { busca: '', dia: '', profissional: null, mostrarCancelados: false };
@@ -27,12 +28,13 @@ export async function render(main, vigente) {
   const de = filtros.dia || somarDias(hoje, -7), ate = filtros.dia || somarDias(hoje, 30);
   const escolas = escolaAtual() ? [escolaAtual()] : escopoEscolas() || undefined;
   const periodo = { de: instante(de, '00:00'), ate: instante(somarDias(ate, 1), '00:00') };
-  const [agendamentos, atendimentos, vencidos, pedidos, pontoHoje] = await Promise.all([
+  const [agendamentos, atendimentos, vencidos, pedidos, pontoHoje, meus] = await Promise.all([
     filtros.profissional ? dados.listarAgendamentos({ profissional: filtros.profissional, ...periodo }) : dados.listarAgendamentos({ escolas, ...periodo }),
     garantirAtendimentos(),
     especialista ? dados.listarAgendamentos({ profissional: S.user.uid, de: instante(somarDias(hoje, -30), '00:00'), ate: new Date() }) : Promise.resolve([]),
     carregarPedidos(true).catch(() => []),
-    especialista ? dados.listarFrequencias({ uid: S.user.uid, de: hoje, ate: hoje }).catch(() => null) : Promise.resolve(null)
+    especialista ? dados.listarFrequencias({ uid: S.user.uid, de: hoje, ate: hoje }).catch(() => null) : Promise.resolve(null),
+    especialista ? meusDados(hoje) : Promise.resolve(null)
   ]);
   if (!vigente()) return;
   const noPeriodo = atendimentos.filter(a => { const d = diaMunicipal(a.data); return d >= de && d <= ate; });
@@ -84,6 +86,7 @@ export async function render(main, vigente) {
   if (semRegistro.length) h += '<div class="alerta-caixa aviso"><strong>' + semRegistro.length + ' consulta(s) sem registro.</strong> Informe se o aluno compareceu: '
     + semRegistro.slice(0, 6).map(a => '<button class="link" data-consulta="' + esc(a.id) + '">' + esc(formatarData(a.inicio).slice(0, 5) + ' ' + (estudante(a.estudante_id)?.nome || 'Aluno')) + '</button>').join(' · ') + '</div>';
 
+  if (meus) h += minhaSemana(eu, meus, hoje);
   h += '<section class="cartao"><form class="busca-consultas" id="busca" autocomplete="off">'
     + '<label class="campo busca-grande"><span>Buscar consulta</span><input type="search" name="busca" value="' + esc(filtros.busca) + '" placeholder="Nome do aluno ou código da consulta"></label>'
     + '<label class="campo"><span>Data</span><input type="date" name="dia" value="' + esc(filtros.dia) + '"></label>'
@@ -95,6 +98,7 @@ export async function render(main, vigente) {
         + (anteriores.length ? '<details class="anteriores"><summary>Consultas dos últimos 7 dias (' + anteriores.reduce((n, [, i]) => n + i.length, 0) + ')</summary>' + anteriores.map(([d, itens]) => grupo(d, itens)).join('') + '</details>' : ''))
     + '</section>';
 
+  if (meus) h += '<div class="colunas painel-esp">' + meuMes(eu, meus, hoje) + meusAlunos(atendimentos) + '</div>';
   if (orientacoes.length) h += '<section class="cartao"><header class="cartao-topo"><h2>Orientações recentes para a escola</h2></header><ul class="lista-simples">'
     + orientacoes.map(a => '<li><a href="#/aluno/' + esc(a.estudante_id) + '"><strong>' + esc(estudante(a.estudante_id)?.nome || 'Aluno') + '</strong><small>' + esc(formatarData(a.data)) + ' · ' + esc(a.profissional_nome) + ' (' + esc(ESPECIALIDADES[a.especialidade]) + ')</small><span class="orientacao-txt">' + esc(a.orientacao_escola) + '</span></a></li>').join('') + '</ul></section>';
 
@@ -137,4 +141,57 @@ export async function render(main, vigente) {
   mais.onclick = () => { lista2.hidden = !lista2.hidden; mais.setAttribute('aria-expanded', String(!lista2.hidden)); };
   $$('[data-acao]', main).forEach(b => b.onclick = () => { lista2.hidden = true; ({ registrar: () => formAtendimento(), agendar: () => formAgendar(), aluno: () => formAluno(), pedido: () => formPedido() })[b.dataset.acao](); });
   $$('[data-lembrete]', main).forEach(b => b.onclick = () => lembreteWhatsApp(lista.find(a => a.id === b.dataset.lembrete)));
+}
+
+// ---------- painel da especialista: semana, mês e alunos ----------
+/** Agenda da própria profissional (mês corrente e semana) e o ponto do mês. Falha aqui só esconde os blocos. */
+async function meusDados(hoje) {
+  const inicioMes = hoje.slice(0, 7) + '-01', segunda = somarDias(inicioDaSemana(hoje), 1), sexta = somarDias(segunda, 4);
+  const de = inicioMes < segunda ? inicioMes : segunda, ate = sexta > hoje ? sexta : hoje;
+  try {
+    const [agenda, registros] = await Promise.all([
+      dados.listarAgendamentos({ profissional: S.user.uid, de: instante(de, '00:00'), ate: instante(somarDias(ate, 1), '00:00') }),
+      dados.listarFrequencias({ uid: S.user.uid, de: inicioMes, ate: hoje }).catch(() => [])
+    ]);
+    return { agenda, registros };
+  } catch (e) { console.warn('painel da especialista', e); return null; }
+}
+const ROTULO_SLOT = { livre: 'Livre', agendado: 'Consulta agendada', realizado: 'Realizada', falta: 'Falta do aluno', pendente: 'Sem registro', bloqueado: 'Sem atendimento (calendário escolar)' };
+function minhaSemana(eu, meus, hoje) {
+  if (!(eu.slots || []).length) return '<section class="cartao"><h2>Minha semana</h2><p class="nota">Sua jornada ainda não foi cadastrada. Peça à administração para registrá-la em Equipe.</p></section>';
+  const dias = semanaDaProfissional({ jornada: eu.jornada || [], slots: eu.slots, agendamentos: meus.agenda, hoje, bloqueios: S.bloqueios });
+  return '<section class="cartao esp-' + esc(eu.especialidade) + '"><header class="cartao-topo"><h2>Minha semana</h2><a class="link" href="#/agenda">Abrir agenda →</a></header>'
+    + '<p class="nota">Cada quadradinho é meia hora da sua jornada.</p><div class="semana-esp">'
+    + dias.map(d => '<a class="dia-esp' + (d.hoje ? ' hoje' : '') + (d.dia < hoje ? ' passado' : '') + '" href="#/agenda"><header><strong>' + DIAS[diaDaSemana(d.dia)].slice(0, 3) + (d.hoje ? ' · hoje' : '') + '</strong><span>' + esc(formatarData(instante(d.dia, '12:00')).slice(0, 5)) + '</span></header>'
+      + (d.estados.length ? '<div class="slots-esp">' + d.estados.map(e => '<i class="sl-' + e + '" title="' + ROTULO_SLOT[e] + '"></i>').join('') + '</div>'
+        + '<small>' + (d.bloqueio ? esc(d.bloqueio) : d.ocupados + ' ocupado(s) · ' + d.livres + ' livre(s)') + '</small>'
+        + (d.escolas.length ? '<em>' + esc(d.escolas.map(escolaCurta).join(' · ')) + '</em>' : '')
+        : '<small>Sem jornada neste dia</small>') + '</a>').join('') + '</div>'
+    + '<div class="legenda pequena">' + ['agendado', 'realizado', 'pendente', 'falta', 'livre'].map(e => '<span><i class="sl-' + e + '"></i>' + ROTULO_SLOT[e] + '</span>').join('') + '</div></section>';
+}
+const anel = (valor, total, classe, rotulo, detalhe) => {
+  const p = total ? Math.min(100, Math.round(valor / total * 100)) : 0, r = 30, c = 2 * Math.PI * r;
+  return '<div class="anel">' + '<svg width="84" height="84" viewBox="0 0 84 84" role="img" aria-label="' + esc(rotulo + ': ' + (total ? p + '%' : 'sem dados')) + '"><circle cx="42" cy="42" r="' + r + '" class="anel-fundo"/>'
+    + (total ? '<circle cx="42" cy="42" r="' + r + '" class="anel-valor ' + classe + '" stroke-dasharray="' + (c * p / 100).toFixed(1) + ' ' + c.toFixed(1) + '" transform="rotate(-90 42 42)"/>' : '')
+    + '<text x="42" y="47" text-anchor="middle">' + (total ? p + '%' : '—') + '</text></svg><span>' + rotulo + '</span><b>' + detalhe + '</b></div>';
+};
+function meuMes(eu, meus, hoje) {
+  const m = resumoDoMes({ jornada: eu.jornada || [], agendamentos: meus.agenda, registros: meus.registros, de: hoje.slice(0, 7) + '-01', ate: hoje, bloqueios: S.bloqueios });
+  const h = min => String(Math.round(min / 6) / 10).replace('.', ',') + 'h';
+  return '<section class="cartao esp-' + esc(eu.especialidade) + '"><header class="cartao-topo"><h2>Meu mês</h2><a class="link" href="#/frequencia">Frequência →</a></header><p class="nota">Do dia 1º até hoje.</p><div class="aneis">'
+    + anel(m.ocupados, m.horarios, 'a-esp', 'Agenda ocupada', m.ocupados + ' de ' + m.horarios + ' horários')
+    + anel(m.realizados, m.ocorridos, 'a-acento', 'Comparecimento', m.realizados + ' de ' + m.ocorridos + ' consultas')
+    + anel(m.minutosCumpridos, m.minutosPrevistos, 'a-neutro', 'Horas cumpridas', h(m.minutosCumpridos) + ' de ' + h(m.minutosPrevistos)) + '</div></section>';
+}
+const SINAL = { atencao: ['▼', 'Precisa de atenção', 'up-baixo'], estavel: ['■', 'Estável', 'up-neutro'], avancando: ['▲', 'Avançando', 'up-alto'] };
+function meusAlunos(atendimentos) {
+  const lista = tendenciaDosAlunos(atendimentos, S.user.uid).filter(x => !escolaAtual() || x.escola_id === escolaAtual());
+  const atencao = lista.filter(x => x.sinal === 'atencao').length;
+  return '<section class="cartao"><header class="cartao-topo"><h2>Como estão meus alunos</h2><a class="link" href="#/alunos">Ver alunos →</a></header>'
+    + '<p class="nota">Evolução registrada nos últimos atendimentos (mais recente à direita)' + (atencao ? ' · <strong>' + atencao + ' precisam de atenção</strong>' : '') + '.</p>'
+    + (lista.length ? '<ul class="lista-simples alunos-evol">' + lista.slice(0, 8).map(x => '<li><a href="#/aluno/' + esc(x.estudante_id) + '"><span><strong>' + esc(estudante(x.estudante_id)?.nome || 'Aluno') + '</strong><small>' + esc(escolaCurta(x.escola_id)) + '</small></span>'
+      + '<span class="seq-evol" aria-label="' + esc(x.evolucoes.map(e => EVOLUCAO[e]).join(', ')) + '">' + x.evolucoes.map(e => '<i class="ev-' + (e === 'nao_avaliado' ? 'nao' : e) + '" title="' + EVOLUCAO[e] + '"></i>').join('') + '</span>'
+      + '<span class="chip-evol ' + SINAL[x.sinal][2] + '">' + SINAL[x.sinal][0] + ' ' + SINAL[x.sinal][1] + '</span></a></li>').join('') + '</ul>'
+      + (lista.length > 8 ? '<p class="nota">Mostrando 8 de ' + lista.length + ' alunos, começando por quem precisa de atenção.</p>' : '')
+      : vazio('Você ainda não registrou atendimentos.')) + '</section>';
 }
