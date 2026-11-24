@@ -308,3 +308,23 @@ test('presença e ocupação da agenda no horário municipal', () => {
   const sit = d.situacaoDosAlunos([{ id: 'a' }, { id: 'b' }, { id: 'c', situacao: 'arquivado' }], new Map([['a', { estado: 'alta' }]]));
   assert.deepEqual(sit, { aguardando: 1, em_acompanhamento: 0, alta: 1, total: 2 });
 });
+
+test('painel da especialista: semana, mês e tendência dos alunos', () => {
+  // semana de 23/11/2026 (segunda); jornada de segunda 08:00–09:00
+  const jornada = [{ dia: 1, inicio: '08:00', fim: '09:00', escola_id: 'e1' }], slots = [1 * 48 + 16, 1 * 48 + 17];
+  const seg8 = d.instante('2026-11-23', '08:00').getTime();
+  const ag = [{ inicio: seg8, duracao_min: 30, status: 'realizado' }, { inicio: seg8 + 30 * 60000, duracao_min: 30, status: 'agendado' }];
+  const sem = d.semanaDaProfissional({ jornada, slots, agendamentos: ag, hoje: '2026-11-24', agora: d.instante('2026-11-24', '12:00').getTime() });
+  assert.equal(sem.length, 5); assert.equal(sem[0].dia, '2026-11-23'); assert.deepEqual(sem[0].estados, ['realizado', 'pendente']);
+  assert.equal(sem[0].ocupados, 2); assert.deepEqual(sem[1].estados, []); assert.equal(sem[1].hoje, true);
+  const bloq = d.semanaDaProfissional({ jornada, slots, agendamentos: [], hoje: '2026-11-24', bloqueios: [{ id: d.idBloqueio('2026-11-23'), motivo: 'Feriado' }] });
+  assert.deepEqual(bloq[0].estados, ['bloqueado', 'bloqueado']); assert.equal(bloq[0].bloqueio, 'Feriado');
+  const mes = d.resumoDoMes({ jornada, agendamentos: [...ag, { inicio: seg8 - 7 * 864e5, duracao_min: 30, status: 'falta' }], registros: [], de: '2026-11-01', ate: '2026-11-24', agora: d.instante('2026-11-24', '12:00').getTime() });
+  assert.equal(mes.horarios, 8); assert.equal(mes.ocupados, 3); assert.equal(mes.realizados, 1); assert.equal(mes.ocorridos, 2);
+  const t = d.tendenciaDosAlunos([
+    { estudante_id: 'a', profissional_uid: 'p', evolucao: 'avancou', data: 1 }, { estudante_id: 'a', profissional_uid: 'p', evolucao: 'regrediu', data: 2 },
+    { estudante_id: 'b', profissional_uid: 'p', evolucao: 'estavel', data: 1 }, { estudante_id: 'b', profissional_uid: 'p', evolucao: 'avancou', data: 2 },
+    { estudante_id: 'c', profissional_uid: 'outra', evolucao: 'regrediu', data: 3 }], 'p');
+  assert.deepEqual(t.map(x => [x.estudante_id, x.sinal]), [['a', 'atencao'], ['b', 'avancando']]);
+  assert.deepEqual(t[0].evolucoes, ['avancou', 'regrediu']);
+});
