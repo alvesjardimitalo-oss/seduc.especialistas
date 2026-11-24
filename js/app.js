@@ -3,7 +3,8 @@ import * as dados from './dados.js';
 import { S, pode, carregarBase, escolasDaPessoa, escolaCurta, nomeEscola, seloEscola } from './estado.js';
 import { eventos } from './formularios.js';
 import { PERFIS, ESPECIALIDADES, LOGO_SEDUC, cargoDe } from './dominio.js';
-import { esc, iniciais, erro, fecharModal, aviso } from './ui.js';
+import { esc, iniciais, erro, fecharModal, aviso, modal } from './ui.js';
+import { VERSAO_NOVIDADES, TITULO_NOVIDADES, novidadesPara, chaveNovidades } from './novidades.js';
 import * as painel from './paginas/painel.js';
 import * as alunos from './paginas/alunos.js';
 import * as prontuario from './paginas/prontuario.js';
@@ -131,7 +132,7 @@ function moldura() {
   raiz.innerHTML = '<div class="casca">'
     + '<aside class="lateral"><a class="marca" href="#/painel"><span class="marca-logo"><img src="' + LOGO_SEDUC + '" alt="Secretaria Municipal de Educação"></span><div><strong>SEDUC</strong><small>Especialistas</small></div></a>'
     + '<nav aria-label="Principal">' + menu().map(k => '<a href="#/' + k + '" class="nav' + (atual === k ? ' ativo' : '') + '"' + (atual === k ? ' aria-current="page"' : '') + '>' + svg(PAGINAS[k].icone) + '<span>' + PAGINAS[k].titulo + '</span></a>').join('') + '</nav>'
-    + '<div class="lateral-rodape">Rede Municipal de Ensino<br>Frei Inocêncio/MG<br><button class="link claro" id="ver-lgpd">Privacidade (LGPD)</button><span class="credito-infotec">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></span></div></aside>'
+    + '<div class="lateral-rodape">Rede Municipal de Ensino<br>Frei Inocêncio/MG<br><button class="link claro" id="ver-lgpd">Privacidade (LGPD)</button> · <button class="link claro" id="ver-novidades">Novidades</button><span class="credito-infotec">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></span></div></aside>'
     + '<div class="area"><header class="topo"><button class="icone-btn menu-movel" id="abrir-menu" aria-label="Abrir menu">☰</button>'
     + '<button class="inst-atual" id="trocar-inst" title="Trocar instituição">' + (S.instituicao ? seloEscola(S.instituicao, 'mini') : '<span class="selo-escola mini"><img src="' + LOGO_SEDUC + '" alt=""></span>') + '<small>Instituição</small><strong>' + esc(S.instituicao ? escolaCurta(S.instituicao) : 'Todas as instituições') + '</strong><span aria-hidden="true">⇄</span></button>'
     + '<span class="conexao" id="conexao" hidden></span>'
@@ -146,6 +147,7 @@ function moldura() {
   atualizarConexao();
   document.getElementById('trocar-inst').onclick = async () => { await escolherInstituicao(true); renderizar(); };
   document.getElementById('ver-lgpd').onclick = () => import('./ui.js').then(u => u.modal({ titulo: 'Privacidade e LGPD', somenteLeitura: true, corpo: '<p>Os dados são usados só para o atendimento especializado da rede municipal. Texto clínico: somente a equipe de especialistas. Direção e Secretaria: dados cadastrais, agenda e indicadores. Registros não são apagados (guarda do prontuário); correções geram versões. Termo aceito em ' + esc(S.perfil.termo_lgpd_em?.toDate ? S.perfil.termo_lgpd_em.toDate().toLocaleString('pt-BR') : '—') + '.</p>' }));
+  document.getElementById('ver-novidades').onclick = () => mostrarNovidades(true);
   document.getElementById('abrir-menu').onclick = () => raiz.querySelector('.casca').classList.toggle('menu-aberto');
 }
 
@@ -167,6 +169,37 @@ async function minhaConta() {
   form.querySelector('#nova-senha')?.addEventListener('click', async () => {
     try { await dados.pedirNovaSenha(); aviso('Link para trocar a senha enviado para ' + S.user.email + '.'); } catch (e) { erro(e); }
   });
+}
+
+// ---------- boletim de novidades ----------
+// Mostrado uma vez por sessão até a pessoa marcar "Não exibir mais" (preferência guardada neste navegador).
+function mostrarNovidades(forcar = false) {
+  const itens = novidadesPara(S.perfil?.perfil), chave = chaveNovidades(S.user.uid);
+  if (!itens.length) { if (forcar) aviso('Nenhuma novidade para o seu perfil.'); return; }
+  if (!forcar) {
+    try { if (localStorage.getItem(chave) === VERSAO_NOVIDADES || sessionStorage.getItem(chave) === VERSAO_NOVIDADES) return; } catch { /* armazenamento bloqueado: mostra */ }
+    if (document.getElementById('modal')) return; // não interrompe um formulário aberto
+  }
+  try { sessionStorage.setItem(chave, VERSAO_NOVIDADES); } catch {}
+  let dispensado = false; try { dispensado = localStorage.getItem(chave) === VERSAO_NOVIDADES; } catch {}
+  const form = modal({
+    titulo: TITULO_NOVIDADES, largo: true, botao: 'Entendi',
+    corpo: '<p class="nota">O SEDUC Especialistas foi atualizado. Veja o que mudou para você e por quê.</p><ol class="novidades">'
+      + itens.map(n => '<li><h3>' + esc(n.titulo) + '</h3><p><strong>O que mudou:</strong> ' + esc(n.oque) + '</p><p><strong>Por quê:</strong> ' + esc(n.porque) + '</p>'
+        + (n.link ? '<a class="link" href="' + esc(n.link) + '" data-ir>Ver agora →</a>' : '') + '</li>').join('') + '</ol>'
+      + '<label class="check nao-mostrar"><input type="checkbox" name="nao_mostrar"' + (dispensado ? ' checked' : '') + '> Não exibir mais este aviso</label>'
+      + '<p class="nota">Você pode rever as novidades a qualquer momento em <strong>Novidades</strong>, no rodapé do menu.</p>',
+    aoSalvar: d => guardar(d.nao_mostrar)
+  });
+  form.closest('#modal').classList.add('modal-novidades');
+  const caixinha = form.querySelector('.nao-mostrar'), rodape = form.querySelector('footer');
+  if (caixinha && rodape) rodape.prepend(caixinha); // sempre visível, ao lado de "Entendi"
+  // Abre no topo da lista (o modal focaria a caixinha do rodapé e rolaria até o fim).
+  setTimeout(() => { const corpo = form.querySelector('.modal-corpo'); if (corpo) corpo.scrollTop = 0; form.querySelector('[type=submit]')?.focus({ preventScroll: true }); }, 60);
+  const guardar = naoMostrar => { try { if (naoMostrar) localStorage.setItem(chave, VERSAO_NOVIDADES); else localStorage.removeItem(chave); } catch {} };
+  // "Ver agora" e fechar pelo X também respeitam a caixinha.
+  form.closest('#modal').querySelectorAll('[data-fechar], [data-ir]').forEach(el => el.addEventListener('click', () => guardar(form.nao_mostrar.checked)));
+  form.querySelectorAll('[data-ir]').forEach(a => a.addEventListener('click', fecharModal));
 }
 
 function lerRota() {
@@ -237,6 +270,7 @@ async function iniciar() {
       await carregarBase();
       await escolherInstituicao();
       await renderizar();
+      mostrarNovidades();
     } catch (e) { erro(e); telaLogin('Não foi possível verificar seu acesso: ' + esc(e.message), 'erro'); }
   });
 }

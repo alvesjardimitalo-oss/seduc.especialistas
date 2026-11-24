@@ -1,9 +1,9 @@
 // Service worker do SEDUC Especialistas: guarda o aplicativo (telas, estilos, scripts e logotipos)
 // para abrir sem internet. Os DADOS ficam no cache do Firestore (IndexedDB), não aqui.
 // Ao publicar mudanças no código, aumente a VERSAO.
-const VERSAO = 'seduc-v2.4.0';
+const VERSAO = 'seduc-v2.4.1';
 const APP = ['./', 'index.html', 'css/app.css', 'css/impressao.css', 'fonts/inter-latin-wght-normal.woff2', 'fonts/inter-latin-ext-wght-normal.woff2',
-  'js/app.js', 'js/config.js', 'js/dados.js', 'js/dominio.js', 'js/estado.js', 'js/firebase.js', 'js/formularios.js', 'js/impressao.js',
+  'js/app.js', 'js/config.js', 'js/dados.js', 'js/dominio.js', 'js/estado.js', 'js/novidades.js', 'js/firebase.js', 'js/formularios.js', 'js/impressao.js',
   'js/ui.js', 'js/backup.js', 'js/grafico.js', 'js/calendario-pdf.js',
   'js/paginas/agenda.js', 'js/paginas/alunos.js', 'js/paginas/equipe.js', 'js/paginas/escolas.js', 'js/paginas/fila.js', 'js/paginas/frequencia.js',
   'js/paginas/painel.js', 'js/paginas/prontuario.js', 'js/paginas/relatorios.js', 'js/paginas/seguranca.js',

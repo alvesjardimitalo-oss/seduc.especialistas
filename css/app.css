@@ -510,3 +510,13 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 @media (max-width: 900px) { .semana-esp { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
 @media (max-width: 560px) { .aneis { grid-template-columns: 1fr 1fr; } .alunos-evol li a { grid-template-columns: 1fr auto; } .chip-evol { grid-column: 1 / -1; justify-self: start; min-width: 0; } }
 .painel-esp { align-items: start; }
+
+/* ---------- boletim de novidades ---------- */
+.novidades { list-style: none; padding: 0; margin: 0; display: grid; gap: .8rem; counter-reset: nov; }
+.novidades li { position: relative; border: 1px solid var(--linha); border-radius: 12px; padding: .8rem 1rem .8rem 3rem; background: #fbfcfd; counter-increment: nov; }
+.novidades li::before { content: counter(nov); position: absolute; left: .9rem; top: .8rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--acento-claro); color: var(--acento-esc); font-weight: 700; font-size: .8rem; display: grid; place-items: center; }
+.novidades h3 { font-size: .98rem; margin: 0 0 .35rem; color: var(--marinho); }
+.novidades p { margin: .25rem 0; font-size: .9rem; line-height: 1.5; } .novidades p strong { color: var(--marinho); }
+.nao-mostrar { font-weight: 600; font-size: .9rem; }
+.modal-novidades footer { align-items: center; } .modal-novidades footer .nao-mostrar { margin-right: auto; }
+.modal-novidades footer .btn.sec { display: none; }

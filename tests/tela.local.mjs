@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { VERSAO_NOVIDADES, chaveNovidades } from '../js/novidades.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 
@@ -54,7 +55,7 @@ const seed = {
 
 const navegador = await chromium.launch();
 const erros = [];
-async function sessao(uid, { senha = false, instituicao = '' } = {}) {
+async function sessao(uid, { senha = false, instituicao = '', novidades = false } = {}) {
   const pg = await navegador.newPage({ viewport: { width: 1360, height: 900 } });
   pg.on('console', m => { if (m.type() === 'error' && !/10000 caracteres no total|já está na fila|Nenhum feriado novo/.test(m.text())) erros.push(uid + ': ' + m.text()); });
   pg.on('pageerror', e => erros.push(uid + ' pageerror: ' + e.message));
@@ -64,6 +65,8 @@ async function sessao(uid, { senha = false, instituicao = '' } = {}) {
     window.__usuarioTeste = { uid, email, emailVerified: true, displayName: uid };
     addEventListener('beforeunload', () => localStorage.setItem('banco', JSON.stringify([...window.__banco])));
   }, [seed, uid, seed['usuarios/' + uid]?.email || uid + '@x.br']);
+  // O boletim de novidades fica dispensado nas sessões do fluxo; um passo próprio testa o boletim.
+  await pg.addInitScript(([chave, versao, mostrar]) => { if (mostrar) localStorage.removeItem(chave); else localStorage.setItem(chave, versao); }, [chaveNovidades(uid), VERSAO_NOVIDADES, novidades]);
   await pg.goto(url);
   if (senha) { await pg.fill('[name=email]', uid + '@x.br'); await pg.fill('[name=senha]', 'senha-teste'); await pg.click('#entrar-senha'); }
   else await pg.click('#entrar');
@@ -511,6 +514,20 @@ try {
   assert.equal(a2.escola_id, 'doutor-joao-souza-lima');
   assert.deepEqual(a2.escolas_anteriores.map(x => x.escola_id), ['monteiro-lobato']);
   await esp.close();
+
+  // boletim de novidades: aparece uma vez, com os itens do perfil, e respeita "não exibir mais"
+  const nov = await sessao('dir', { novidades: true });
+  await nov.waitForSelector('.modal-novidades .novidades li');
+  const textoNov = await nov.textContent('.modal-novidades');
+  assert.match(textoNov, /Relatórios ampliados/); assert.doesNotMatch(textoNov, /Minha semana/, 'direção não vê novidade da especialista');
+  await foto(nov, '22-novidades');
+  await nov.check('.modal-novidades [name=nao_mostrar]'); await nov.click('.modal-novidades [type=submit]'); await nov.waitForSelector('#modal', { state: 'detached' });
+  assert.equal(await nov.evaluate(k => localStorage.getItem(k), chaveNovidades('dir')), VERSAO_NOVIDADES);
+  await nov.click('#ver-novidades'); await nov.waitForSelector('.modal-novidades');
+  assert.equal(await nov.isChecked('.modal-novidades [name=nao_mostrar]'), true);
+  await nov.uncheck('.modal-novidades [name=nao_mostrar]'); await nov.click('.modal-novidades .icone-btn[data-fechar]'); await nov.waitForSelector('#modal', { state: 'detached' });
+  assert.equal(await nov.evaluate(k => localStorage.getItem(k), chaveNovidades('dir')), null, 'desmarcar volta a exibir no próximo acesso');
+  await nov.close();
 
   assert.deepEqual(erros, []);
   console.log('OK: fluxo de interface completo.');
