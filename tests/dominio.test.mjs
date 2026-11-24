@@ -281,3 +281,30 @@ test('cópia de segurança: criptografa e abre só com a senha certa', async () 
   await assert.rejects(() => b.abrir(env, 'senha-errada-qualquer'), /Senha incorreta/);
   assert.throws(() => b.validarSenha('curta'), /12 caracteres/);
 });
+
+test('relatórios ampliados: período anterior, variação e evolução', () => {
+  assert.deepEqual(d.periodoAnterior('2026-11-01', '2026-11-24'), { de: '2026-10-08', ate: '2026-10-31' });
+  assert.equal(d.periodoAnterior('2026-11-24', '2026-11-01'), null);
+  assert.equal(d.variacao(312, 274), 14); assert.equal(d.variacao(3, 0), null);
+  const ev = d.evolucaoPorEspecialidade([{ especialidade: 'fonoaudiologia', evolucao: 'avancou' }, { especialidade: 'fonoaudiologia', evolucao: 'regrediu' },
+    { especialidade: 'fonoaudiologia', evolucao: 'x' }, { especialidade: 'fonoaudiologia', evolucao: 'avancou', situacao: 'anulado' }]);
+  assert.deepEqual(ev.fonoaudiologia, { avancou: 1, estavel: 0, regrediu: 1, nao_avaliado: 1, total: 3 });
+});
+test('regressões seguidas consideram só os dois últimos atendimentos válidos', () => {
+  const r = d.regressoesSeguidas([
+    { estudante_id: 'x', especialidade: 'f', evolucao: 'regrediu', data: 2 }, { estudante_id: 'x', especialidade: 'f', evolucao: 'regrediu', data: 1 },
+    { estudante_id: 'y', especialidade: 'f', evolucao: 'regrediu', data: 2 }, { estudante_id: 'y', especialidade: 'f', evolucao: 'avancou', data: 3 },
+    { estudante_id: 'z', especialidade: 'f', evolucao: 'regrediu', data: 2 }, { estudante_id: 'z', especialidade: 'f', evolucao: 'regrediu', data: 3, situacao: 'anulado' }]);
+  assert.deepEqual(r.map(x => x.estudante_id), ['x']);
+});
+test('presença e ocupação da agenda no horário municipal', () => {
+  const seg8 = Date.UTC(2026, 10, 23, 11, 0), seg9 = Date.UTC(2026, 10, 23, 12, 0); // segunda 08:00 e 09:00 (UTC−3)
+  const ag = [{ inicio: seg8, status: 'realizado', escola_id: 'a', profissional_uid: 'p', duracao_min: 60 }, { inicio: seg9, status: 'falta', escola_id: 'a', profissional_uid: 'p', duracao_min: 30 },
+    { inicio: seg9, status: 'cancelado', escola_id: 'a', profissional_uid: 'p', duracao_min: 30 }, { inicio: Date.now() + 864e5, status: 'agendado', escola_id: 'a', profissional_uid: 'p', duracao_min: 30 }];
+  assert.deepEqual(d.presencaPorEscola(ag), { a: { realizado: 1, falta: 1, cancelado: 1, total: 3 } });
+  const oc = d.ocupacaoAgenda({ profissionais: [{ id: 'p', slots: [64, 65, 66, 67] }], agendamentos: ag, de: '2026-11-16', ate: '2026-11-24' });
+  assert.deepEqual(oc.map(l => [l.hora, l.dias[0]]), [[8, { pct: 50, ocupados: 2, horarios: 4 }], [9, { pct: 25, ocupados: 1, horarios: 4 }]]);
+  assert.equal(oc[0].dias[1], null);
+  const sit = d.situacaoDosAlunos([{ id: 'a' }, { id: 'b' }, { id: 'c', situacao: 'arquivado' }], new Map([['a', { estado: 'alta' }]]));
+  assert.deepEqual(sit, { aguardando: 1, em_acompanhamento: 0, alta: 1, total: 2 });
+});

@@ -630,3 +630,76 @@ export function serieMensal(atendimentos = [], meses = ultimosMeses()) {
 }
 export const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 export const rotuloMes = m => MESES_CURTOS[Number(m.slice(5, 7)) - 1] + '/' + m.slice(2, 4);
+
+// ---------- relatórios gerenciais ampliados ----------
+/** Período imediatamente anterior, com o mesmo número de dias ('AAAA-MM-DD'). */
+export function periodoAnterior(de, ate) {
+  if (!de || !ate || de > ate) return null;
+  const dias = Math.round((numeroDoDia(ate) - numeroDoDia(de))) + 1;
+  return { de: somarDias(de, -dias), ate: somarDias(de, -1) };
+}
+/** Variação percentual inteira entre dois valores (null quando não há base). */
+export const variacao = (atual, anterior) => anterior > 0 ? Math.round((atual - anterior) / anterior * 100) : null;
+
+/** Evolução observada por especialidade: contagem de avançou/estável/regrediu/não avaliado. */
+export function evolucaoPorEspecialidade(atendimentos = []) {
+  const r = {};
+  for (const a of atendimentos) {
+    if (a.situacao === 'anulado' || !ESPECIALIDADES[a.especialidade]) continue;
+    const e = r[a.especialidade] ||= { avancou: 0, estavel: 0, regrediu: 0, nao_avaliado: 0, total: 0 };
+    e[EVOLUCAO[a.evolucao] ? a.evolucao : 'nao_avaliado']++; e.total++;
+  }
+  return r;
+}
+/** Alunos cujos dois últimos atendimentos válidos numa especialidade registraram "Regrediu". */
+export function regressoesSeguidas(atendimentos = []) {
+  const grupos = new Map();
+  for (const a of atendimentos) {
+    if (a.situacao === 'anulado') continue;
+    const k = a.estudante_id + '|' + a.especialidade;
+    if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(a);
+  }
+  const out = [];
+  for (const lista of grupos.values()) {
+    const [u, p] = lista.sort((a, b) => ms(b.data) - ms(a.data));
+    if (u?.evolucao === 'regrediu' && p?.evolucao === 'regrediu') out.push({ estudante_id: u.estudante_id, especialidade: u.especialidade, escola_id: u.escola_id, data: u.data });
+  }
+  return out.sort((a, b) => ms(b.data) - ms(a.data));
+}
+/** Presença nas consultas já ocorridas, por escola: realizadas, faltas e canceladas. */
+export function presencaPorEscola(agendamentos = [], agora = Date.now()) {
+  const r = {};
+  for (const a of agendamentos) {
+    if (ms(a.inicio) > agora || !['realizado', 'falta', 'cancelado'].includes(a.status)) continue;
+    const e = r[a.escola_id] ||= { realizado: 0, falta: 0, cancelado: 0, total: 0 };
+    e[a.status]++; e.total++;
+  }
+  return r;
+}
+/**
+ * Ocupação da agenda por dia da semana (1–5) e hora (7–17): consultas marcadas ÷ horários de jornada
+ * no período até hoje. Calendário escolar não é descontado (valor aproximado).
+ */
+export function ocupacaoAgenda({ profissionais = [], agendamentos = [], de, ate }) {
+  const hoje = diaMunicipal(Date.now()), fim = ate && ate < hoje ? ate : hoje;
+  const semanas = [0, 0, 0, 0, 0, 0, 0];
+  if (de && fim && de <= fim) for (let d = de; d <= fim; d = somarDias(d, 1)) semanas[diaDaSemana(d)]++;
+  const cap = {}, ocup = {}, chave = (dia, hora) => dia + '-' + hora;
+  const uids = new Set(profissionais.map(u => u.id));
+  for (const u of profissionais) for (const s of u.slots || []) { const dia = Math.floor(s / 48), hora = Math.floor((s % 48) / 2); cap[chave(dia, hora)] = (cap[chave(dia, hora)] || 0) + semanas[dia]; }
+  for (const a of agendamentos) {
+    if (a.status === 'cancelado' || !uids.has(a.profissional_uid)) continue;
+    const t = ms(a.inicio), d = diaMunicipal(t); if (d < de || d > fim) continue;
+    for (let i = 0; i < (a.duracao_min === 60 ? 2 : 1); i++) { const s = indiceSlot(t + i * MEIA_HORA), k = chave(Math.floor(s / 48), Math.floor((s % 48) / 2)); ocup[k] = (ocup[k] || 0) + 1; }
+  }
+  const horas = [], linhas = [];
+  for (let h = 6; h <= 19; h++) if ([1, 2, 3, 4, 5].some(d => cap[chave(d, h)])) horas.push(h);
+  for (const h of horas) linhas.push({ hora: h, dias: [1, 2, 3, 4, 5].map(d => { const c = cap[chave(d, h)] || 0, o = ocup[chave(d, h)] || 0; return c ? { pct: Math.min(100, Math.round(o / c * 100)), ocupados: o, horarios: c } : null; }) });
+  return linhas;
+}
+/** Situação dos alunos ativos: aguardando 1º atendimento, em acompanhamento e alta. */
+export function situacaoDosAlunos(estudantes = [], acompanhamento = new Map()) {
+  const r = { aguardando: 0, em_acompanhamento: 0, alta: 0, total: 0 };
+  for (const e of estudantes) { if ((e.situacao || 'ativo') !== 'ativo') continue; r.total++; r[acompanhamento.get(e.id)?.estado || 'aguardando']++; }
+  return r;
+}

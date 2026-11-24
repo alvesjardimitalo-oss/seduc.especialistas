@@ -437,3 +437,50 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .login-cartao .credito-infotec {text-align:center; color:var(--suave); margin:0; padding-top:12px; border-top:1px solid var(--linha);}
 .lateral-rodape .credito-infotec {color:#b2c2d0;}
 @media print { .credito-infotec {display:none!important} }
+
+/* ---------- relatórios ampliados ---------- */
+:root { --ev-avancou: #0d8f85; --ev-estavel: #7f8d9b; --ev-regrediu: #c4552f; }
+.kpi-linha { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.kpi-linha .minilinha { flex: none; }
+.metrica .delta { display: block; color: var(--suave); font-size: .78rem; margin-top: .1rem; }
+.metrica .delta b { display: inline; font-size: .8rem; color: var(--tinta); }
+.abas-rel { display: flex; gap: .2rem; border-bottom: 1px solid var(--linha); overflow-x: auto; scrollbar-width: none; }
+.aba-rel { background: none; border: 0; border-bottom: 3px solid transparent; padding: .6rem .95rem; font-weight: 600; font-size: .9rem; color: var(--suave); cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.aba-rel:hover { color: var(--marinho); } .aba-rel.ativa { color: var(--acento-esc); border-bottom-color: var(--acento); }
+.secao-rel { display: grid; gap: 1.2rem; }
+.barra100 { display: flex; gap: 2px; width: 100%; }
+.barra100 span { display: block; height: 100%; min-width: 2px; } .barra100 span:first-child { border-radius: 4px 0 0 4px; } .barra100 span:last-child { border-radius: 0 4px 4px 0; } .barra100 span:only-child { border-radius: 4px; }
+.barra100.vazia { background: #eef2f6; border-radius: 4px; }
+.linha-barra { display: grid; grid-template-columns: 150px 1fr 52px; gap: .8rem; align-items: center; margin: .55rem 0; font-size: .9rem; }
+.linha-barra.largo { grid-template-columns: 200px 1fr 52px; }
+.linha-barra b { text-align: right; color: var(--tinta); }
+.ev-avancou { background: var(--ev-avancou); } .ev-estavel { background: var(--ev-estavel); } .ev-regrediu { background: var(--ev-regrediu); }
+.ev-nao { background: repeating-linear-gradient(135deg, #d9e0e7 0 4px, #f4f6f8 4px 7px); }
+.pr-realizado { background: var(--acento); } .pr-falta { background: var(--ev-regrediu); } .pr-cancelado { background: var(--ev-estavel); }
+.legenda.pequena { font-size: .74rem; gap: .7rem; margin: .45rem 0 0; color: var(--suave); }
+.caminho-linha { display: grid; grid-template-columns: 230px 1fr 56px; gap: .8rem; align-items: center; margin: .55rem 0; }
+.caminho-linha strong { display: block; font-size: .92rem; } .caminho-linha small { display: block; color: var(--suave); font-size: .76rem; }
+.caminho-trilho i { display: block; height: 24px; border-radius: 0 6px 6px 0; background: var(--acento); min-width: 3px; }
+.caminho-linha > b { text-align: right; font-size: 1.05rem; color: var(--marinho); }
+.caminho-tempos { display: flex; flex-wrap: wrap; gap: 1.6rem; margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--linha); font-size: .82rem; color: var(--suave); }
+.caminho-tempos b { display: block; font-size: 1.15rem; color: var(--marinho); }
+.rede-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: .9rem; }
+.escola-cartao { border: 1px solid var(--linha); border-radius: 12px; padding: .85rem .95rem; background: #fff; display: grid; gap: .55rem; align-content: start; }
+.escola-cartao header { display: flex; gap: .6rem; align-items: center; } .escola-cartao header strong { display: block; font-size: .92rem; line-height: 1.2; } .escola-cartao header small { color: var(--suave); font-size: .75rem; }
+.escola-numeros { display: flex; gap: 1.2rem; font-size: .76rem; color: var(--suave); } .escola-numeros b { display: block; font-size: 1.25rem; color: var(--marinho); }
+.alerta-mini { justify-self: start; font-size: .76rem; color: #6d4507; background: #fcf1e1; border-radius: 6px; padding: .2rem .5rem; }
+.mapa-calor { display: grid; gap: 3px; font-size: .75rem; }
+.mc-linha { display: grid; grid-template-columns: 44px repeat(5, 1fr); gap: 3px; }
+.mc-dia { text-align: center; font-weight: 600; color: var(--suave); padding-bottom: .2rem; } .mc-hora { text-align: right; padding-right: .4rem; color: var(--suave); align-self: center; }
+.mc-cel { height: 26px; border-radius: 4px; display: grid; place-items: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mc-cel.n1 { background: #e2f4f1; color: #0a5f58; } .mc-cel.n2 { background: #a7dcd5; color: #0a5f58; } .mc-cel.n3 { background: #5fbfb4; color: #fff; } .mc-cel.n4 { background: #0d8f85; color: #fff; } .mc-cel.n5 { background: #0a5f58; color: #fff; }
+.mc-cel.sem { background: #f4f6f8; color: #b3bfca; font-weight: 400; }
+.mc-escala { display: flex; align-items: center; gap: .35rem; font-size: .74rem; color: var(--suave); margin-top: .6rem; }
+.mc-escala i { width: 22px; height: 10px; border-radius: 3px; display: inline-block; }
+.mc-escala .n1 { background: #e2f4f1; } .mc-escala .n2 { background: #a7dcd5; } .mc-escala .n3 { background: #5fbfb4; } .mc-escala .n4 { background: #0d8f85; } .mc-escala .n5 { background: #0a5f58; }
+@media (max-width: 700px) {
+  .linha-barra, .linha-barra.largo { grid-template-columns: 1fr 48px; } .linha-barra > span:first-child { grid-column: 1 / -1; margin-bottom: -.3rem; }
+  .caminho-linha { grid-template-columns: 1fr 48px; } .caminho-linha > div:first-child { grid-column: 1 / -1; }
+  .kpi-linha .minilinha { display: none; }
+}
+@media print { .abas-rel { display: none; } .secao-rel[hidden] { display: grid !important; } }
