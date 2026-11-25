@@ -130,15 +130,15 @@ test('especialista registra atendimento na própria especialidade', async () => 
 
 test('anotação sigilosa da neuropsicologia: só a autora lê e grava', async () => {
   const sig = (f, uid, texto = 'Informação sigilosa') => ({ profissional_uid: uid, estudante_id: 'alunoA', texto, atualizado_em: serverTimestamp() });
-  const b = loteAtendimento(db('neuro'), 'neuro', { id: 'atN', esp: 'neuropsicologia' });
-  b.set(doc(db('neuro'), 'atendimentos_sigilo', 'atN'), sig(null, 'neuro'));
+  const fn = db('neuro'), b = loteAtendimento(fn, 'neuro', { id: 'atN', esp: 'neuropsicologia' });
+  b.set(doc(fn, 'atendimentos_sigilo', 'atN'), sig(null, 'neuro'));
   await assertSucceeds(b.commit());
   await assertSucceeds(getDoc(doc(db('neuro'), 'atendimentos_sigilo', 'atN')));
   for (const outro of ['neuro2', 'fono', 'admin', 'sec', 'dirA']) await assertFails(getDoc(doc(db(outro), 'atendimentos_sigilo', 'atN')));
   // outra profissional não grava sigilo em registro alheio; fono não tem o campo
   await assertFails(setDoc(doc(db('neuro2'), 'atendimentos_sigilo', 'atN'), sig(null, 'neuro2')));
-  const bf = loteAtendimento(db('fono'), 'fono', { id: 'atF' });
-  bf.set(doc(db('fono'), 'atendimentos_sigilo', 'atF'), sig(null, 'fono'));
+  const ff = db('fono'), bf = loteAtendimento(ff, 'fono', { id: 'atF' });
+  bf.set(doc(ff, 'atendimentos_sigilo', 'atF'), sig(null, 'fono'));
   await assertFails(bf.commit());
   await assertFails(setDoc(doc(db('neuro'), 'atendimentos_sigilo', 'atN'), sig(null, 'neuro', 'x'.repeat(1001))));
   await assertFails(deleteDoc(doc(db('neuro'), 'atendimentos_sigilo', 'atN')));
