@@ -383,3 +383,54 @@ test("Sao Paulo dates and weekdays are independent of host timezone", () => {
     weekday: 0,
   });
 });
+test("group appointment: several students, same slot, individual notes", () => {
+  const { s, appointment } = fixture();
+  const second = save(s, "demo-admin", "students", {
+    name: "Segundo fictício",
+    registration: "DEMO-002",
+    schoolId: appointment.schoolId,
+    status: "Ativo",
+  });
+  const group = { ...appointment, modality: "Atividade em grupo", groupId: "g1" };
+  const a = save(s, "a", "appointments", group);
+  const b = save(s, "a", "appointments", { ...group, studentId: second.id });
+  assert.equal(s.appointments.find((x) => x.id === b.id).groupId, "g1");
+  // Same student twice in the group still conflicts.
+  assert.throws(() => save(s, "a", "appointments", group), /Conflito/);
+  // Another group or an individual appointment cannot share the slot.
+  const third = save(s, "demo-admin", "students", {
+    name: "Terceiro fictício",
+    registration: "DEMO-003",
+    schoolId: appointment.schoolId,
+    status: "Ativo",
+  });
+  assert.throws(
+    () =>
+      save(s, "a", "appointments", { ...group, studentId: third.id, groupId: "g2" }),
+    /Conflito/,
+  );
+  assert.throws(
+    () =>
+      save(s, "a", "appointments", { ...appointment, studentId: third.id }),
+    /Conflito/,
+  );
+  // Each student gets an individual note.
+  save(s, "a", "notes", { appointmentId: a.id, text: "Evolução do primeiro" });
+  save(s, "a", "notes", { appointmentId: b.id, text: "Evolução do segundo" });
+  const notes = s.notes.filter((n) => [a.id, b.id].includes(n.appointmentId));
+  assert.deepEqual(
+    notes.map((n) => n.studentId).sort(),
+    [appointment.studentId, second.id].sort(),
+  );
+  // Editing keeps the group link.
+  const old = s.appointments.find((x) => x.id === b.id);
+  const { groupId, ...edit } = group;
+  save(s, "a", "appointments", { ...edit, studentId: second.id, status: "Falta do aluno" }, old);
+  assert.equal(s.appointments.find((x) => x.id === b.id).groupId, "g1");
+  // Report counts each student but the professional's hours only once.
+  for (const x of s.appointments) x.status = "Realizado";
+  s.users.find((u) => u.id === "a").canExport = true;
+  const rows = report(s, { uid: "a", email: "a@example.invalid" });
+  assert.equal(rows[0].quantidade, 2);
+  assert.equal(rows[0].horas, 1);
+});

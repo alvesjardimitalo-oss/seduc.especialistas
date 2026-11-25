@@ -71,6 +71,8 @@ Campos do atendimento: aluno, escola, profissional autor, vínculo, especialidad
 
 Status: agendado, realizado, cancelado, remarcado, falta do aluno, falta do profissional.
 
+**Consulta em grupo:** no agendamento, a opção "Consulta em grupo" permite incluir mais de um aluno da mesma escola no mesmo horário. O sistema cria um agendamento por aluno, ligados pelo mesmo `groupId` e com modalidade "Atividade em grupo". A agenda da profissional é reservada uma única vez para o grupo; cada aluno mantém a própria reserva, a própria situação (presença, falta, cancelamento) e o **próprio registro de atendimento, individual no prontuário**. Cancelar um participante não libera o horário dos demais. Nos relatórios, cada aluno conta como um atendimento, e as horas da profissional entram uma vez por encontro.
+
 Ações: salvar, editar (apenas autor), cancelar/arquivar (apenas autor; exige justificativa). Exibir confirmação e impacto antes de arquivar aluno. **Não apagar em cascata consultas**. Salvar autor, criação, atualização e versões anteriores para auditoria. Superadministrador tem operação excepcional, igualmente auditada.
 
 ## 9. Relatórios e painel

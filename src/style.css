@@ -1042,6 +1042,48 @@ dialog::backdrop {
   min-height: 14px;
   accent-color: #b18c3d;
 }
+.group-box {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px dashed #d8c69c;
+  border-radius: 8px;
+  background: #fffcf5;
+}
+.group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.group-toggle input {
+  width: 16px;
+  min-height: 16px;
+  accent-color: #b18c3d;
+}
+#group-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+#group-panel[hidden] {
+  display: none;
+}
+.group-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #6b6150;
+  line-height: 1.6;
+}
+#group-students {
+  max-height: 220px;
+  overflow-y: auto;
+}
+#group-students small {
+  color: #8a8f96;
+}
 .schedule-row {
   display: flex;
   align-items: center;

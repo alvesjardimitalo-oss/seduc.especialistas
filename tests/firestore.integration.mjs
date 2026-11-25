@@ -343,6 +343,90 @@ try {
       ),
     );
   });
+  await step(
+    "group appointment shares the professional slot with individual records",
+    async () => {
+      await store.stateFor("students");
+      const g1 = await store.save({
+        table: "students",
+        data: {
+          name: "Grupo um",
+          registration: "TEST-G01",
+          schoolId: schoolA.id,
+          status: "Ativo",
+        },
+      });
+      const g2 = await store.save({
+        table: "students",
+        data: {
+          name: "Grupo dois",
+          registration: "TEST-G02",
+          schoolId: schoolA.id,
+          status: "Ativo",
+        },
+      });
+      const group = {
+        ...data,
+        start: "2030-11-06T10:00:00.000Z",
+        end: "2030-11-06T11:00:00.000Z",
+        modality: "Atividade em grupo",
+        groupId: "grupo-teste-1",
+      };
+      await specialist.stateFor("appointments");
+      await specialist.formOptions("appointments");
+      const first = await specialist.save({
+        table: "appointments",
+        data: { ...group, studentId: g1.id },
+      });
+      await specialist.stateFor("appointments");
+      await specialist.formOptions("appointments");
+      const second = await specialist.save({
+        table: "appointments",
+        data: { ...group, studentId: g2.id },
+      });
+      const guard = (
+        await getDoc(doc(a, "calendar_guards", `p_${professional.id}_2030-11-06`))
+      ).data();
+      assert.equal(guard.bookings["28"], "grupo-teste-1");
+      // Fora do grupo, o mesmo horário continua bloqueado.
+      await assert.rejects(
+        specialist.save({
+          table: "appointments",
+          data: { ...group, studentId: student.id, groupId: "outro-grupo" },
+        }),
+      );
+      // Registro individual de cada aluno.
+      await specialist.stateFor("notes");
+      await specialist.formOptions("notes");
+      await specialist.save({
+        table: "notes",
+        data: { appointmentId: first.id, text: "Evolução individual um" },
+      });
+      await specialist.stateFor("notes");
+      await specialist.formOptions("notes");
+      await specialist.save({
+        table: "notes",
+        data: { appointmentId: second.id, text: "Evolução individual dois" },
+      });
+      assert.equal(
+        (await getDoc(doc(a, "notes", second.id))).data().studentId,
+        g2.id,
+      );
+      // Cancelar um participante mantém o horário do grupo reservado.
+      const s = await specialist.stateFor("appointments");
+      const old = s.appointments.find((x) => x.id === second.id);
+      await specialist.save({
+        table: "appointments",
+        id: old.id,
+        version: old.version,
+        data: { ...group, studentId: g2.id, status: "Cancelado", reason: "Teste" },
+      });
+      const after = (
+        await getDoc(doc(a, "calendar_guards", `p_${professional.id}_2030-11-06`))
+      ).data();
+      assert.equal(after.bookings["28"], "grupo-teste-1");
+    },
+  );
   console.log("FIRESTORE INTEGRATION: " + tests + " passed");
 } finally {
   for (const stop of stops) stop?.();
