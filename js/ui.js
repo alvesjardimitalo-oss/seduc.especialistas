@@ -63,25 +63,37 @@ export function modal({ titulo, corpo, botao = 'Salvar', aoSalvar, largo = false
 }
 export function fecharModal() { document.getElementById('modal')?.remove(); }
 
+// Padronização: tudo o que as especialistas digitam é gravado em CAIXA ALTA
+// (a tela já mostra em maiúsculas enquanto digita; o corretor continua funcionando).
+// Campos marcados com data-sem-caixa (ex.: mensagem de WhatsApp) ficam como digitados.
+function emCaixaAlta(el) {
+  return document.body.classList.contains('caixa-alta') && !el.hasAttribute('data-sem-caixa')
+    && (el.tagName === 'TEXTAREA' || el.type === 'text');
+}
 export function dadosDoForm(form) {
   const d = {};
   for (const el of form.elements) {
     if (!el.name || el.disabled) continue;
     if (el.type === 'checkbox') { if (el.dataset.lista !== undefined) { (d[el.name] ||= []); if (el.checked) d[el.name].push(el.value); } else d[el.name] = el.checked; }
     else if (el.type === 'radio') { if (el.checked) d[el.name] = el.value; }
-    else d[el.name] = el.value;
+    else d[el.name] = emCaixaAlta(el) ? el.value.toLocaleUpperCase('pt-BR') : el.value;
   }
   return d;
 }
 
+// Corretor ortográfico do navegador em português nos textos digitados (registros, motivos, observações).
+export const CORRETOR = 'spellcheck="true" lang="pt-BR" autocorrect="on" autocapitalize="sentences"';
+// Campos de texto curto que são frases (não nomes, e-mails ou códigos) também ganham o corretor.
+const FRASES = /^(motivo|motivo_[a-z_]+|observacao|descricao|titulo|destinatario|fonte|necessidade_informada|texto|orientacao_[a-z_]+)$/;
 export function campo(nome, rotulo, { tipo = 'text', valor = '', obrig = false, extra = '', dica = '', largo = false } = {}) {
+  if (tipo === 'text' && FRASES.test(nome) && !/spellcheck/.test(extra)) extra += ' ' + CORRETOR;
   return '<label class="campo' + (largo ? ' largo' : '') + '"><span>' + esc(rotulo) + (obrig ? ' <b class="obrig">*</b>' : '') + '</span>'
     + '<input type="' + tipo + '" name="' + nome + '" value="' + esc(valor) + '"' + (obrig ? ' required' : '') + ' ' + extra + '>'
     + (dica ? '<small>' + esc(dica) + '</small>' : '') + '</label>';
 }
 export function area(nome, rotulo, { valor = '', obrig = false, max = 3000, dica = '', linhas = 4 } = {}) {
   return '<label class="campo largo"><span>' + esc(rotulo) + (obrig ? ' <b class="obrig">*</b>' : '') + '</span>'
-    + '<textarea name="' + nome + '" rows="' + linhas + '" maxlength="' + max + '"' + (obrig ? ' required' : '') + ' data-contador>' + esc(valor) + '</textarea>'
+    + '<textarea name="' + nome + '" rows="' + linhas + '" maxlength="' + max + '"' + (obrig ? ' required' : '') + ' data-contador ' + CORRETOR + '>' + esc(valor) + '</textarea>'
     + '<small class="contador-linha">' + (dica ? esc(dica) + ' · ' : '') + '<span data-conta>' + String(valor).length + '</span>/' + max + '</small></label>';
 }
 export function opcoes(nome, rotulo, itens, { valor = '', obrig = false, vazio = '', largo = false, extra = '', dica = '' } = {}) {

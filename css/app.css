@@ -588,3 +588,6 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .aba-aluno small { font-weight: 400; color: var(--suave); font-size: .75rem; }
 .aba-aluno.s-realizado { border-left-color: var(--ok); } .aba-aluno.s-falta { border-left-color: var(--aviso); }
 .aba-aluno.atual { background: #102336; color: #fff; border-color: #102336; cursor: default; } .aba-aluno.atual small { color: #cfe0ef; }
+
+/* Especialistas: campos de texto em caixa alta (padronização) */
+body.caixa-alta .modal textarea:not([data-sem-caixa]), body.caixa-alta .modal input[type=text]:not([data-sem-caixa]) { text-transform: uppercase; }

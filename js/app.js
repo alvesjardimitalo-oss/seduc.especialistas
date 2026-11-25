@@ -264,7 +264,7 @@ async function iniciar() {
   dados.iniciar(firebaseConfig);
   dados.observarSessao(async u => {
     encerrarTela();
-    S.user = u; S.perfil = null;
+    S.user = u; S.perfil = null; document.body.classList.remove('caixa-alta');
     if (!u) return telaLogin();
     raiz.innerHTML = '<div class="carregando tela-cheia">Verificando acesso…</div>';
     try {
@@ -273,6 +273,7 @@ async function iniciar() {
         return telaLogin(perfil.perfil === 'pendente' ? 'Seu acesso foi solicitado e aguarda liberação da administração.<br><small>Conta: ' + esc(u.email) + '</small>' : 'Seu acesso está desativado. Procure a Secretaria de Educação.', 'aviso');
       if (perfil.ativo) perfil = await dados.sincronizarEmail(perfil, u).catch(() => perfil);
       S.perfil = perfil;
+      document.body.classList.toggle('caixa-alta', perfil.perfil === 'especialista');
       if (perfil.termo_lgpd !== TERMO_VERSAO && !(await telaTermo())) return;
       await carregarBase();
       await escolherInstituicao();
