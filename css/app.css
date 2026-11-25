@@ -578,3 +578,13 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .cal-item small { color: var(--suave); margin-left: .25rem; }
 .cal-item.s-realizado { border-left-color: var(--ok); background: #e3f4ea; } .cal-item.s-falta { border-left-color: var(--aviso); background: #fdf0dc; } .cal-item.s-cancelado { border-left-color: #b9c4cf; background: #eef1f4; text-decoration: line-through; opacity: .75; }
 .cal-legenda { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; } .cal-legenda .cal-item { width: auto; cursor: default; }
+
+.tag-grupo { display: inline-block; font-size: .68rem; font-weight: 700; background: #e8eefc; color: #2f4fa0; border-radius: 999px; padding: .05rem .45rem; margin-left: .3rem; vertical-align: middle; }
+
+.abas-grupo { border: 1px solid #d9e2f5; background: #f5f8fe; border-radius: 12px; padding: .7rem .8rem; display: grid; gap: .5rem; margin: .6rem 0; }
+.abas-grupo > span { font-weight: 700; color: #2f4fa0; font-size: .9rem; }
+.abas-grupo-lista { display: flex; flex-wrap: wrap; gap: .45rem; }
+.aba-aluno { display: flex; flex-direction: column; align-items: flex-start; border: 1px solid #c9d6ef; background: #fff; border-radius: 10px; padding: .4rem .75rem; font: inherit; font-weight: 600; cursor: pointer; border-left: 4px solid #2f6fb0; }
+.aba-aluno small { font-weight: 400; color: var(--suave); font-size: .75rem; }
+.aba-aluno.s-realizado { border-left-color: var(--ok); } .aba-aluno.s-falta { border-left-color: var(--aviso); }
+.aba-aluno.atual { background: #102336; color: #fff; border-color: #102336; cursor: default; } .aba-aluno.atual small { color: #cfe0ef; }

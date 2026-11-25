@@ -307,8 +307,32 @@ try {
   const regs = grupo.map(([k]) => bancoG['atendimentos_registro/' + k.split('/')[1]]?.objetivo);
   assert.ok(regs.includes('Grupo: registro individual da Ana.') && regs.includes('Grupo: registro individual do Carlos.'));
 
+  // agendamento em grupo: dois alunos no mesmo horário, cada um com a própria consulta
+  await pg.goto(url + '#/agenda'); await pg.waitForSelector('#agendar'); await pg.click('#agendar');
+  await pg.waitForSelector('#modal [data-em-grupo]'); await pg.check('#modal [data-em-grupo]');
+  await pg.click('#modal [data-lista-aluno] button:has-text("Ana Clara")');
+  await pg.fill('#modal [data-busca-aluno]', 'carlos'); await pg.click('#modal [data-lista-aluno] button:has-text("Carlos Eduardo")');
+  await pg.waitForSelector('#modal .horario');
+  await pg.locator('#modal .horario').last().click(); await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
+  const bancoAg = await pg.evaluate(() => [...window.__banco.entries()].filter(([k, v]) => k.startsWith('agendamentos/') && v.grupo_id));
+  assert.equal(bancoAg.length, 2); assert.equal(new Set(bancoAg.map(([, v]) => v.estudante_id)).size, 2);
+  assert.equal(bancoAg[0][1].grupo_id, bancoAg[1][1].grupo_id);
+  // consulta em grupo: escolher o aluno abre a consulta completa dele
+  await pg.goto(url + '#/agenda'); await pg.waitForSelector('.semana');
+  if (!(await pg.locator('.linha-agenda .tag-grupo').count())) { await pg.click('#prox'); await pg.waitForSelector('.semana'); }
+  await pg.locator('.linha-agenda', { has: pg.locator('.tag-grupo') }).first().click(); await pg.waitForSelector('#modal .abas-grupo');
+  const antes = await pg.textContent('#modal .consulta-cabecalho h3');
+  await pg.locator('#modal .aba-aluno:not(.atual)').first().click(); await pg.waitForFunction(a => document.querySelector('#modal .consulta-cabecalho h3')?.textContent !== a, antes);
+  await pg.click('#modal [data-fechar]');
+
   await pg.click('a[href="#/relatorios"]'); await pg.waitForSelector('.metricas');
   await foto(pg, '09-relatorios');
+  // relatório da especialista: meus atendimentos (lista) e por aluno
+  assert.ok(await pg.locator('#imprimir-meus').count());
+  await pg.click('[data-aba-esp=aluno]'); await pg.waitForSelector('#rel-aluno');
+  if ((await pg.locator('#rel-aluno option').count()) > 1) { await pg.selectOption('#rel-aluno', { index: 1 }); await pg.waitForSelector('#imprimir-aluno'); }
+  await foto(pg, '09b-relatorio-por-aluno');
+  await pg.click('[data-aba-esp=meus]'); await pg.waitForSelector('#imprimir-meus');
   await pg.close();
 
   // ---- direção: sem texto clínico ----

@@ -387,11 +387,23 @@ export async function agendar(p) {
   });
   return ref.id;
 }
+/** Agendamento em grupo: os demais alunos usam a reserva do primeiro (mesmo grupo_id). */
+export async function agendarNoGrupo(p) {
+  const ref = doc(collection(db, 'agendamentos'));
+  await writeBatch(db).set(ref, { ...p, inicio: ts(ms(p.inicio)), codigo: gerarCodigo(ms(p.inicio)), status: 'agendado', criado_por: uidAtual(), criado_em: serverTimestamp() }).commit();
+  return ref.id;
+}
+export async function membrosDoGrupo(ag) {
+  if (!ag?.grupo_id) return [];
+  return lista(await getDocs(query(collection(db, 'agendamentos'), where('grupo_id', '==', ag.grupo_id), where('escola_id', '==', ag.escola_id))));
+}
 export async function cancelarAgendamento(ag, motivo) {
   const inicio = ms(ag.inicio), partes = ag.duracao_min === 60 ? [inicio, inicio + MEIA_HORA] : [inicio];
+  // Em grupo, o horário só é liberado quando o último aluno ativo é cancelado.
+  const outrosAtivos = ag.grupo_id ? (await membrosDoGrupo(ag)).some(x => x.id !== ag.id && x.status === 'agendado') : false;
   const b = writeBatch(db);
   b.update(doc(db, 'agendamentos', ag.id), { status: 'cancelado', motivo, alterado_por: uidAtual(), alterado_em: serverTimestamp() });
-  partes.forEach(t => b.delete(doc(db, 'reservas', idReserva(ag.profissional_uid, t))));
+  if (!outrosAtivos) partes.forEach(t => b.delete(doc(db, 'reservas', idReserva(ag.profissional_uid, t))));
   await b.commit();
 }
 /** Início do atendimento pela própria especialista (acompanhamento do dia). Só uma vez, a partir de 30 min antes. */

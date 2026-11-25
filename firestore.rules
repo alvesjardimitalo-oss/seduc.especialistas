@@ -348,6 +348,13 @@ service cloud.firestore {
       return existsAfter(doc('reservas', idReserva(uid, inicio)))
         && getAfter(doc('reservas', idReserva(uid, inicio))).data.agendamento_id == agId;
     }
+    // Agendamento em grupo: a reserva do horário fica com um agendamento do grupo;
+    // os demais alunos do mesmo grupo_id usam a mesma reserva.
+    function reservaDe(uid, inicio, agId, g) {
+      return existsAfter(doc('reservas', idReserva(uid, inicio)))
+        && (getAfter(doc('reservas', idReserva(uid, inicio))).data.agendamento_id == agId
+          || (g != '' && getAfter(doc('agendamentos', getAfter(doc('reservas', idReserva(uid, inicio))).data.agendamento_id)).data.get('grupo_id', '') == g));
+    }
     function liberado(uid, inicio) { return !existsAfter(doc('reservas', idReserva(uid, inicio))); }
     // Calendário escolar: dia bloqueado para a rede ("d<dia>") ou para uma escola ("d<dia>_<escola>").
     function numeroDoDia(t) { return (t - duration.value(3, 'h')).toMillis() / 86400000; }
@@ -359,7 +366,8 @@ service cloud.firestore {
     match /agendamentos/{id} {
       allow get, list: if clinico() || gestao() || escolaDe(resource.data.escola_id);
       allow create: if request.resource.data.keys().hasOnly(['estudante_id', 'escola_id', 'profissional_uid', 'profissional_nome',
-            'especialidade', 'inicio', 'duracao_min', 'status', 'observacao', 'codigo', 'criado_por', 'criado_em'])
+            'especialidade', 'inicio', 'duracao_min', 'status', 'observacao', 'codigo', 'criado_por', 'criado_em', 'grupo_id'])
+        && txt(request.resource.data.get('grupo_id', ''), 40)
         && codigoValido(request.resource.data.codigo)
         && ((equipe() && request.resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(request.resource.data.escola_id))
         && request.resource.data.status == 'agendado'
@@ -375,9 +383,9 @@ service cloud.firestore {
         && naJornada(request.resource.data.profissional_uid, request.resource.data.inicio, request.resource.data.duracao_min)
         && get(doc('estudantes', request.resource.data.estudante_id)).data.situacao == 'ativo'
         && get(doc('estudantes', request.resource.data.estudante_id)).data.escola_id == request.resource.data.escola_id
-        && reservado(request.resource.data.profissional_uid, request.resource.data.inicio, id)
+        && reservaDe(request.resource.data.profissional_uid, request.resource.data.inicio, id, request.resource.data.get('grupo_id', ''))
         && (request.resource.data.duracao_min == 30
-          || reservado(request.resource.data.profissional_uid, request.resource.data.inicio + duration.value(30, 'm'), id));
+          || reservaDe(request.resource.data.profissional_uid, request.resource.data.inicio + duration.value(30, 'm'), id, request.resource.data.get('grupo_id', '')));
       allow update: if resource.data.status == 'agendado'
         && semMudar(['estudante_id', 'profissional_uid', 'especialidade', 'inicio', 'duracao_min', 'codigo', 'criado_por', 'criado_em'])
         && request.resource.data.alterado_por == request.auth.uid && request.resource.data.alterado_em == request.time
@@ -394,8 +402,11 @@ service cloud.firestore {
             && soMudar(['status', 'motivo', 'alterado_por', 'alterado_em'])
             && txtObr(request.resource.data.motivo, 500)
             && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(resource.data.escola_id))
-            && liberado(resource.data.profissional_uid, resource.data.inicio)
-            && (resource.data.duracao_min == 30 || liberado(resource.data.profissional_uid, resource.data.inicio + duration.value(30, 'm'))))
+            && ((liberado(resource.data.profissional_uid, resource.data.inicio)
+              && (resource.data.duracao_min == 30 || liberado(resource.data.profissional_uid, resource.data.inicio + duration.value(30, 'm'))))
+              // em grupo, cancelar um aluno mantém o horário reservado para os demais
+              || (resource.data.get('grupo_id', '') != ''
+                && reservaDe(resource.data.profissional_uid, resource.data.inicio, '-', resource.data.grupo_id))))
           ||
           // falta do aluno: só depois do horário marcado
           (request.resource.data.status == 'falta'
@@ -441,8 +452,10 @@ service cloud.firestore {
           || (getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.duracao_min == 60
             && request.resource.data.inicio == getAfter(doc('agendamentos', request.resource.data.agendamento_id)).data.inicio + duration.value(30, 'm')));
       allow delete: if ativo()
-        && get(doc('agendamentos', resource.data.agendamento_id)).data.status == 'agendado'
-        && getAfter(doc('agendamentos', resource.data.agendamento_id)).data.status == 'cancelado';
+        && getAfter(doc('agendamentos', resource.data.agendamento_id)).data.status == 'cancelado'
+        && (get(doc('agendamentos', resource.data.agendamento_id)).data.status == 'agendado'
+          // grupo: o último aluno cancelado libera o horário reservado em nome de outro do grupo
+          || get(doc('agendamentos', resource.data.agendamento_id)).data.get('grupo_id', '') != '');
       allow update: if false;
     }
 

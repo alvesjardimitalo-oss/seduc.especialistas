@@ -204,7 +204,8 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
   let sigiloAtual = '';
   if (sigiloso && atendimento?.id) { try { sigiloAtual = (await dados.lerDoc('atendimentos_sigilo', atendimento.id))?.texto || ''; } catch { /* sem anotação */ } }
   const quando = atendimento ? ms(atendimento.data) : agendamento ? Math.min(ms(agendamento.inicio), Date.now()) : grupo ? ms(instante(grupo.dia, grupo.hora)) : Date.now();
-  const corpo = (grupo ? '<p class="alerta-caixa aviso">Atendimento em grupo · aluno <strong>' + grupo.pos + ' de ' + grupo.total + '</strong>. A consulta é a mesma; este registro é individual e vai só para o prontuário deste aluno.</p>' : '')
+  const corpo = (agendamento?.grupo_id ? '<p class="alerta-caixa aviso">👥 Consulta em grupo: este registro é individual e vai só para o prontuário deste aluno. Se ele não veio, feche e marque “Não compareceu” na consulta.</p>' : '')
+    + (grupo ? '<p class="alerta-caixa aviso">Atendimento em grupo · aluno <strong>' + grupo.pos + ' de ' + grupo.total + '</strong>. A consulta é a mesma; este registro é individual e vai só para o prontuário deste aluno.</p>' : '')
     + '<div class="grade">'
     + seletorAluno('estudante_id', alunoId)
     + '<div class="campo"><span>Especialidade</span><div class="aluno-fixo">' + esc(ESPECIALIDADES[S.perfil.especialidade]) + ' · ' + esc(S.perfil.nome) + '</div></div>'
@@ -243,6 +244,11 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
       else r = await dados.registrarAtendimento({ meta, registro: registroNovo, agendamentoId: agendamento?.id || '', codigo: agendamento?.codigo || '', sigilo: sigilo || null });
       invalidarAtendimentos();
       aviso(ret ? 'Consulta editada.' : r?.pendente ? 'Sem internet: consulta guardada no aparelho. Ela será enviada sozinha quando a conexão voltar — não saia do sistema até lá.' : 'Consulta salva no prontuário.', r?.pendente ? 'aviso' : 'ok');
+      if (!ret && agendamento?.grupo_id && !r?.pendente) {
+        let prox = null;
+        try { prox = (await dados.membrosDoGrupo(agendamento)).find(x => x.id !== agendamento.id && x.status === 'agendado' && x.profissional_uid === S.user.uid); } catch (err) { console.error(err); }
+        if (prox) { setTimeout(() => formAtendimento({ agendamento: prox }), 60); return; }
+      }
       const proximos = grupo ? grupo.fila : turma.slice(1);
       if (proximos.length) {
         const g = { fila: proximos.slice(1), dia: d.dia, hora: d.hora, duracao_min: Number(d.duracao_min), pos: (grupo?.pos || 1) + 1, total: grupo?.total || turma.length };
@@ -297,6 +303,7 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', 
       : opcoes('profissional_uid', 'Profissional', profs.map(u => [u.id, u.nome + ' — ' + (ESPECIALIDADES[u.especialidade] || '')]), { valor: prof0, obrig: true, vazio: 'Selecione' }))
     + campo('dia', 'Dia', { tipo: 'date', valor: diaInicial, obrig: true, extra: 'min="' + hoje() + '"' })
     + opcoes('duracao_min', 'Duração', [[30, '30 minutos'], [60, '1 hora']], { valor: 30 })
+    + (!remarcar && !estudanteId ? '<label class="check largo"><input type="checkbox" name="em_grupo" data-em-grupo> Agendamento em grupo — vários alunos no mesmo horário (cada um terá a própria consulta e o próprio registro)</label>' : '')
     + '</div><div class="campo largo"><span>Horários disponíveis <b class="obrig">*</b></span><div class="horarios" data-horarios><p class="nota">Selecione a profissional e o dia.</p></div></div>'
     + campo('observacao', 'Observação (opcional)', { largo: true, extra: 'maxlength="300"', valor: remarcar?.observacao || '', dica: 'Ex.: trazer caderno; responsável deve acompanhar' })
     + (remarcar ? '<p class="alerta-caixa aviso largo">Remarcando o atendimento de <strong>' + esc(formatarDataHora(remarcar.inicio)) + '</strong>. O horário antigo será cancelado e liberado.</p>' + area('motivo_remarcacao', 'Motivo da remarcação', { obrig: true, max: 300, linhas: 2 }) : '');
@@ -309,7 +316,21 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', 
       const inicio = new Date(Number(d.horario)), duracao = Number(d.duracao_min);
       const ocupados = await dados.listarAgendamentos({ profissional: prof.id, de: instante(d.dia, '00:00'), ate: instante(somarDias(d.dia, 1), '00:00') });
       validarAgendamento({ inicio, duracao, slots: prof.slots || [], ocupados, bloqueios: S.bloqueios, escola: e.escola_id });
-      const novoId = await dados.agendar({ estudante_id: e.id, escola_id: e.escola_id, profissional_uid: prof.id, profissional_nome: prof.nome, especialidade: prof.especialidade, inicio, duracao_min: duracao, observacao: d.observacao.trim() });
+      const turma = d.em_grupo ? (form._alunos?.() || []) : [];
+      if (d.em_grupo && turma.length < 2) throw Error('Marque ao menos dois alunos para o agendamento em grupo, ou desmarque a opção.');
+      if (turma.some(id => estudante(id)?.escola_id !== e.escola_id)) throw Error('No agendamento em grupo, todos os alunos devem ser da mesma escola.');
+      const grupoId = turma.length > 1 ? 'G' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7) : '';
+      const base = { escola_id: e.escola_id, profissional_uid: prof.id, profissional_nome: prof.nome, especialidade: prof.especialidade, inicio, duracao_min: duracao, observacao: d.observacao.trim(), ...(grupoId ? { grupo_id: grupoId } : {}) };
+      const novoId = await dados.agendar({ ...base, estudante_id: e.id });
+      if (grupoId) {
+        // O primeiro reserva o horário; os demais entram no mesmo horário pelo grupo.
+        const falhas = [];
+        for (const id of turma.slice(1)) {
+          try { await dados.agendarNoGrupo({ ...base, estudante_id: id }); } catch (err) { console.error(err); falhas.push(estudante(id)?.nome || id); }
+        }
+        aviso('Agendamento em grupo para ' + (turma.length - falhas.length) + ' alunos em ' + formatarDataHora(inicio) + '.' + (falhas.length ? ' Não agendados: ' + falhas.join(', ') + '.' : ''), falhas.length ? 'erro' : 'ok');
+        return mudou();
+      }
       // Remarcação: o novo horário é reservado primeiro; só então o antigo é cancelado.
       if (remarcar) await dados.cancelarAgendamento(remarcar, ('Remarcado para ' + formatarDataHora(inicio) + '. ' + d.motivo_remarcacao.trim()).slice(0, 500));
       if (aoAgendar) await aoAgendar(novoId, { especialidade: prof.especialidade, estudante_id: e.id });
@@ -338,7 +359,8 @@ export function formAgendar({ estudanteId = '', profissionalUid = '', dia = '', 
     } catch (err) { box.innerHTML = '<p class="nota alerta">Não foi possível consultar a agenda.</p>'; erro(err); }
   };
   ['profissional_uid', 'dia', 'duracao_min'].forEach(n => { const el = form.elements.namedItem(n); if (el) el.onchange = atualizar; });
-  ativarSeletorAluno(form, atualizar);
+  ativarSeletorAluno(form, atualizar, { multiplo: () => Boolean($('[data-em-grupo]', form)?.checked) });
+  $('[data-em-grupo]', form)?.addEventListener('change', () => form._redesenharAlunos?.());
   atualizar();
 }
 
@@ -373,6 +395,8 @@ export async function abrirConsulta(item) {
   try {
     if (atendimentoId) [at, reg] = await Promise.all([dados.lerDoc('atendimentos', atendimentoId), pode.clinico() ? dados.lerDoc('atendimentos_registro', atendimentoId) : null]);
   } catch (err) { erro(err); }
+  let grupo = [];
+  if (ag?.grupo_id) { try { grupo = (await dados.membrosDoGrupo(ag)).filter(x => x.status !== 'cancelado'); } catch (err) { console.error(err); } }
   const status = avulso ? 'realizado' : ag.status;
   const secao = (t, v) => v ? '<div class="secao"><h4>' + t + '</h4><p>' + esc(v) + '</p></div>' : '';
   const corpo = '<div class="consulta-cabecalho"><div><span class="codigo">' + esc(item.codigo || 'sem código') + '</span><h3>' + esc(e?.nome || 'Aluno') + '</h3>'
@@ -380,6 +404,7 @@ export async function abrirConsulta(item) {
     + '<p>' + esc(item.profissional_nome) + ' · ' + esc(ESPECIALIDADES[item.especialidade] || '') + '</p></div>'
     + '<span class="selo grande s-' + esc(status) + '">' + esc(STATUS_AGENDA[status]) + '</span></div>'
     + (ag?.iniciado_em && status === 'agendado' ? '<p class="alerta-caixa info">Em atendimento desde ' + esc(horaMunicipal(ag.iniciado_em)) + '.</p>' : '')
+    + (grupo.length > 1 ? '<div class="abas-grupo"><span>👥 Consulta em grupo — escolha o aluno:</span><div class="abas-grupo-lista">' + grupo.map(x => '<button type="button" class="aba-aluno s-' + esc(x.status) + (x.id === ag.id ? ' atual' : '') + '" data-aluno-grupo="' + esc(x.id) + '">' + esc(estudante(x.estudante_id)?.nome || 'Aluno') + '<small>' + esc(STATUS_AGENDA[x.status]) + '</small></button>').join('') + '</div><small class="nota">Presença e registro são individuais de cada aluno.</small></div>' : '')
     + (ag?.observacao ? '<p class="nota">Observação: ' + esc(ag.observacao) + '</p>' : '')
     + (ag?.motivo && status !== 'agendado' ? '<p class="alerta-caixa aviso">' + esc(status === 'falta' ? 'Falta: ' : 'Motivo: ') + esc(ag.motivo) + '</p>' : '')
     // Pergunta de presença
@@ -400,6 +425,7 @@ export async function abrirConsulta(item) {
     + (e ? '<a class="btn sec" href="#/aluno/' + esc(e.id) + '" data-fechar-link>Abrir prontuário</a>' : '')
     + '</div>';
   const form = modal({ titulo: 'Consulta', corpo, somenteLeitura: true, largo: true });
+  $$('[data-aluno-grupo]', form).forEach(b => b.onclick = () => { const x = grupo.find(g => g.id === b.dataset.alunoGrupo); if (x && x.id !== ag.id) abrirConsulta({ ...x, tipo_item: 'agendamento' }); });
   $$('[data-fechar-link]', form).forEach(a => a.addEventListener('click', () => document.getElementById('modal')?.remove()));
   $$('[data-c]', form).forEach(b => b.onclick = () => {
     const acao = b.dataset.c;

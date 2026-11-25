@@ -56,9 +56,9 @@ function loteAtendimento(f, uid, { id = 'at1', aluno = 'alunoA', escola = ESC_A,
   b.set(doc(f, 'atendimentos_registro', id), { estudante_id: aluno, profissional_uid: uid, trabalhado: texto, desenvolvido: 'Boa resposta', orientacoes: '', versao: 1 });
   return b;
 }
-function loteAgenda(f, { id = 'ag1', criador, prof = 'fono', aluno = 'alunoA', escola = ESC_A, hora = '09:00', dur = 30, esp = 'fonoaudiologia' } = {}) {
+function loteAgenda(f, { id = 'ag1', criador, prof = 'fono', aluno = 'alunoA', escola = ESC_A, hora = '09:00', dur = 30, esp = 'fonoaudiologia', grupo = '' } = {}) {
   const b = writeBatch(f), ini = instante(terca, hora);
-  b.set(doc(f, 'agendamentos', id), { estudante_id: aluno, escola_id: escola, profissional_uid: prof, profissional_nome: 'Fono', especialidade: esp, inicio: Timestamp.fromDate(ini), duracao_min: dur, status: 'agendado', codigo: COD_AG, criado_por: criador, criado_em: serverTimestamp() });
+  b.set(doc(f, 'agendamentos', id), { ...(grupo ? { grupo_id: grupo } : {}), estudante_id: aluno, escola_id: escola, profissional_uid: prof, profissional_nome: 'Fono', especialidade: esp, inicio: Timestamp.fromDate(ini), duracao_min: dur, status: 'agendado', codigo: COD_AG, criado_por: criador, criado_em: serverTimestamp() });
   const partes = dur === 60 ? [ini.getTime(), ini.getTime() + 1800000] : [ini.getTime()];
   for (const t of partes) b.set(doc(f, 'reservas', prof + '_' + t), { agendamento_id: id, profissional_uid: prof, inicio: Timestamp.fromMillis(t) });
   return b;
@@ -218,6 +218,23 @@ test('agendamento dentro da jornada com reserva atômica', async () => {
   await assertFails(loteAgenda(db('sec'), { id: 'ag8', criador: 'sec', prof: 'psico', esp: 'psicopedagogia' }).commit());
   // especialista não agenda em nome de outra
   await assertFails(loteAgenda(db('psico'), { id: 'ag9', criador: 'psico', hora: '08:00' }).commit());
+});
+
+test('agendamento em grupo: mesmo horário, um agendamento por aluno', async () => {
+  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), 'estudantes', 'alunoC'), { nome: 'Aluno C', escola_id: ESC_A, situacao: 'ativo', criado_por: 'fono', criado_em: Timestamp.now() }); });
+  const f = db('fono'), ini = instante(terca, '09:00').getTime();
+  await assertSucceeds(loteAgenda(f, { criador: 'fono', grupo: 'G1' }).commit());
+  const membro = (aluno, extra = {}) => ({ estudante_id: aluno, escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', inicio: Timestamp.fromMillis(ini), duracao_min: 30, status: 'agendado', codigo: COD_AG, criado_por: 'fono', criado_em: serverTimestamp(), ...extra });
+  await assertSucceeds(setDoc(doc(f, 'agendamentos', 'agC'), membro('alunoC', { grupo_id: 'G1' })));
+  // fora do grupo (ou com outro grupo) o horário continua ocupado
+  await assertFails(setDoc(doc(f, 'agendamentos', 'agX'), membro('alunoC')));
+  await assertFails(setDoc(doc(f, 'agendamentos', 'agY'), membro('alunoC', { grupo_id: 'G2' })));
+  // cancelar um aluno do grupo mantém a reserva
+  const cancelar = (id, apagar) => { const b = writeBatch(f); b.update(doc(f, 'agendamentos', id), { status: 'cancelado', motivo: 'Teste', alterado_por: 'fono', alterado_em: serverTimestamp() }); if (apagar) b.delete(doc(f, 'reservas', 'fono_' + ini)); return b.commit(); };
+  await assertSucceeds(cancelar('ag1', false));
+  // o último aluno cancelado libera o horário
+  await assertSucceeds(cancelar('agC', true));
+  await assertSucceeds(loteAgenda(f, { id: 'ag2', criador: 'fono' }).commit());
 });
 
 test('direção agenda apenas alunos da própria escola', async () => {

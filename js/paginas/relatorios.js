@@ -6,7 +6,7 @@ import { ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, diaMunicipal, somarDias, i
 import { colunasEmpilhadas, ligarGrafico, minilinha, barra100, mapaCalor } from '../grafico.js';
 import { carregarPedidos } from './fila.js';
 import { esc, vazio, aviso, $, $$ } from '../ui.js';
-import { imprimirGerencial } from '../impressao.js';
+import { imprimirGerencial, imprimirProntuario, imprimirMeusAtendimentos, definirRegistro } from '../impressao.js';
 
 const LIMITE_TABELA = 300;
 
@@ -51,12 +51,46 @@ export async function render(main, vigente) {
   const topo = '<header class="pagina-topo"><div><h1>Relatórios de atendimentos</h1><p>' + (painel ? 'Indicadores da rede no período escolhido' + (f.de && f.ate ? ' (' + dataBR(f.de) + ' a ' + dataBR(f.ate) + ')' : '') + '. Textos clínicos nunca aparecem aqui.' : 'Somente atendimentos realizados. Faltas, cancelamentos e textos clínicos não entram neste módulo.') + '</p></div>'
     + '<div class="acoes-linha"><button class="btn sec" id="csv">Exportar planilha (CSV)</button><button class="btn" id="imprimir">Imprimir / PDF</button></div></header>';
 
+  let faltas = null;
   if (!painel) {
     const card = (rot, v, cor) => '<div class="metrica m-' + cor + '"><span>' + rot + '</span><b>' + v + '</b></div>';
-    main.innerHTML = topo + filtros
-      + '<div class="metricas">' + card('Atendimentos realizados', r.atendimentos, 'azul') + card('Alunos atendidos', r.alunos, 'verde') + card('Horas de atendimento', horas(r.horas * 60), 'roxo') + card('Altas', r.altas, 'ambar') + '</div>'
+    // Faltas e cancelamentos da própria especialista no período (agenda).
+    const minhaAgenda = S.perfil.perfil === 'especialista' && f.de && f.ate ? await dados.listarAgendamentos({ profissional: S.user.uid, de: periodo.de, ate: periodo.ate }).catch(() => []) : [];
+    if (!vigente()) return;
+    faltas = minhaAgenda.filter(a => a.status === 'falta' && filtro(a));
+    const canc = minhaAgenda.filter(a => a.status === 'cancelado' && filtro(a)).length;
+    const abaE = S.abaRelEsp || 'meus';
+    // Alunos atendidos no período (para o relatório por aluno).
+    const alunosPeriodo = [...new Set(lista.map(a => a.estudante_id))].map(id => estudante(id)).filter(Boolean).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    if (S.relAluno && !alunosPeriodo.some(e => e.id === S.relAluno)) S.relAluno = '';
+    const doAluno = S.relAluno ? lista.filter(a => a.estudante_id === S.relAluno).slice().reverse() : [];
+    const evoAluno = doAluno.reduce((m, a) => (m[a.evolucao] = (m[a.evolucao] || 0) + 1, m), {});
+    const porAluno = '<section class="cartao"><h2>Relatório por aluno</h2><p class="nota">Tudo o que foi registrado do aluno no período escolhido acima (De/Até), pronto para imprimir ou salvar em PDF: identificação, cada consulta (S, O, A, P), evolução e orientações para a escola.</p>'
+      + '<label class="campo"><span>Aluno atendido no período</span><select id="rel-aluno"><option value="">Selecione o aluno</option>' + alunosPeriodo.map(e => '<option value="' + esc(e.id) + '"' + (e.id === S.relAluno ? ' selected' : '') + '>' + esc(e.nome) + ' — ' + esc(escolaCurta(e.escola_id)) + '</option>').join('') + '</select></label>'
+      + (S.relAluno ? '<div class="metricas">' + card('Consultas no período', doAluno.length, 'azul') + card('Avançou', evoAluno.avancou || 0, 'verde') + card('Estável', evoAluno.estavel || 0, 'ambar') + card('Regrediu', evoAluno.regrediu || 0, 'roxo') + '</div>'
+        + '<table class="tabela"><thead><tr><th>Data</th><th>Tipo</th><th>Evolução</th><th>Min</th></tr></thead><tbody>' + doAluno.map(a => '<tr><td>' + esc(formatarDataHora(a.data)) + '</td><td>' + esc(TIPOS_ATENDIMENTO[a.tipo]) + '</td><td>' + esc(EVOLUCAO[a.evolucao]) + '</td><td class="num">' + a.duracao_min + '</td></tr>').join('') + '</tbody></table>'
+        + '<div class="acoes-linha"><button class="btn" id="imprimir-aluno">Imprimir relatório do aluno (PDF)</button><a class="btn sec" href="#/aluno/' + esc(S.relAluno) + '">Abrir prontuário</a></div>'
+        : (alunosPeriodo.length ? '' : vazio('Nenhum aluno atendido no período.', 'Ajuste as datas De/Até.'))) + '</section>';
+    const meus = '<div class="metricas">' + card('Atendimentos realizados', r.atendimentos, 'azul') + card('Alunos atendidos', r.alunos, 'verde') + card('Horas de atendimento', horas(r.horas * 60), 'roxo') + card('Faltas de alunos', faltas.length, 'ambar') + '</div>'
+      + (canc ? '<p class="nota">' + canc + ' agendamento(s) cancelado(s) no período.</p>' : '')
+      + '<div class="acoes-linha"><button class="btn" id="imprimir-meus">Imprimir meus atendimentos (lista com alunos)</button></div>'
       + '<section class="cartao"><h2>Evolução observada</h2><p class="nota">Registro de evolução nos seus atendimentos do período.</p>' + evolucaoHtml(lista) + '</section>'
       + tabelas + listaHtml;
+    const abasE = [['meus', 'Meus atendimentos'], ['aluno', 'Por aluno']];
+    main.innerHTML = topo + filtros
+      + '<nav class="abas-rel" role="tablist" aria-label="Relatórios">' + abasE.map(([k, t]) => '<button type="button" role="tab" class="aba-rel' + (k === abaE ? ' ativa' : '') + '" aria-selected="' + (k === abaE) + '" data-aba-esp="' + k + '">' + t + '</button>').join('') + '</nav>'
+      + secao('meus', abaE, meus) + secao('aluno', abaE, porAluno);
+    $$('[data-aba-esp]', main).forEach(b => b.onclick = () => { S.abaRelEsp = b.dataset.abaEsp; render(main, vigente); });
+    $('#rel-aluno', main)?.addEventListener('change', ev => { S.relAluno = ev.target.value; S.abaRelEsp = 'aluno'; render(main, vigente); });
+    $('#imprimir-meus', main)?.addEventListener('click', () => imprimirMeusAtendimentos({ lista, faltas, filtros: f, resumo: r }));
+    $('#imprimir-aluno', main)?.addEventListener('click', async () => {
+      const e = estudante(S.relAluno);
+      try {
+        const regs = new Map((await dados.listarRegistros(e.id)).map(x => [x.id, x]));
+        definirRegistro(dados.registrarImpressao(S.perfil, e, 'impressao'));
+        imprimirProntuario({ estudante: e, privado: null, saude: null, atendimentos: doAluno, registros: regs, filtros: { de: f.de, ate: f.ate, especialidade: S.perfil.especialidade || '' } });
+      } catch (err) { aviso('Não foi possível gerar o relatório: ' + err.message, 'erro'); }
+    });
   } else {
     const aba = S.abaRelatorio || 'geral';
     const abas = [['geral', 'Visão geral'], ['escolas', 'Por escola e profissional'], ['evolucao', 'Evolução dos alunos'], ['agenda', 'Agenda e presença'], ['lista', 'Lista de atendimentos']];
