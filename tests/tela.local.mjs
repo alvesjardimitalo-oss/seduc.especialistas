@@ -268,17 +268,6 @@ try {
   await pg.fill('#modal [name=telefone]', '(33) 99999-1234'); await pg.click('#modal [type=submit]');
   assert.match(await pg.evaluate(() => window.__aberto), /^https:\/\/wa\.me\/5533999991234\?text=Ol/);
 
-  // agendamento em grupo: dois alunos no mesmo horário, cada um com a própria consulta
-  await pg.goto(url + '#/agenda'); await pg.waitForSelector('#agendar'); await pg.click('#agendar');
-  await pg.waitForSelector('#modal [data-em-grupo]'); await pg.check('#modal [data-em-grupo]');
-  await pg.click('#modal [data-lista-aluno] button:has-text("Ana Clara")');
-  await pg.fill('#modal [data-busca-aluno]', 'carlos'); await pg.click('#modal [data-lista-aluno] button:has-text("Carlos Eduardo")');
-  await pg.waitForSelector('#modal .horario');
-  await pg.locator('#modal .horario').last().click(); await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
-  const bancoAg = await pg.evaluate(() => [...window.__banco.entries()].filter(([k, v]) => k.startsWith('agendamentos/') && v.grupo_id));
-  assert.equal(bancoAg.length, 2); assert.equal(new Set(bancoAg.map(([, v]) => v.estudante_id)).size, 2);
-  assert.equal(bancoAg[0][1].grupo_id, bancoAg[1][1].grupo_id);
-
   // agenda: visão do mês com todas as consultas
   await pg.goto(url + '#/agenda'); await pg.waitForSelector('[data-visao=mes]');
   await pg.click('[data-visao=mes]'); await pg.waitForSelector('.cal-grade');
@@ -317,6 +306,17 @@ try {
   assert.equal(new Set(grupo.map(([, v]) => v.estudante_id)).size, 2);
   const regs = grupo.map(([k]) => bancoG['atendimentos_registro/' + k.split('/')[1]]?.objetivo);
   assert.ok(regs.includes('Grupo: registro individual da Ana.') && regs.includes('Grupo: registro individual do Carlos.'));
+
+  // agendamento em grupo: dois alunos no mesmo horário, cada um com a própria consulta
+  await pg.goto(url + '#/agenda'); await pg.waitForSelector('#agendar'); await pg.click('#agendar');
+  await pg.waitForSelector('#modal [data-em-grupo]'); await pg.check('#modal [data-em-grupo]');
+  await pg.click('#modal [data-lista-aluno] button:has-text("Ana Clara")');
+  await pg.fill('#modal [data-busca-aluno]', 'carlos'); await pg.click('#modal [data-lista-aluno] button:has-text("Carlos Eduardo")');
+  await pg.waitForSelector('#modal .horario');
+  await pg.locator('#modal .horario').last().click(); await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
+  const bancoAg = await pg.evaluate(() => [...window.__banco.entries()].filter(([k, v]) => k.startsWith('agendamentos/') && v.grupo_id));
+  assert.equal(bancoAg.length, 2); assert.equal(new Set(bancoAg.map(([, v]) => v.estudante_id)).size, 2);
+  assert.equal(bancoAg[0][1].grupo_id, bancoAg[1][1].grupo_id);
 
   await pg.click('a[href="#/relatorios"]'); await pg.waitForSelector('.metricas');
   await foto(pg, '09-relatorios');
