@@ -397,6 +397,21 @@ export async function agendarNoGrupo(p) {
   await writeBatch(db).set(ref, { ...p, inicio: ts(ms(p.inicio)), codigo: gerarCodigo(ms(p.inicio)), status: 'agendado', criado_por: uidAtual(), criado_em: serverTimestamp() }).commit();
   return ref.id;
 }
+/** Acrescenta alunos ao horário de uma consulta (transforma em consulta em grupo, se ainda não for). */
+export async function adicionarAoGrupo(ag, alunos, estudanteFn) {
+  let grupo = ag.grupo_id;
+  if (!grupo) {
+    grupo = 'G' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    await writeBatch(db).update(doc(db, 'agendamentos', ag.id), { grupo_id: grupo, alterado_por: uidAtual(), alterado_em: serverTimestamp() }).commit();
+    ag.grupo_id = grupo;
+  }
+  const base = { escola_id: ag.escola_id, profissional_uid: ag.profissional_uid, profissional_nome: ag.profissional_nome, especialidade: ag.especialidade, inicio: ag.inicio, duracao_min: ag.duracao_min, observacao: ag.observacao || '', grupo_id: grupo };
+  const ok = [], falhas = [];
+  for (const id of alunos) {
+    try { await agendarNoGrupo({ ...base, estudante_id: id }); ok.push(id); } catch (e) { console.error(e); falhas.push(estudanteFn(id)?.nome || id); }
+  }
+  return { ok, falhas };
+}
 export async function membrosDoGrupo(ag) {
   if (!ag?.grupo_id) return [];
   return lista(await getDocs(query(collection(db, 'agendamentos'), where('grupo_id', '==', ag.grupo_id), where('escola_id', '==', ag.escola_id))));

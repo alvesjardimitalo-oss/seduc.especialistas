@@ -267,6 +267,18 @@ test('agendamento em grupo: cancelar o grupo todo de uma vez; equipe pedagógica
   await assertSucceeds(b2.commit());
 });
 
+test('consulta individual recebe mais alunos no mesmo horário (vira grupo)', async () => {
+  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), 'estudantes', 'alunoC'), { nome: 'Aluno C', escola_id: ESC_A, situacao: 'ativo', criado_por: 'fono', criado_em: Timestamp.now() }); });
+  const f = db('fono'), ini = instante(terca, '09:00').getTime();
+  await loteAgenda(f, { criador: 'fono' }).commit();
+  const vira = (ff, uid) => updateDoc(doc(ff, 'agendamentos', 'ag1'), { grupo_id: 'GX', alterado_por: uid, alterado_em: serverTimestamp() });
+  await assertFails(vira(db('pedA'), 'pedA'));
+  await assertSucceeds(vira(f, 'fono'));
+  await assertSucceeds(setDoc(doc(f, 'agendamentos', 'agC'), { grupo_id: 'GX', estudante_id: 'alunoC', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', inicio: Timestamp.fromMillis(ini), duracao_min: 30, status: 'agendado', codigo: COD_AG, criado_por: 'fono', criado_em: serverTimestamp() }));
+  // já em grupo: não troca de grupo
+  await assertFails(updateDoc(doc(f, 'agendamentos', 'ag1'), { grupo_id: 'GY', alterado_por: 'fono', alterado_em: serverTimestamp() }));
+});
+
 test('direção agenda apenas alunos da própria escola', async () => {
   await assertSucceeds(loteAgenda(db('dirA'), { criador: 'dirA', hora: '08:00' }).commit());
   await assertFails(loteAgenda(db('dirA'), { id: 'ag2', criador: 'dirA', hora: '08:30', aluno: 'alunoB', escola: ESC_B }).commit());

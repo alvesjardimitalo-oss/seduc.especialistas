@@ -319,6 +319,16 @@ try {
   const bancoAg = await pg.evaluate(() => [...window.__banco.entries()].filter(([k, v]) => k.startsWith('agendamentos/') && v.grupo_id));
   assert.equal(bancoAg.length, 2); assert.equal(new Set(bancoAg.map(([, v]) => v.estudante_id)).size, 2);
   assert.equal(bancoAg[0][1].grupo_id, bancoAg[1][1].grupo_id);
+  // consulta individual: a especialista adiciona alunos ao mesmo horário (vira grupo)
+  await pg.goto(url + '#/agenda'); await pg.waitForSelector('.semana');
+  const individual = pg.locator('.dia .linha-agenda.s-agendado:not(:has(.tag-grupo))').first();
+  if (await individual.count()) {
+    await individual.click(); await pg.waitForSelector('#modal [data-c=add-alunos]'); await pg.click('#modal [data-c=add-alunos]');
+    await pg.waitForSelector('#modal [data-lista-aluno]');
+    const opc = pg.locator('#modal [data-lista-aluno] button[data-id]');
+    if (await opc.count()) { await opc.first().click(); await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); }
+    else await pg.click('#modal [data-fechar]');
+  }
   // consulta em grupo: escolher o aluno abre a consulta completa dele
   await pg.goto(url + '#/agenda'); await pg.waitForSelector('.semana');
   if (!(await pg.locator('.linha-agenda .tag-grupo').count())) { await pg.click('#prox'); await pg.waitForSelector('.semana'); }

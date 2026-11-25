@@ -17,9 +17,9 @@ const hoje = () => diaMunicipal(Date.now());
 // ---------- seletor de aluno com busca ----------
 // Lista clicável própria (não usa <select size>, que no Safari/Mac não marca o
 // aluno clicado). No "Atendimento em grupo" permite marcar vários alunos.
-function seletorAluno(nome = 'estudante_id', valor = '') {
+function seletorAluno(nome = 'estudante_id', valor = '', { escola = '', excluir = [] } = {}) {
   // Com uma instituição escolhida, mostra só os alunos dela.
-  const lista = S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo' && escolasVisiveis().some(x => x.id === e.escola_id) && (!escolaAtual() || e.escola_id === escolaAtual()))
+  const lista = S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo' && escolasVisiveis().some(x => x.id === e.escola_id) && (escola ? e.escola_id === escola : !escolaAtual() || e.escola_id === escolaAtual()) && !excluir.includes(e.id))
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   if (valor) {
     const e = estudante(valor);
@@ -423,6 +423,7 @@ export async function abrirConsulta(item) {
     + '<div class="acoes-linha">'
     + (at && at.situacao !== 'anulado' && at.profissional_uid === S.user.uid && pode.registrar() ? '<button type="button" class="btn" data-c="editar">Editar consulta</button>' : '')
     + (aberto && !passou && (propria || pode.gestao() || ['direcao', 'secretaria_escolar'].includes(eu.perfil)) ? '<button type="button" class="btn sec" data-c="whatsapp">Lembrete por WhatsApp</button>' : '')
+    + (aberto && (propria || pode.gestao() || (['direcao', 'secretaria_escolar'].includes(eu.perfil) && (eu.escolas || []).includes(item.escola_id))) && ms(item.inicio) > Date.now() - 12 * 3600000 ? '<button type="button" class="btn sec" data-c="add-alunos">+ Adicionar alunos a este horário</button>' : '')
     + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">' + (grupo.length > 1 ? 'Cancelar só este aluno' : 'Cancelar agendamento') + '</button>'
       + (grupo.filter(x => x.status === 'agendado').length > 1 ? '<button type="button" class="btn sec perigo" data-c="cancelar-grupo">Cancelar o grupo todo</button>' : '') : '')
     + (!aberto && !avulso && pode.agendar() && ['falta', 'cancelado'].includes(status) ? '<button type="button" class="btn sec" data-c="novo">Agendar novamente</button>' : '')
@@ -438,6 +439,22 @@ export async function abrirConsulta(item) {
     if (acao === 'reagendar') return formAgendar({ remarcar: ag });
     if (acao === 'whatsapp') return lembreteWhatsApp(ag);
     if (acao === 'novo') return formAgendar({ estudanteId: item.estudante_id, profissionalUid: item.profissional_uid });
+    if (acao === 'add-alunos') {
+      const ja = grupo.length ? grupo.map(x => x.estudante_id) : [ag.estudante_id];
+      const f2 = modal({
+        titulo: 'Adicionar alunos a este horário', largo: true, botao: 'Adicionar à consulta',
+        corpo: '<p class="nota">' + esc(formatarDataHora(ag.inicio)) + ' · ' + esc(ag.profissional_nome) + '. A consulta passa a ser em grupo: cada aluno terá a própria presença e o próprio registro.</p>' + seletorAluno('estudante_id', '', { escola: ag.escola_id, excluir: ja }),
+        aoSalvar: async () => {
+          const alunos = f2._alunos?.() || [];
+          if (!alunos.length) throw Error('Marque ao menos um aluno.');
+          const r = await dados.adicionarAoGrupo(ag, alunos, estudante);
+          aviso(r.ok.length + ' aluno(s) adicionado(s) à consulta.' + (r.falhas.length ? ' Não adicionados: ' + r.falhas.join(', ') + '.' : ''), r.falhas.length ? 'erro' : 'ok');
+          mudou();
+        }
+      });
+      ativarSeletorAluno(f2, () => {}, { multiplo: () => true });
+      return f2;
+    }
     if (acao === 'cancelar-grupo') return modal({ titulo: 'Cancelar o grupo todo', corpo: '<p>Todos os alunos ainda agendados neste horário serão cancelados e o horário volta a ficar livre.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar o grupo', aoSalvar: async d => { const n = await dados.cancelarGrupo(ag, d.motivo.trim()); aviso(n + ' agendamento(s) do grupo cancelado(s).'); mudou(); } });
     if (acao === 'cancelar') return modal({ titulo: 'Cancelar agendamento', corpo: '<p>O horário volta a ficar disponível. O cancelamento fica registrado.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar agendamento', aoSalvar: async d => { await dados.cancelarAgendamento(ag, d.motivo.trim()); aviso('Agendamento cancelado.'); mudou(); } });
     if (acao === 'nao') return modal({
