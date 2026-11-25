@@ -8,6 +8,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { createStore } from "./firebase-store.js";
+import { updates } from "./updates.js";
 import {
   createIcons,
   LayoutDashboard,
@@ -35,6 +36,7 @@ import {
   Download,
   Printer,
   NotebookPen,
+  Megaphone,
 } from "lucide";
 const icons = {
   LayoutDashboard,
@@ -62,6 +64,7 @@ const icons = {
   Download,
   Printer,
   NotebookPen,
+  Megaphone,
 };
 const app = document.querySelector("#app");
 const esc = (v) =>
@@ -95,6 +98,7 @@ const nav = [
   ["users", "Usuários e permissões", "shield-check"],
   ["blocks", "Afastamentos", "calendar-off"],
   ["audit", "Auditoria", "history"],
+  ["updates", "Atualizações", "megaphone"],
 ];
 let state = {},
   page = "dashboard",
@@ -224,7 +228,7 @@ function render() {
   );
   if (!visibleNav.some(([key]) => key === page)) page = "dashboard";
   const title = nav.find(([key]) => key === page)?.[1];
-  app.innerHTML = `<div class="shell"><aside id="sidebar"><a class="brand" href="#dashboard"><div class="brand-mark">S<span>✦</span></div><div>SEDUC<strong>Especialistas</strong></div></a><div class="nav-caption">ACOMPANHAMENTO EDUCACIONAL</div><nav>${visibleNav.map(([key, text, ico]) => `<a href="#${key}" class="${page === key ? "active" : ""}">${icon(ico)}<span>${text}</span>${page === key ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom">${icon("shield-check")}<span>Rede municipal<br><small>Acesso institucional protegido</small></span></div></aside><div class="workspace"><header><button class="icon-btn mobile-menu" data-action="menu" aria-label="Abrir menu">${icon("menu")}</button><div class="breadcrumb">SEDUC <span>/</span> <strong>${title}</strong></div><div class="user"><span class="avatar">${esc(state.user.name.slice(0, 2).toUpperCase())}</span><div>${esc(state.user.name)}<small>${labelRole[state.user.role]}</small></div><button class="icon-btn" data-action="logout" aria-label="Sair">${icon("log-out")}</button></div></header>${demo ? '<div class="demo-bar">AMBIENTE DE DEMONSTRAÇÃO · Dados locais fictícios. Não insira informações reais.</div>' : ""}<main><div class="page-heading"><div><p class="eyebrow">REDE MUNICIPAL · EDUCAÇÃO INCLUSIVA</p><h1>${title}<span class="heading-dot">.</span></h1><p class="subtitle">${subtitles[page] || "Informações integradas para um acompanhamento mais próximo."}</p></div><div class="actions">${button("Atualizar", "refresh", "ghost", "refresh-cw")}${canCreate(page) ? button(page === "appointments" ? "Agendar consulta" : "Novo cadastro", "new") : page === "dashboard" && clinical() ? button("Novo atendimento", "new-immediate") : ""}</div></div>${page === "dashboard" ? dashboard() : page === "reports" ? reports() : modulePage()}</main><footer>SEDUC Especialistas <span>Gestão com cuidado. Educação com propósito.</span><small class="credito-ti">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></small></footer></div></div><dialog id="editor"></dialog>`;
+  app.innerHTML = `<div class="shell"><aside id="sidebar"><a class="brand" href="#dashboard"><div class="brand-mark">S<span>✦</span></div><div>SEDUC<strong>Especialistas</strong></div></a><div class="nav-caption">ACOMPANHAMENTO EDUCACIONAL</div><nav>${visibleNav.map(([key, text, ico]) => `<a href="#${key}" class="${page === key ? "active" : ""}">${icon(ico)}<span>${text}</span>${page === key ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom">${icon("shield-check")}<span>Rede municipal<br><small>Acesso institucional protegido</small></span></div></aside><div class="workspace"><header><button class="icon-btn mobile-menu" data-action="menu" aria-label="Abrir menu">${icon("menu")}</button><div class="breadcrumb">SEDUC <span>/</span> <strong>${title}</strong></div><div class="user"><span class="avatar">${esc(state.user.name.slice(0, 2).toUpperCase())}</span><div>${esc(state.user.name)}<small>${labelRole[state.user.role]}</small></div><button class="icon-btn" data-action="logout" aria-label="Sair">${icon("log-out")}</button></div></header>${demo ? '<div class="demo-bar">AMBIENTE DE DEMONSTRAÇÃO · Dados locais fictícios. Não insira informações reais.</div>' : ""}<main><div class="page-heading"><div><p class="eyebrow">REDE MUNICIPAL · EDUCAÇÃO INCLUSIVA</p><h1>${title}<span class="heading-dot">.</span></h1><p class="subtitle">${subtitles[page] || "Informações integradas para um acompanhamento mais próximo."}</p></div><div class="actions">${button("Atualizar", "refresh", "ghost", "refresh-cw")}${canCreate(page) ? button(page === "appointments" ? "Agendar consulta" : "Novo cadastro", "new") : page === "dashboard" && clinical() ? button("Novo atendimento", "new-immediate") : ""}</div></div>${page === "dashboard" ? dashboard() : page === "reports" ? reports() : page === "updates" ? updatesPage() : modulePage()}</main><footer>SEDUC Especialistas <span>Gestão com cuidado. Educação com propósito.</span><small class="credito-ti">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></small></footer></div></div><dialog id="editor"></dialog>`;
   bind();
   if (
     state._hasMore?.[page] ||
@@ -260,6 +264,7 @@ const subtitles = {
   users: "Aprovação de acesso, responsabilidades e abrangência.",
   audit: "Histórico de operações para acompanhamento da administração.",
   blocks: "Afastamentos e períodos indisponíveis para agendamento.",
+  updates: "Novidades e melhorias do sistema.",
 };
 function filtered(rows) {
   return rows.filter((x) => {
@@ -364,6 +369,16 @@ function dashboard() {
       "",
     )}</section></div><div class="care-note">${icon("shield-check")}<p><strong>Cada informação merece cuidado.</strong> O acesso é definido pelo seu perfil e pelos vínculos com as escolas.</p></div>`;
 }
+// Consulta em grupo: um agendamento por aluno, ligados pelo mesmo groupId.
+function groupMembers(a) {
+  return (state.appointments || []).filter((x) => x.groupId === a.groupId);
+}
+function groupLabel(a) {
+  const total = groupMembers(a).filter(
+    (x) => !["Cancelado", "Remarcado"].includes(x.status),
+  ).length;
+  return `Consulta em grupo${total > 1 ? ` · ${total} alunos` : ""}`;
+}
 function empty(title, desc, ico = "notebook-pen") {
   return `<div class="empty">${icon(ico)}<h3>${title}</h3><p>${desc}</p></div>`;
 }
@@ -410,13 +425,23 @@ const columns = {
   ],
   appointments: [
     ["Data e hora", (x) => fmt(x.start, true)],
-    ["Aluno", (x) => esc(name("students", x.studentId))],
+    [
+      "Aluno",
+      (x) =>
+        `<strong>${esc(name("students", x.studentId))}</strong>${x.groupId ? `<small>${groupLabel(x)}</small>` : ""}`,
+    ],
     ["Profissional", (x) => esc(name("professionals", x.professionalId))],
     ["Escola", (x) => esc(shortSchool(x.schoolId))],
     ["Situação", (x) => pill(x.status)],
   ],
   notes: [
-    ["Aluno", (x) => esc(name("students", x.studentId))],
+    [
+      "Aluno",
+      (x) => {
+        const a = state.appointments.find((a) => a.id === x.appointmentId);
+        return `<strong>${esc(name("students", x.studentId))}</strong>${a?.groupId ? `<small>${groupLabel(a)}</small>` : ""}`;
+      },
+    ],
     [
       "Data",
       (x) =>
@@ -503,7 +528,15 @@ function modulePage() {
         : page === "attendance"
           ? '<div class="info">Atendimentos realizados não registram frequência automaticamente. Informe a jornada efetivamente cumprida.</div>'
           : "";
-  return `${info}${filters(page === "appointments")}<section class="panel table-panel"><div class="table-caption"><strong>${rows.length} registro${rows.length === 1 ? "" : "s"}</strong><span>Atualizado nesta sessão</span></div>${rows.length ? `<div class="table-scroll"><table><thead><tr>${cols.map(([c]) => `<th>${c}</th>`).join("")}<th><span class="sr-only">Ações</span></th></tr></thead><tbody>${rows.map((x) => `<tr>${cols.map(([, fn]) => `<td>${fn(x)}</td>`).join("")}<td class="row-actions">${page === "students" ? `<button class="text-btn" data-history="${x.id}">Histórico</button>` : ""}${page === "appointments" && clinical() && (admin() || x.authorId === state.user.id) && !["Cancelado", "Remarcado"].includes(x.status) ? `<button class="text-btn" data-note="${x.id}">Registrar</button>` : ""}${editable(page, x) ? `<button class="text-btn" data-edit="${x.id}">Editar ${icon("arrow-up-right")}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum registro encontrado", "Cadastre as primeiras informações ou ajuste os filtros.")}</section>${page === "audit" && state.versions?.length ? `<section class="panel version-panel"><h2>Versões anteriores</h2>${state.versions.map((v) => `<details><summary>${fmt(v.at, true)} · ${esc(v.table)} · ${esc(v.targetId)}</summary><pre>${esc(JSON.stringify(v.before, null, 2))}</pre></details>`).join("")}</section>` : ""}`;
+  return `${info}${filters(page === "appointments")}<section class="panel table-panel"><div class="table-caption"><strong>${rows.length} registro${rows.length === 1 ? "" : "s"}</strong><span>Atualizado nesta sessão</span></div>${rows.length ? `<div class="table-scroll"><table><thead><tr>${cols.map(([c]) => `<th>${c}</th>`).join("")}<th><span class="sr-only">Ações</span></th></tr></thead><tbody>${rows.map((x) => `<tr>${cols.map(([, fn]) => `<td>${fn(x)}</td>`).join("")}<td class="row-actions">${page === "students" ? `<button class="text-btn" data-history="${x.id}">Histórico</button>` : ""}${page === "appointments" && clinical() && (admin() || x.authorId === state.user.id) && !["Cancelado", "Remarcado"].includes(x.status) ? `<button class="text-btn" data-note="${x.id}">Registrar</button>${x.groupId ? `<button class="text-btn" data-group-note="${esc(x.groupId)}">Registrar grupo</button>` : ""}` : ""}${editable(page, x) ? `<button class="text-btn" data-edit="${x.id}">Editar ${icon("arrow-up-right")}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum registro encontrado", "Cadastre as primeiras informações ou ajuste os filtros.")}</section>${page === "audit" && state.versions?.length ? `<section class="panel version-panel"><h2>Versões anteriores</h2>${state.versions.map((v) => `<details><summary>${fmt(v.at, true)} · ${esc(v.table)} · ${esc(v.targetId)}</summary><pre>${esc(JSON.stringify(v.before, null, 2))}</pre></details>`).join("")}</section>` : ""}`;
+}
+function updatesPage() {
+  return updates
+    .map(
+      (u) =>
+        `<section class="panel update-panel"><p class="eyebrow">${fmt(u.date)}</p><h2>${esc(u.title)}</h2><ul>${u.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></section>`,
+    )
+    .join("");
 }
 function reports() {
   const rows = filtered(state.appointments || []),
@@ -532,7 +565,7 @@ function options(table, value = "", predicate = () => true) {
     .filter(predicate)
     .map(
       (x) =>
-        `<option value="${esc(x.id)}" ${x.id === value ? "selected" : ""}>${esc(x.name || `${name("professionals", x.professionalId)} · ${shortSchool(x.schoolId)} · ${x.job || fmt(x.start, true)}`)}</option>`,
+        `<option value="${esc(x.id)}" ${x.id === value ? "selected" : ""}>${esc(x.name || (table === "appointments" ? `${fmt(x.start, true)} · ${name("students", x.studentId)}${x.groupId ? " (grupo)" : ""}` : `${name("professionals", x.professionalId)} · ${shortSchool(x.schoolId)} · ${x.job || fmt(x.start, true)}`))}</option>`,
     )
     .join("");
 }
@@ -740,6 +773,9 @@ function field(c, v) {
     input = `<input type="${c.type}" ${attrs} value="${c.type === "datetime-local" ? toLocal(v) : val}" maxlength="${c.max || 200}" ${c.type === "number" ? `min="${c.min || 0}" max="${c.max || 80}" step="0.5"` : ""}>`;
   return `<div class="field ${["textarea", "checks", "schedule"].includes(c.type) ? "full" : ""} ${c.type === "checkbox" ? "checkbox-field" : ""}"><label for="field-${c.key}">${c.label}${c.required ? " <span>*</span>" : ""}</label>${input}</div>`;
 }
+function groupField() {
+  return `<div class="group-box"><label class="group-toggle"><input type="checkbox" id="group-enabled"> Consulta em grupo (mais de um aluno)</label><div id="group-panel" hidden><p class="group-hint">Selecione os demais alunos que participam desta consulta. Cada aluno recebe o próprio agendamento e o próprio registro de atendimento, individual no prontuário.</p><input type="search" id="group-search" placeholder="Buscar aluno..." aria-label="Buscar aluno para o grupo"><div class="check-list" id="group-students"></div><small id="group-count">Nenhum aluno adicional selecionado.</small></div></div>`;
+}
 async function edit(table, row = {}, prefill = {}) {
   try {
     if (store) {
@@ -754,7 +790,7 @@ async function edit(table, row = {}, prefill = {}) {
   const dialog = document.querySelector("#editor");
   const existing = !!row.id,
     values = { ...prefill, ...row };
-  dialog.innerHTML = `<form id="edit-form"><div class="dialog-heading"><div><p class="eyebrow">SEDUC ESPECIALISTAS</p><h2>${existing ? "Editar" : "Novo"} · ${nav.find((x) => x[0] === table)?.[1]}</h2></div><button type="button" class="icon-btn" id="close-dialog" aria-label="Fechar">${icon("x")}</button></div><div class="dialog-body">${table === "students" && existing ? '<div class="info">Arquivar preserva todos os atendimentos. Transferir restringe o cadastro à nova escola; registros anteriores mantêm a escola de origem.</div>' : ""}${table === "appointments" ? '<div class="info">O servidor confere vigência, jornada, bloqueios e conflitos. Para reagendar, justifique a remarcação e crie a nova consulta.</div>' : ""}<div class="form-grid">${configs[table].map((c) => field(c, values[c.key])).join("")}</div>${store && ["appointments", "referrals"].includes(table) ? '<button type="button" id="more-student-options" class="text-btn">Carregar mais alunos na seleção</button>' : ""}<p class="form-error" id="form-error" role="alert"></p></div><div class="dialog-footer"><small>Os campos com * são obrigatórios.</small><button type="button" class="ghost" id="cancel-edit">Cancelar</button><button class="primary" type="submit">${icon("check")}Salvar registro</button></div></form>`;
+  dialog.innerHTML = `<form id="edit-form"><div class="dialog-heading"><div><p class="eyebrow">SEDUC ESPECIALISTAS</p><h2>${existing ? "Editar" : "Novo"} · ${nav.find((x) => x[0] === table)?.[1]}</h2></div><button type="button" class="icon-btn" id="close-dialog" aria-label="Fechar">${icon("x")}</button></div><div class="dialog-body">${table === "students" && existing ? '<div class="info">Arquivar preserva todos os atendimentos. Transferir restringe o cadastro à nova escola; registros anteriores mantêm a escola de origem.</div>' : ""}${table === "appointments" ? '<div class="info">O servidor confere vigência, jornada, bloqueios e conflitos. Para reagendar, justifique a remarcação e crie a nova consulta.</div>' : ""}<div class="form-grid">${configs[table].map((c) => field(c, values[c.key])).join("")}</div>${table === "appointments" && !existing ? groupField() : ""}${table === "appointments" && existing && row.groupId ? `<div class="info">${esc(groupLabel(row))}. Este agendamento é individual deste aluno: alterar a situação aqui não muda os demais participantes.</div>` : ""}${table === "notes" && state.appointments.find((a) => a.id === values.appointmentId)?.groupId ? '<div class="info">Consulta em grupo: este registro de atendimento é individual e aparece apenas no prontuário deste aluno. Registre cada participante separadamente.</div>' : ""}${store && ["appointments", "referrals"].includes(table) ? '<button type="button" id="more-student-options" class="text-btn">Carregar mais alunos na seleção</button>' : ""}<p class="form-error" id="form-error" role="alert"></p></div><div class="dialog-footer"><small>Os campos com * são obrigatórios.</small><button type="button" class="ghost" id="cancel-edit">Cancelar</button><button class="primary" type="submit">${icon("check")}Salvar registro</button></div></form>`;
   dialog.showModal();
   createIcons({ icons });
   document.querySelector("#close-dialog").onclick = () => dialog.close();
@@ -821,8 +857,66 @@ async function edit(table, row = {}, prefill = {}) {
           );
       }
     };
-    school.onchange = sync;
+    const groupOn = dialog.querySelector("#group-enabled");
+    const syncGroup = () => {
+      const list = dialog.querySelector("#group-students");
+      if (!list) return;
+      const main = dialog.querySelector('[name="studentId"]').value,
+        term = dialog
+          .querySelector("#group-search")
+          .value.trim()
+          .toLocaleLowerCase("pt-BR"),
+        picked = new Set(
+          [...list.querySelectorAll("input:checked")].map((el) => el.value),
+        );
+      const students = (state.students || []).filter(
+        (x) =>
+          x.status === "Ativo" &&
+          x.id !== main &&
+          (!school.value || x.schoolId === school.value) &&
+          (!term ||
+            picked.has(x.id) ||
+            x.name.toLocaleLowerCase("pt-BR").includes(term) ||
+            String(x.registration).toLocaleLowerCase("pt-BR").includes(term)),
+      );
+      list.innerHTML = students.length
+        ? students
+            .map(
+              (x) =>
+                `<label><input type="checkbox" value="${esc(x.id)}" ${picked.has(x.id) ? "checked" : ""}>${esc(x.name)} <small>Matrícula ${esc(x.registration)}</small></label>`,
+            )
+            .join("")
+        : "<small>Nenhum outro aluno ativo nesta escola.</small>";
+      countGroup();
+    };
+    const countGroup = () => {
+      const n = dialog.querySelectorAll("#group-students input:checked").length;
+      dialog.querySelector("#group-count").textContent = n
+        ? `${n + 1} alunos na consulta (o aluno principal + ${n}).`
+        : "Nenhum aluno adicional selecionado.";
+    };
+    if (groupOn) {
+      groupOn.onchange = () => {
+        dialog.querySelector("#group-panel").hidden = !groupOn.checked;
+        if (groupOn.checked)
+          dialog.querySelector('[name="modality"]').value =
+            "Atividade em grupo";
+        syncGroup();
+      };
+      dialog.querySelector("#group-search").oninput = syncGroup;
+      dialog.querySelector("#group-students").onchange = countGroup;
+      dialog.querySelector('[name="studentId"]').addEventListener(
+        "change",
+        syncGroup,
+      );
+    }
+    school.onchange = () => {
+      sync();
+      syncGroup();
+    };
     sync();
+    if (moreOptions && groupOn)
+      moreOptions.addEventListener("click", () => setTimeout(syncGroup, 0));
   }
   document.querySelector("#edit-form").onsubmit = async (e) => {
     e.preventDefault();
@@ -881,6 +975,58 @@ async function edit(table, row = {}, prefill = {}) {
       )
         return;
     }
+    const extra =
+      table === "appointments" &&
+      !existing &&
+      form.querySelector("#group-enabled")?.checked
+        ? [...form.querySelectorAll("#group-students input:checked")]
+            .map((el) => el.value)
+            .filter((v) => v && v !== data.studentId)
+        : [];
+    if (form.querySelector("#group-enabled")?.checked && !extra.length) {
+      document.querySelector("#form-error").textContent =
+        "Selecione ao menos mais um aluno para a consulta em grupo, ou desmarque a opção.";
+      return;
+    }
+    if (extra.length) {
+      if (!data.studentId) {
+        document.querySelector("#form-error").textContent =
+          "Selecione o aluno principal.";
+        return;
+      }
+      submit.disabled = true;
+      document.querySelector("#form-error").textContent = "";
+      const groupId = crypto.randomUUID(),
+        failed = [];
+      let saved = 0;
+      // Um agendamento por aluno: o primeiro reserva a agenda da profissional;
+      // os demais entram no mesmo horário pelo groupId.
+      for (const studentId of [data.studentId, ...extra]) {
+        try {
+          await api("save", {
+            table,
+            data: { ...data, modality: "Atividade em grupo", studentId, groupId },
+          });
+          saved++;
+        } catch (error) {
+          if (!saved) {
+            document.querySelector("#form-error").textContent = error.message;
+            submit.disabled = false;
+            return;
+          }
+          failed.push(`${name("students", studentId)}: ${error.message}`);
+        }
+      }
+      dialog.close();
+      toast(
+        failed.length
+          ? `Consulta em grupo criada para ${saved} aluno(s). Não agendados: ${failed.join("; ")}`
+          : `Consulta em grupo agendada para ${saved} alunos.`,
+        !!failed.length,
+      );
+      await load();
+      return;
+    }
     submit.disabled = true;
     document.querySelector("#form-error").textContent = "";
     try {
@@ -897,6 +1043,97 @@ async function edit(table, row = {}, prefill = {}) {
     } finally {
       submit.disabled = false;
     }
+  };
+}
+// Registro da consulta em grupo: uma tela, um registro individual por aluno.
+async function groupNotes(groupId) {
+  try {
+    if (store) state = { ...state, ...(await store.formOptions("notes")) };
+  } catch (e) {
+    toast(friendly(e), true);
+    return;
+  }
+  const members = (state.appointments || []).filter(
+    (x) =>
+      x.groupId === groupId &&
+      !["Cancelado", "Remarcado"].includes(x.status) &&
+      (admin() || x.authorId === state.user.id),
+  );
+  if (!members.length) return toast("Nenhum aluno ativo neste grupo.", true);
+  const first = members[0],
+    dialog = document.querySelector("#editor");
+  dialog.innerHTML = `<form id="group-form"><div class="dialog-heading"><div><p class="eyebrow">CONSULTA EM GRUPO · ${fmt(first.start, true)}</p><h2>Registrar atendimentos</h2><p>${members.length} aluno(s) · ${esc(name("professionals", first.professionalId))}</p></div><button type="button" class="icon-btn" id="close-dialog" aria-label="Fechar">${icon("x")}</button></div><div class="dialog-body"><div class="info">A consulta foi uma só, mas cada registro é individual e vai apenas para o prontuário do aluno. Deixe em branco quem não deve ser registrado agora.</div>${members
+    .map((a) => {
+      const done = state.notes.some((n) => n.appointmentId === a.id);
+      return `<fieldset class="group-note"><legend>${esc(name("students", a.studentId))}</legend>${
+        done
+          ? '<p class="group-hint">Atendimento já registrado. Para alterar, use "Registrar" na linha deste aluno.</p>'
+          : `<label>Observação do atendimento (até 1.000 caracteres)<textarea data-id="${a.id}" data-k="text" rows="3" maxlength="1000"></textarea></label><label>Encaminhamentos<textarea data-id="${a.id}" data-k="referral" rows="2" maxlength="1000"></textarea></label><label>Retorno sugerido<input type="date" data-id="${a.id}" data-k="returnDate"></label><label class="group-toggle"><input type="checkbox" data-id="${a.id}" data-k="absent"> Faltou (marcar "Falta do aluno")</label>`
+      }</fieldset>`;
+    })
+    .join(
+      "",
+    )}<p class="form-error" id="form-error" role="alert"></p></div><div class="dialog-footer"><small>Cada aluno recebe um registro separado.</small><button type="button" class="ghost" id="cancel-edit">Cancelar</button><button class="primary" type="submit">${icon("check")}Salvar registros</button></div></form>`;
+  dialog.showModal();
+  createIcons({ icons });
+  document.querySelector("#close-dialog").onclick = () => dialog.close();
+  document.querySelector("#cancel-edit").onclick = () => dialog.close();
+  document.querySelector("#group-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget,
+      submit = form.querySelector('[type="submit"]'),
+      val = (id, k) => form.querySelector(`[data-id="${id}"][data-k="${k}"]`);
+    const jobs = members
+      .filter((a) => val(a.id, "text"))
+      .map((a) => ({
+        a,
+        text: val(a.id, "text").value.trim(),
+        referral: val(a.id, "referral").value.trim(),
+        returnDate: val(a.id, "returnDate").value,
+        absent: val(a.id, "absent").checked,
+      }))
+      .filter((j) => j.text || j.absent);
+    if (!jobs.length) {
+      document.querySelector("#form-error").textContent =
+        "Preencha o registro de ao menos um aluno.";
+      return;
+    }
+    submit.disabled = true;
+    const failed = [];
+    let saved = 0;
+    for (const j of jobs) {
+      try {
+        if (j.absent) {
+          const { id, version, schoolId, studentId, linkId, start, end, modality, reason } = j.a;
+          await api("save", {
+            table: "appointments",
+            id,
+            version,
+            data: { schoolId, studentId, linkId, start, end, modality, reason: reason || "", status: "Falta do aluno" },
+          });
+        } else
+          await api("save", {
+            table: "notes",
+            data: {
+              appointmentId: j.a.id,
+              text: j.text,
+              referral: j.referral,
+              returnDate: j.returnDate,
+            },
+          });
+        saved++;
+      } catch (error) {
+        failed.push(`${name("students", j.a.studentId)}: ${error.message}`);
+      }
+    }
+    dialog.close();
+    toast(
+      failed.length
+        ? `${saved} registro(s) salvo(s). Com erro: ${failed.join("; ")}`
+        : `${saved} registro(s) individual(is) salvo(s).`,
+      !!failed.length,
+    );
+    await load();
   };
 }
 async function history(studentId) {
@@ -1035,6 +1272,9 @@ function bind() {
         edit("notes", note || {}, { appointmentId: el.dataset.note });
       }),
   );
+  document
+    .querySelectorAll("[data-group-note]")
+    .forEach((el) => (el.onclick = () => groupNotes(el.dataset.groupNote)));
   const bindFilter = (id, set) => {
     const el = document.getElementById(id);
     if (el)

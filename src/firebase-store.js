@@ -190,6 +190,8 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
       ["appointments", "professionals", "attendance"].forEach((t) =>
         needed.add(t),
       );
+    } else if (module === "updates") {
+      // Página estática: não consulta o banco.
     } else if (module !== "users" || manager()) needed.add(module);
     if (
       ["appointments", "attendance", "referrals", "notes", "links"].includes(
@@ -466,11 +468,25 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
           throw Error("Este registro mudou. Atualize antes de salvar.");
       }
       const guards = [];
-      if (payload.table === "appointments")
+      if (payload.table === "appointments") {
+        const released = ["Cancelado", "Remarcado"].includes(row.status);
+        // Na consulta em grupo a agenda da profissional é reservada uma vez,
+        // com o groupId; cada aluno mantém a própria reserva individual.
+        const groupBusy =
+          row.groupId &&
+          draft.appointments.some(
+            (x) =>
+              x.groupId === row.groupId &&
+              x.id !== row.id &&
+              !["Cancelado", "Remarcado"].includes(x.status),
+          );
         for (const [kind, owner] of [
           ["p", row.professionalId],
           ["s", row.studentId],
         ]) {
+          // Cancelar um aluno do grupo não libera o horário dos demais.
+          if (kind === "p" && released && groupBusy) continue;
+          const bookingId = kind === "p" && row.groupId ? row.groupId : row.id;
           const key = `${kind}_${owner}_${row.dayKey}`;
           const snap = await tx.get(ref("calendar_guards", key));
           const guard = snap.exists()
@@ -489,14 +505,14 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
           };
           for (const slot of row.slots) {
             const occupied = guard.bookings[slot];
-            if (occupied && occupied !== row.id)
+            if (occupied && occupied !== bookingId)
               throw Error("Conflito de horário. Atualize a agenda.");
-            if (["Cancelado", "Remarcado"].includes(row.status))
-              delete next.bookings[slot];
-            else next.bookings[slot] = row.id;
+            if (released) delete next.bookings[slot];
+            else next.bookings[slot] = bookingId;
           }
           guards.push([key, next]);
         }
+      }
       if (payload.table === "blocks") {
         const first = localParts(row.start),
           last = localParts(row.end);
@@ -611,10 +627,14 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
         (!filters.from || a.dayKey >= filters.from) &&
         (!filters.to || a.dayKey <= filters.to),
     );
-    const map = new Map();
+    const map = new Map(),
+      groupHours = new Set();
     for (const a of rows) {
       const p = state.professionals.find((p) => p.id === a.professionalId),
         key = [a.schoolId, p?.specialty, a.status].join("|");
+      // Grupo: cada aluno conta como atendimento; as horas, uma vez por encontro.
+      const countHours = !a.groupId || !groupHours.has(key + "|" + a.groupId);
+      if (a.groupId) groupHours.add(key + "|" + a.groupId);
       const r = map.get(key) || {
         escola: state.schools.find((x) => x.id === a.schoolId)?.name || "",
         especialidade: p?.specialty || "",
@@ -623,7 +643,7 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
         horas: 0,
       };
       r.quantidade++;
-      r.horas += (a.endMs - a.startMs) / 3600000;
+      if (countHours) r.horas += (a.endMs - a.startMs) / 3600000;
       map.set(key, r);
     }
     return [...map.values()];

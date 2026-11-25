@@ -385,8 +385,12 @@ function validate(s, u, table, d, old) {
         "modality",
         "status",
         "reason",
+        "groupId",
       ]);
       writer(s, u, d.schoolId);
+      // Consulta em grupo: cada aluno tem o próprio agendamento (e o próprio
+      // registro de atendimento); o groupId liga os agendamentos do mesmo encontro.
+      const groupId = old ? old.groupId || "" : text(d.groupId || "", 60);
       const link = ref(s, "links", d.linkId),
         student = ref(s, "students", d.studentId),
         p = ref(s, "professionals", link.professionalId);
@@ -468,7 +472,14 @@ function validate(s, u, table, d, old) {
             (x) =>
               x.id !== old?.id &&
               !cancelStatuses.includes(x.status) &&
-              (x.professionalId === p.id || x.studentId === student.id) &&
+              (x.studentId === student.id ||
+                (x.professionalId === p.id &&
+                  !(
+                    groupId &&
+                    x.groupId === groupId &&
+                    x.start === start &&
+                    x.end === end
+                  ))) &&
               +new Date(x.start) < +new Date(end) &&
               +new Date(x.end) > +new Date(start),
           ),
@@ -487,6 +498,7 @@ function validate(s, u, table, d, old) {
         status,
         reason,
         modality: text(d.modality, 100, true),
+        ...(groupId ? { groupId } : {}),
       };
     }
     case "notes": {
@@ -763,10 +775,15 @@ export function report(s, identity, filters = {}) {
       (!filters.from || localParts(a.start).day >= filters.from) &&
       (!filters.to || localParts(a.start).day <= filters.to),
   );
-  const totals = new Map();
+  const totals = new Map(),
+    groupHours = new Set();
   for (const a of rows) {
     const p = s.professionals.find((x) => x.id === a.professionalId);
     const key = [a.schoolId, p?.specialty || "", a.status].join("|");
+    // Em consulta em grupo, cada aluno conta como atendimento, mas as horas da
+    // profissional entram uma única vez por encontro.
+    const countHours = !a.groupId || !groupHours.has(key + "|" + a.groupId);
+    if (a.groupId) groupHours.add(key + "|" + a.groupId);
     const r = totals.get(key) || {
       escola: s.schools.find((x) => x.id === a.schoolId)?.name || "",
       especialidade: p?.specialty || "",
@@ -775,7 +792,7 @@ export function report(s, identity, filters = {}) {
       horas: 0,
     };
     r.quantidade++;
-    r.horas += (+new Date(a.end) - +new Date(a.start)) / 3600000;
+    if (countHours) r.horas += (+new Date(a.end) - +new Date(a.start)) / 3600000;
     totals.set(key, r);
   }
   audit(s, u, "exportar_relatorio", "appointments", "agregado");
