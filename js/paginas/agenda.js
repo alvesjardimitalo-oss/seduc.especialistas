@@ -1,14 +1,18 @@
 import * as dados from '../dados.js';
-import { S, pode, escolaCurta, especialistasDaEscola, escopoEscolas, escolaAtual } from '../estado.js';
+import { S, pode, estudante, escolaCurta, especialistasDaEscola, escopoEscolas, escolaAtual } from '../estado.js';
 import { formAgendar } from '../formularios.js';
-import { ESPECIALIDADES, DIAS, diaMunicipal, inicioDaSemana, somarDias, instante, formatarData, ms, bloqueioDoDia, diasDoBloqueio, idBloqueio, numeroDoDia, feriadosDoAno, diaDaSemana } from '../dominio.js';
+import { ESPECIALIDADES, STATUS_AGENDA, horaMunicipal, DIAS, diaMunicipal, inicioDaSemana, somarDias, instante, formatarData, ms, bloqueioDoDia, diasDoBloqueio, idBloqueio, numeroDoDia, feriadosDoAno, diaDaSemana } from '../dominio.js';
 import { esc, $, $$, modal, campo, opcoes, aviso, erro, vazio } from '../ui.js';
 import * as dadosCal from '../dados.js';
 import { linhaAgenda, ligarAgendamentos } from './painel.js';
 
 let mostrarCancelados = false;
 
+const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const visaoBotoes = v => '<div class="alternar-visao" role="group" aria-label="Visualização"><button class="btn sec' + (v === 'semana' ? ' ativo' : '') + '" data-visao="semana">Semana</button><button class="btn sec' + (v === 'mes' ? ' ativo' : '') + '" data-visao="mes">Mês</button></div>';
+
 export async function render(main, vigente) {
+  if (S.agendaVisao === 'mes') return renderMes(main, vigente);
   const hoje = diaMunicipal(Date.now());
   if (!S.agendaSemana) S.agendaSemana = inicioDaSemana(hoje);
   if (S.agendaProf === '' && S.perfil.perfil === 'especialista') S.agendaProf = S.user.uid;
@@ -23,7 +27,7 @@ export async function render(main, vigente) {
 
   main.innerHTML = '<header class="pagina-topo"><div><h1>Agenda</h1><p>Semana de ' + formatarData(instante(dias[0], '12:00')) + ' a ' + formatarData(instante(dias[dias.length - 1], '12:00')) + '</p></div>'
     + '<div class="acoes-linha">' + (pode.gerenciar() ? '<button class="btn sec" id="calendario">Calendário escolar</button>' : '') + (pode.agendar() ? '<button class="btn" id="agendar">+ Agendar</button>' : '') + '</div></header>'
-    + '<div class="cartao filtros agenda-controles"><div class="acoes-linha"><button class="btn sec" id="ant" aria-label="Semana anterior">←</button><button class="btn sec" id="hoje">Hoje</button><button class="btn sec" id="prox" aria-label="Próxima semana">→</button></div>'
+    + '<div class="cartao filtros agenda-controles">' + visaoBotoes('semana') + '<div class="acoes-linha"><button class="btn sec" id="ant" aria-label="Semana anterior">←</button><button class="btn sec" id="hoje">Hoje</button><button class="btn sec" id="prox" aria-label="Próxima semana">→</button></div>'
     + '<label class="campo"><span>Profissional</span><select id="prof"><option value="todas">Toda a equipe</option>' + especialistasDaEscola(escolaAtual()).map(u => '<option value="' + esc(u.id) + '"' + (S.agendaProf === u.id ? ' selected' : '') + '>' + esc(u.nome) + ' — ' + esc(ESPECIALIDADES[u.especialidade] || '') + '</option>').join('') + '</select></label>'
     + '<label class="check"><input type="checkbox" id="cancelados"' + (mostrarCancelados ? ' checked' : '') + '> Mostrar cancelados</label></div>'
     + (prof && !(prof.slots || []).length ? '<div class="alerta-caixa aviso">' + esc(prof.nome) + ' ainda não tem jornada cadastrada. A gestão define em Equipe.</div>' : '')
@@ -46,9 +50,65 @@ export async function render(main, vigente) {
   $('#hoje', main).onclick = () => { S.agendaSemana = inicioDaSemana(hoje); render(main, vigente); };
   $('#prof', main).onchange = ev => { S.agendaProf = ev.target.value; render(main, vigente); };
   $('#cancelados', main).onchange = ev => { mostrarCancelados = ev.target.checked; render(main, vigente); };
+  ligarVisao(main, vigente);
   $('#calendario', main)?.addEventListener('click', () => calendario(main, vigente));
   $('#agendar', main)?.addEventListener('click', () => formAgendar({ profissionalUid: prof?.id || '' }));
   $$('[data-agendar-dia]', main).forEach(b => b.onclick = () => formAgendar({ profissionalUid: prof?.id || '', dia: b.dataset.agendarDia }));
+}
+
+function ligarVisao(main, vigente) {
+  $$('[data-visao]', main).forEach(b => b.onclick = () => { S.agendaVisao = b.dataset.visao; render(main, vigente); });
+}
+
+/** Calendário do mês: todas as consultas agendadas, dia a dia. */
+async function renderMes(main, vigente) {
+  const hoje = diaMunicipal(Date.now());
+  if (S.agendaProf === '' && S.perfil.perfil === 'especialista') S.agendaProf = S.user.uid;
+  if (!S.agendaMes) S.agendaMes = hoje.slice(0, 7);
+  const [ano, mes] = S.agendaMes.split('-').map(Number);
+  const primeiro = S.agendaMes + '-01', ini = inicioDaSemana(primeiro);
+  const proxMes = mes === 12 ? (ano + 1) + '-01' : ano + '-' + String(mes + 1).padStart(2, '0');
+  const antMes = mes === 1 ? (ano - 1) + '-12' : ano + '-' + String(mes - 1).padStart(2, '0');
+  // até o fim da semana que contém o último dia do mês
+  const fim = somarDias(inicioDaSemana(somarDias(proxMes + '-01', -1)), 7);
+  const prof = S.agendaProf && S.agendaProf !== 'todas' ? S.usuarios.find(u => u.id === S.agendaProf) : null;
+  const filtro = prof ? { profissional: prof.id } : { escolas: escolaAtual() ? [escolaAtual()] : escopoEscolas() || undefined };
+  const lista = await dados.listarAgendamentos({ ...filtro, de: instante(ini, '00:00'), ate: instante(fim, '00:00') });
+  if (!vigente()) return;
+  const visiveis = lista.filter(a => (mostrarCancelados || a.status !== 'cancelado') && (!escolaAtual() || a.escola_id === escolaAtual())).sort((a, b) => ms(a.inicio) - ms(b.inicio));
+  const porDia = new Map();
+  for (const a of visiveis) { const d = diaMunicipal(a.inicio); if (!porDia.has(d)) porDia.set(d, []); porDia.get(d).push(a); }
+  const dias = []; for (let d = ini; d < fim; d = somarDias(d, 1)) dias.push(d);
+  const noMes = visiveis.filter(a => diaMunicipal(a.inicio).startsWith(S.agendaMes));
+  const conta = st => noMes.filter(a => a.status === st).length;
+  const nomeCurto = id => { const n = (estudante(id)?.nome || 'Aluno').split(' '); return n[0] + (n[1] ? ' ' + n[1][0] + '.' : ''); };
+  main.innerHTML = '<header class="pagina-topo"><div><h1>Agenda</h1><p>' + MESES[mes - 1] + ' de ' + ano + ' · ' + noMes.length + ' consulta(s)'
+    + (noMes.length ? ' — ' + conta('agendado') + ' agendada(s), ' + conta('realizado') + ' realizada(s), ' + conta('falta') + ' falta(s)' : '') + '</p></div>'
+    + '<div class="acoes-linha">' + (pode.gerenciar() ? '<button class="btn sec" id="calendario">Calendário escolar</button>' : '') + (pode.agendar() ? '<button class="btn" id="agendar">+ Agendar</button>' : '') + '</div></header>'
+    + '<div class="cartao filtros agenda-controles">' + visaoBotoes('mes') + '<div class="acoes-linha"><button class="btn sec" id="ant" aria-label="Mês anterior">←</button><button class="btn sec" id="hoje">Este mês</button><button class="btn sec" id="prox" aria-label="Próximo mês">→</button></div>'
+    + '<label class="campo"><span>Profissional</span><select id="prof"><option value="todas">Toda a equipe</option>' + especialistasDaEscola(escolaAtual()).map(u => '<option value="' + esc(u.id) + '"' + (S.agendaProf === u.id ? ' selected' : '') + '>' + esc(u.nome) + ' — ' + esc(ESPECIALIDADES[u.especialidade] || '') + '</option>').join('') + '</select></label>'
+    + '<label class="check"><input type="checkbox" id="cancelados"' + (mostrarCancelados ? ' checked' : '') + '> Mostrar cancelados</label></div>'
+    + '<div class="cal-mes"><div class="cal-cab">' + DIAS.map(d => '<span>' + d.slice(0, 3) + '</span>').join('') + '</div><div class="cal-grade">'
+    + dias.map(d => {
+      const itens = porDia.get(d) || [], fora = !d.startsWith(S.agendaMes), bloq = bloqueioDoDia(d, escolaAtual(), S.bloqueios);
+      const fds = [0, 6].includes(diaDaSemana(d));
+      return '<div class="cal-dia' + (fora ? ' fora' : '') + (d === hoje ? ' hoje' : '') + (fds ? ' fds' : '') + (bloq ? ' bloqueado' : '') + '">'
+        + '<button type="button" class="cal-num" data-ir-semana="' + d + '" title="Ver a semana">' + Number(d.slice(8)) + (itens.length ? '<small>' + itens.length + '</small>' : '') + '</button>'
+        + (bloq ? '<span class="cal-bloq" title="' + esc(bloq.motivo) + '">' + esc(bloq.motivo) + '</span>' : '')
+        + itens.map(a => '<button type="button" class="cal-item s-' + esc(a.status) + '" data-consulta="' + esc(a.id) + '" title="' + esc((estudante(a.estudante_id)?.nome || '') + ' · ' + a.profissional_nome + ' · ' + (STATUS_AGENDA[a.status] || a.status)) + '"><b>' + esc(horaMunicipal(a.inicio)) + '</b> ' + esc(nomeCurto(a.estudante_id)) + (prof ? '' : '<small>' + esc((a.profissional_nome || '').split(' ')[0]) + '</small>') + '</button>').join('')
+        + '</div>';
+    }).join('') + '</div></div>'
+    + '<p class="nota cal-legenda"><span class="cal-item s-agendado">Agendado</span><span class="cal-item s-realizado">Realizado</span><span class="cal-item s-falta">Falta</span><span class="cal-item s-cancelado">Cancelado</span> Clique numa consulta para abrir; clique no dia para ver a semana.</p>';
+  ligarAgendamentos(main, lista);
+  ligarVisao(main, vigente);
+  $('#ant', main).onclick = () => { S.agendaMes = antMes; render(main, vigente); };
+  $('#prox', main).onclick = () => { S.agendaMes = proxMes; render(main, vigente); };
+  $('#hoje', main).onclick = () => { S.agendaMes = hoje.slice(0, 7); render(main, vigente); };
+  $('#prof', main).onchange = ev => { S.agendaProf = ev.target.value; render(main, vigente); };
+  $('#cancelados', main).onchange = ev => { mostrarCancelados = ev.target.checked; render(main, vigente); };
+  $$('[data-ir-semana]', main).forEach(b => b.onclick = () => { S.agendaVisao = 'semana'; S.agendaSemana = inicioDaSemana(b.dataset.irSemana); render(main, vigente); });
+  $('#calendario', main)?.addEventListener('click', () => calendario(main, vigente));
+  $('#agendar', main)?.addEventListener('click', () => formAgendar({ profissionalUid: prof?.id || '' }));
 }
 
 /** Calendário escolar: dias sem atendimento (férias, recesso, feriados, eventos). */

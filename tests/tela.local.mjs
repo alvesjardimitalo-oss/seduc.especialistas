@@ -268,6 +268,14 @@ try {
   await pg.fill('#modal [name=telefone]', '(33) 99999-1234'); await pg.click('#modal [type=submit]');
   assert.match(await pg.evaluate(() => window.__aberto), /^https:\/\/wa\.me\/5533999991234\?text=Ol/);
 
+  // agenda: visão do mês com todas as consultas
+  await pg.goto(url + '#/agenda'); await pg.waitForSelector('[data-visao=mes]');
+  await pg.click('[data-visao=mes]'); await pg.waitForSelector('.cal-grade');
+  assert.ok((await pg.locator('.cal-dia').count()) >= 28);
+  if (await pg.locator('.cal-grade .cal-item').count()) { await pg.locator('.cal-grade .cal-item').first().click(); await pg.waitForSelector('#modal .consulta-cabecalho'); await pg.click('#modal [data-fechar]'); }
+  await foto(pg, '08b-agenda-mes');
+  await pg.click('[data-visao=semana]'); await pg.waitForSelector('.semana');
+
   // cadastrar aluno
   await pg.click('a[href="#/alunos"]'); await pg.click('#novo');
   await pg.fill('[name=nome]', 'Carlos Eduardo Teste'); await pg.selectOption('[name=escola_id]', 'monteiro-lobato');

@@ -7,6 +7,9 @@ export const TITULO_NOVIDADES = 'Novidades de novembro de 2026';
 const GESTAO = ['superadmin', 'secretaria'], ESCOLA = ['direcao', 'secretaria_escolar', 'pedagogico'];
 /** para: perfis que veem o item ('todos' = qualquer perfil ativo). link: tela onde conferir. */
 export const NOVIDADES = [
+  { para: 'todos', titulo: 'Agenda do mês', link: '#/agenda',
+    oque: 'Na Agenda, o botão “Mês” mostra o calendário com todas as consultas marcadas em cada dia (horário, aluno e profissional), coloridas pela situação. Clique numa consulta para abri-la ou no dia para ver a semana.',
+    porque: 'Para enxergar o mês inteiro de uma vez: dias cheios, dias livres, faltas e consultas realizadas.' },
   { para: ['especialista'], titulo: 'Atendimento em grupo: vários alunos, registro individual', link: '#/painel',
     oque: 'Em “Registrar atendimento”, escolha o tipo “Atendimento em grupo” e marque todos os alunos que participaram. A consulta é a mesma (data, horário e duração); depois de salvar o primeiro, o sistema abre o registro do próximo aluno já preenchido com o horário, e cada um recebe o próprio registro no prontuário.',
     porque: 'Para atender mais alunos no mesmo horário sem misturar as informações: o relatório de cada aluno continua individual.' },
