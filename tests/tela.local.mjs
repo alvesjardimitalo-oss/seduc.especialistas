@@ -274,6 +274,10 @@ try {
   assert.ok((await pg.locator('.cal-dia').count()) >= 28);
   if (await pg.locator('.cal-grade .cal-item').count()) { await pg.locator('.cal-grade .cal-item').first().click(); await pg.waitForSelector('#modal .consulta-cabecalho'); await pg.click('#modal [data-fechar]'); }
   await foto(pg, '08b-agenda-mes');
+  await pg.click('[data-visao=periodo]'); await pg.waitForSelector('#per-de');
+  await pg.selectOption('#per-status', 'todos'); await pg.waitForSelector('#per-status');
+  await pg.click('[data-atalho="30"]'); await pg.waitForSelector('#per-ate');
+  await foto(pg, '08c-agenda-periodo');
   await pg.click('[data-visao=semana]'); await pg.waitForSelector('.semana');
 
   // cadastrar aluno
