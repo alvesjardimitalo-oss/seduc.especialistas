@@ -268,12 +268,44 @@ try {
   await pg.fill('#modal [name=telefone]', '(33) 99999-1234'); await pg.click('#modal [type=submit]');
   assert.match(await pg.evaluate(() => window.__aberto), /^https:\/\/wa\.me\/5533999991234\?text=Ol/);
 
+  // agenda: visão do mês com todas as consultas
+  await pg.goto(url + '#/agenda'); await pg.waitForSelector('[data-visao=mes]');
+  await pg.click('[data-visao=mes]'); await pg.waitForSelector('.cal-grade');
+  assert.ok((await pg.locator('.cal-dia').count()) >= 28);
+  if (await pg.locator('.cal-grade .cal-item').count()) { await pg.locator('.cal-grade .cal-item').first().click(); await pg.waitForSelector('#modal .consulta-cabecalho'); await pg.click('#modal [data-fechar]'); }
+  await foto(pg, '08b-agenda-mes');
+  await pg.click('[data-visao=periodo]'); await pg.waitForSelector('#per-de');
+  await pg.selectOption('#per-status', 'todos'); await pg.waitForSelector('#per-status');
+  await pg.click('[data-atalho="30"]'); await pg.waitForSelector('#per-ate');
+  await foto(pg, '08c-agenda-periodo');
+  await pg.click('[data-visao=semana]'); await pg.waitForSelector('.semana');
+
   // cadastrar aluno
   await pg.click('a[href="#/alunos"]'); await pg.click('#novo');
   await pg.fill('[name=nome]', 'Carlos Eduardo Teste'); await pg.selectOption('[name=escola_id]', 'monteiro-lobato');
   await pg.fill('[name=motivo_encaminhamento]', 'Não consegue acompanhar a leitura.');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.perfil-topo >> text=Carlos Eduardo');
   assert.match(await pg.textContent('.chips'), /Aguardando/);
+
+  // atendimento em grupo: seleção por clique (lista própria, funciona no Safari) e registro individual por aluno
+  await pg.goto(url + '#/painel'); await pg.waitForSelector('#busca');
+  await pg.click('#mais'); await pg.click('[data-acao=registrar]'); await pg.waitForSelector('#modal [data-lista-aluno]');
+  await pg.selectOption('#modal [name=tipo]', 'grupo');
+  await pg.click('#modal [data-lista-aluno] button:has-text("Ana Clara")');
+  await pg.fill('#modal [data-busca-aluno]', 'carlos'); await pg.click('#modal [data-lista-aluno] button:has-text("Carlos Eduardo")');
+  assert.equal(await pg.locator('#modal .chip-aluno').count(), 2);
+  await pg.fill('#modal [name=objetivo]', 'Grupo: registro individual da Ana.');
+  await pg.click('#modal [type=submit]');
+  await pg.waitForSelector('#modal .alerta-caixa >> text=2 de 2');
+  assert.match(await pg.textContent('#modal .aluno-fixo'), /Carlos Eduardo/);
+  await pg.fill('#modal [name=objetivo]', 'Grupo: registro individual do Carlos.');
+  await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
+  const bancoG = Object.fromEntries(await pg.evaluate(() => [...window.__banco.entries()]));
+  const grupo = Object.entries(bancoG).filter(([k, v]) => k.startsWith('atendimentos/') && v.tipo === 'grupo');
+  assert.equal(grupo.length, 2);
+  assert.equal(new Set(grupo.map(([, v]) => v.estudante_id)).size, 2);
+  const regs = grupo.map(([k]) => bancoG['atendimentos_registro/' + k.split('/')[1]]?.objetivo);
+  assert.ok(regs.includes('Grupo: registro individual da Ana.') && regs.includes('Grupo: registro individual do Carlos.'));
 
   await pg.click('a[href="#/relatorios"]'); await pg.waitForSelector('.metricas');
   await foto(pg, '09-relatorios');
@@ -303,10 +335,10 @@ try {
   assert.match(await dir.textContent('.topo-usuario'), /Vice-diretor/);
   // fila de espera: a direção pede atendimento
   await dir.goto(url + '#/fila'); await dir.waitForSelector('#novo-pedido'); await dir.click('#novo-pedido');
-  await dir.selectOption('#modal [data-lista-aluno]', 'a1'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
+  await dir.click('#modal [data-lista-aluno] [data-id="a1"]'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
   await dir.fill('#modal [name=motivo]', 'Troca letras na escrita e não acompanha a leitura da turma.');
   await dir.click('#modal [type=submit]'); await dir.waitForSelector('.pedido');
-  await dir.click('#novo-pedido'); await dir.selectOption('#modal [data-lista-aluno]', 'a1'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
+  await dir.click('#novo-pedido'); await dir.click('#modal [data-lista-aluno] [data-id="a1"]'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
   await dir.fill('#modal [name=motivo]', 'Pedido repetido para o mesmo aluno.'); await dir.click('#modal [type=submit]');
   await dir.waitForSelector('#modal .form-erro:not([hidden])'); assert.match(await dir.textContent('#modal .form-erro'), /já está na fila/);
   await dir.click('#modal [data-fechar]');
@@ -341,7 +373,7 @@ try {
   // fila: agenda o pedido da escola
   await adm.goto(url + '#/aluno/a2'); await adm.waitForSelector('.linha-tempo');
   await adm.goto(url + '#/fila'); await adm.waitForSelector('#novo-pedido'); await adm.click('#novo-pedido');
-  await adm.selectOption('#modal [data-lista-aluno]', 'a1'); await adm.selectOption('#modal [name=especialidade]', 'fonoaudiologia'); await adm.selectOption('#modal [name=prioridade]', 'alta');
+  await adm.click('#modal [data-lista-aluno] [data-id="a1"]'); await adm.selectOption('#modal [name=especialidade]', 'fonoaudiologia'); await adm.selectOption('#modal [name=prioridade]', 'alta');
   await adm.fill('#modal [name=motivo]', 'Troca letras na escrita e não acompanha a leitura da turma.'); await adm.click('#modal [type=submit]');
   await adm.waitForSelector('[data-agendar]', { timeout: 8000 }).catch(async () => { await foto(adm, 'erro-fila'); throw Error('fila admin: ' + (await adm.$('#modal') ? await adm.textContent('#modal .form-erro') : await adm.textContent('#conteudo')).slice(0, 400)); });
   await adm.click('[data-agendar]');

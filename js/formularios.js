@@ -15,6 +15,8 @@ export function irPara(hash) { if (location.hash === hash) mudou(); else locatio
 const hoje = () => diaMunicipal(Date.now());
 
 // ---------- seletor de aluno com busca ----------
+// Lista clicável própria (não usa <select size>, que no Safari/Mac não marca o
+// aluno clicado). No "Atendimento em grupo" permite marcar vários alunos.
 function seletorAluno(nome = 'estudante_id', valor = '') {
   // Com uma instituição escolhida, mostra só os alunos dela.
   const lista = S.estudantes.filter(e => (e.situacao || 'ativo') === 'ativo' && escolasVisiveis().some(x => x.id === e.escola_id) && (!escolaAtual() || e.escola_id === escolaAtual()))
@@ -23,20 +25,43 @@ function seletorAluno(nome = 'estudante_id', valor = '') {
     const e = estudante(valor);
     return '<div class="campo largo"><span>Aluno</span><div class="aluno-fixo"><strong>' + esc(e?.nome) + '</strong> · ' + esc(escolaCurta(e?.escola_id)) + '</div><input type="hidden" name="' + nome + '" value="' + esc(valor) + '"></div>';
   }
-  return '<label class="campo largo"><span>Aluno <b class="obrig">*</b></span><input type="search" data-busca-aluno placeholder="Digite parte do nome" autocomplete="off">'
-    + '<select name="' + nome + '" required size="5" data-lista-aluno>' + lista.map(e => '<option value="' + esc(e.id) + '" data-n="' + esc(normalizar(e.nome)) + '">' + esc(e.nome) + ' — ' + esc(escolaCurta(e.escola_id)) + '</option>').join('') + '</select>'
-    + '<small>Não encontrou? Cadastre o aluno primeiro em Alunos.</small></label>';
+  return '<div class="campo largo seletor-aluno"><span>Aluno <b class="obrig">*</b> <small data-dica-grupo hidden>— atendimento em grupo: marque todos os alunos</small></span>'
+    + '<input type="search" data-busca-aluno placeholder="Digite parte do nome" autocomplete="off" aria-label="Buscar aluno">'
+    + '<div class="alunos-escolhidos" data-escolhidos aria-live="polite"></div>'
+    + '<div class="lista-alunos" role="listbox" data-lista-aluno>' + lista.map(e => '<button type="button" role="option" aria-selected="false" data-id="' + esc(e.id) + '" data-n="' + esc(normalizar(e.nome)) + '"><span class="marca" aria-hidden="true"></span>' + esc(e.nome) + ' <small>' + esc(escolaCurta(e.escola_id)) + '</small></button>').join('')
+    + (lista.length ? '' : '<p class="nota">Nenhum aluno ativo disponível.</p>') + '</div>'
+    + '<input type="hidden" name="' + nome + '" value="" data-valor-aluno>'
+    + '<small>Não encontrou? Cadastre o aluno primeiro em Alunos.</small></div>';
 }
-function ativarSeletorAluno(form, aoEscolher = () => {}) {
-  const busca = $('[data-busca-aluno]', form), sel = $('[data-lista-aluno]', form);
-  if (!busca || !sel) return;
-  busca.oninput = () => {
-    const b = normalizar(busca.value); let primeiro = null;
-    for (const o of sel.options) { const ok = !b || o.dataset.n.includes(b); o.hidden = !ok; if (ok && !primeiro) primeiro = o; }
-    if (primeiro && (sel.selectedOptions[0]?.hidden || !sel.value)) sel.value = primeiro.value;
-    aoEscolher(sel.value);
+function ativarSeletorAluno(form, aoEscolher = () => {}, { multiplo = () => false } = {}) {
+  const busca = $('[data-busca-aluno]', form), lista = $('[data-lista-aluno]', form);
+  if (!busca || !lista) return;
+  const valor = $('[data-valor-aluno]', form), chips = $('[data-escolhidos]', form), dica = $('[data-dica-grupo]', form);
+  let marcados = [];
+  const itens = () => [...lista.querySelectorAll('button[data-id]')];
+  const desenhar = () => {
+    const multi = multiplo();
+    if (!multi && marcados.length > 1) marcados = marcados.slice(0, 1);
+    for (const b of itens()) { const ok = marcados.includes(b.dataset.id); b.classList.toggle('marcado', ok); b.setAttribute('aria-selected', String(ok)); }
+    valor.value = marcados[0] || '';
+    if (dica) dica.hidden = !multi;
+    chips.innerHTML = marcados.map(id => { const e = estudante(id); return '<span class="chip-aluno">' + esc(e?.nome || id) + '<button type="button" data-tirar="' + esc(id) + '" aria-label="Remover ' + esc(e?.nome || '') + '">✕</button></span>'; }).join('')
+      + (multi && marcados.length > 1 ? '<small class="nota">' + marcados.length + ' alunos · cada um terá o próprio registro</small>' : '');
   };
-  sel.onchange = () => aoEscolher(sel.value);
+  const escolher = id => {
+    if (!id) return;
+    if (multiplo()) marcados = marcados.includes(id) ? marcados.filter(x => x !== id) : [...marcados, id];
+    else marcados = [id];
+    desenhar(); aoEscolher(marcados[0] || '');
+  };
+  lista.addEventListener('click', ev => { const b = ev.target.closest('button[data-id]'); if (b) { ev.preventDefault(); escolher(b.dataset.id); } });
+  chips.addEventListener('click', ev => { const b = ev.target.closest('[data-tirar]'); if (b) { marcados = marcados.filter(x => x !== b.dataset.tirar); desenhar(); aoEscolher(marcados[0] || ''); } });
+  busca.oninput = () => { const t = normalizar(busca.value); for (const b of itens()) b.hidden = Boolean(t) && !b.dataset.n.includes(t); };
+  // Enter na busca marca o primeiro aluno visível (sem enviar o formulário).
+  busca.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); escolher(itens().find(b => !b.hidden)?.dataset.id); } });
+  form._alunos = () => [...marcados];
+  form._redesenharAlunos = () => { desenhar(); aoEscolher(marcados[0] || ''); };
+  desenhar();
 }
 
 // ---------- cadastro de aluno ----------
@@ -166,7 +191,7 @@ function blocoMetas(metas, notas = {}) {
     + '<small class="nota">1 Não iniciou · 2 Iniciando · 3 Em desenvolvimento · 4 Quase lá · 5 Atingiu. "—" = não trabalhada hoje.</small></fieldset>';
 }
 
-export async function formAtendimento({ estudanteId = '', agendamento = null, atendimento = null, registro = null } = {}) {
+export async function formAtendimento({ estudanteId = '', agendamento = null, atendimento = null, registro = null, grupo = null } = {}) {
   if (!pode.registrar()) return aviso('Somente as especialistas registram atendimentos.', 'erro');
   if (!S.perfil.especialidade) return aviso('Sua conta não tem especialidade definida. Peça à administração.', 'erro');
   const alunoInicial = atendimento?.estudante_id || agendamento?.estudante_id || estudanteId;
@@ -174,19 +199,25 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
   const ret = Boolean(atendimento);
   const alunoId = atendimento?.estudante_id || agendamento?.estudante_id || estudanteId;
   // Registro de agendamento antecipado (antes do horário marcado) usa o horário atual.
-  const quando = atendimento ? ms(atendimento.data) : agendamento ? Math.min(ms(agendamento.inicio), Date.now()) : Date.now();
-  const corpo = '<div class="grade">'
+  // Anotação sigilosa: só para a neuropsicóloga, e só ela lê.
+  const sigiloso = S.perfil.especialidade === 'neuropsicologia';
+  let sigiloAtual = '';
+  if (sigiloso && atendimento?.id) { try { sigiloAtual = (await dados.lerDoc('atendimentos_sigilo', atendimento.id))?.texto || ''; } catch { /* sem anotação */ } }
+  const quando = atendimento ? ms(atendimento.data) : agendamento ? Math.min(ms(agendamento.inicio), Date.now()) : grupo ? ms(instante(grupo.dia, grupo.hora)) : Date.now();
+  const corpo = (grupo ? '<p class="alerta-caixa aviso">Atendimento em grupo · aluno <strong>' + grupo.pos + ' de ' + grupo.total + '</strong>. A consulta é a mesma; este registro é individual e vai só para o prontuário deste aluno.</p>' : '')
+    + '<div class="grade">'
     + seletorAluno('estudante_id', alunoId)
     + '<div class="campo"><span>Especialidade</span><div class="aluno-fixo">' + esc(ESPECIALIDADES[S.perfil.especialidade]) + ' · ' + esc(S.perfil.nome) + '</div></div>'
-    + opcoes('tipo', 'Tipo de atendimento', TIPOS_ATENDIMENTO, { valor: atendimento?.tipo || 'sessao', obrig: true })
+    + opcoes('tipo', 'Tipo de atendimento', TIPOS_ATENDIMENTO, { valor: atendimento?.tipo || (grupo ? 'grupo' : 'sessao'), obrig: true })
     + campo('dia', 'Data', { tipo: 'date', valor: diaMunicipal(quando), obrig: true, extra: 'max="' + hoje() + '"' })
     + campo('hora', 'Horário', { tipo: 'time', valor: horaMunicipal(quando), obrig: true })
-    + opcoes('duracao_min', 'Duração', DURACOES, { valor: atendimento?.duracao_min || agendamento?.duracao_min || 30 })
+    + opcoes('duracao_min', 'Duração', DURACOES, { valor: atendimento?.duracao_min || agendamento?.duracao_min || grupo?.duracao_min || 30 })
     + '</div>'
     + '<div class="soap">' + CAMPOS_SOAP.map(([k, rot, dica]) => area(k, rot, { valor: valorSoap(registro, k), obrig: k === 'objetivo', max: LIMITES.campoSoap, linhas: k === 'objetivo' ? 6 : 4, dica })).join('') + '</div>'
     + '<p class="contador-total largo" aria-live="polite">Total do registro: <b data-total>0</b>/' + LIMITES.registro + ' caracteres</p>'
     + '<div class="campo-escola">' + area('orientacao_escola', 'Orientação para a professora / escola', { valor: atendimento?.orientacao_escola, max: LIMITES.orientacao, linhas: 3, dica: 'A direção e a escola leem este campo. Escreva estratégias para a sala de aula, sem diagnóstico' }) + '</div>'
     + '<div class="grade">' + opcoes('evolucao', 'Evolução observada', EVOLUCAO, { valor: atendimento?.evolucao || 'nao_avaliado', obrig: true }) + '</div>'
+    + (sigiloso ? '<div class="campo-sigilo">' + area('sigilo', '🔒 Anotação sigilosa — somente você vê', { valor: sigiloAtual, max: 1000, linhas: 3, dica: 'Não aparece no prontuário compartilhado, para a equipe, direção ou administração, nem em relatórios e impressões' }) + '</div>' : '')
     + '<div data-metas>' + blocoMetas(metas, registro?.metas) + '</div>'
     + (ret ? campo('motivo', 'Motivo da edição (opcional)', { largo: true, extra: 'maxlength="300"', dica: 'A versão anterior fica guardada no histórico da consulta' }) : '')
     + '<p class="nota">O registro fica visível para toda a equipe de especialistas no prontuário do aluno. Somente você pode editá-lo.</p>';
@@ -204,16 +235,29 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
       const meta = { estudante_id: e.id, escola_id: e.escola_id, profissional_nome: S.perfil.nome, especialidade: S.perfil.especialidade, tipo: d.tipo, evolucao: d.evolucao, data, duracao_min: Number(d.duracao_min), orientacao_escola };
       if (ret && dados.semInternet()) throw Error('Sem internet: a edição de uma consulta precisa de conexão (a versão anterior é guardada no servidor).');
       let r;
-      if (ret) await dados.retificarAtendimento(atendimento.id, meta, registroNovo, d.motivo.trim() || 'Edição do registro pela autora');
-      else r = await dados.registrarAtendimento({ meta, registro: registroNovo, agendamentoId: agendamento?.id || '', codigo: agendamento?.codigo || '' });
+      // Atendimento em grupo: a mesma consulta, um registro individual por aluno.
+      const turma = !ret && !agendamento && !grupo && d.tipo === 'grupo' ? (form._alunos?.() || []) : [];
+      const sigilo = sigiloso ? String(d.sigilo || '').trim() : '';
+      if (sigilo.length > 1000) throw Error('A anotação sigilosa aceita até 1.000 caracteres.');
+      if (ret) await dados.retificarAtendimento(atendimento.id, meta, registroNovo, d.motivo.trim() || 'Edição do registro pela autora', sigiloso && (sigilo || sigiloAtual) ? sigilo : null);
+      else r = await dados.registrarAtendimento({ meta, registro: registroNovo, agendamentoId: agendamento?.id || '', codigo: agendamento?.codigo || '', sigilo: sigilo || null });
       invalidarAtendimentos();
       aviso(ret ? 'Consulta editada.' : r?.pendente ? 'Sem internet: consulta guardada no aparelho. Ela será enviada sozinha quando a conexão voltar — não saia do sistema até lá.' : 'Consulta salva no prontuário.', r?.pendente ? 'aviso' : 'ok');
+      const proximos = grupo ? grupo.fila : turma.slice(1);
+      if (proximos.length) {
+        const g = { fila: proximos.slice(1), dia: d.dia, hora: d.hora, duracao_min: Number(d.duracao_min), pos: (grupo?.pos || 1) + 1, total: grupo?.total || turma.length };
+        setTimeout(() => formAtendimento({ estudanteId: proximos[0], grupo: g }), 60);
+        return;
+      }
       if (r?.pendente) return mudou();
+      if (grupo) return mudou();
       if (!ret && !estudanteId && !agendamento) irPara('#/aluno/' + e.id); else mudou();
     }
   });
   ativarContadores(form);
-  ativarSeletorAluno(form, async id => { metas = await metasDoAluno(id); const box = $('[data-metas]', form); if (box) box.innerHTML = blocoMetas(metas); });
+  ativarSeletorAluno(form, async id => { metas = await metasDoAluno(id); const box = $('[data-metas]', form); if (box) box.innerHTML = blocoMetas(metas); },
+    { multiplo: () => form.elements.namedItem('tipo')?.value === 'grupo' });
+  form.elements.namedItem('tipo')?.addEventListener('change', () => form._redesenharAlunos?.());
   const campos = CAMPOS_SOAP.map(([n]) => form.elements.namedItem(n)), total = $('[data-total]', form);
   const contar = () => { const n = campos.reduce((s2, c) => s2 + c.value.trim().length, 0); total.textContent = n; total.parentElement.classList.toggle('excedido', n > LIMITES.registro); };
   campos.forEach(c => c.addEventListener('input', contar)); contar();
@@ -415,6 +459,7 @@ export function formPedido({ estudanteId = '', rascunho = {} } = {}) {
       S.pedidos = null; aviso('Pedido enviado para a fila de ' + ESPECIALIDADES[p.especialidade] + '.'); mudou();
     }
   });
+  ativarSeletorAluno(form);
   const motivoDigitado = () => form.motivo?.value || '';
   $('#cadastrar-do-pedido', form)?.addEventListener('click', () => {
     const rascunho = { especialidade: form.especialidade.value, prioridade: form.prioridade.value, motivo: motivoDigitado() };

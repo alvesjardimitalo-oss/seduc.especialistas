@@ -24,6 +24,8 @@ const usuarios = {
   pedA: { nome: 'Pedagógica A', email: 'peda@teste.br', perfil: 'pedagogico', ativo: true, escolas: [ESC_A] },
   fono: { nome: 'Fono', email: 'fono@teste.br', perfil: 'especialista', ativo: true, especialidade: 'fonoaudiologia', ...jornadaFono },
   psico: { nome: 'Psicopedagoga', email: 'psico@teste.br', perfil: 'especialista', ativo: true, especialidade: 'psicopedagogia', jornada: [], slots: [] },
+  neuro: { nome: 'Neuro', email: 'neuro@teste.br', perfil: 'especialista', ativo: true, especialidade: 'neuropsicologia', jornada: [], slots: [] },
+  neuro2: { nome: 'Neuro 2', email: 'neuro2@teste.br', perfil: 'especialista', ativo: true, especialidade: 'neuropsicologia', jornada: [], slots: [] },
   inativa: { nome: 'Inativa', email: 'inativa@teste.br', perfil: 'especialista', ativo: false, especialidade: 'neuropsicologia' },
   pend: { nome: 'Pendente', email: 'pend@teste.br', perfil: 'pendente', ativo: false }
 };
@@ -124,6 +126,22 @@ test('especialista registra atendimento na própria especialidade', async () => 
   await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'at4', escola: ESC_B }).commit()); // escola diferente da do aluno
   await assertFails(loteAtendimento(db('dirA'), 'dirA', { id: 'at5' }).commit());
   await assertFails(loteAtendimento(db('admin'), 'admin', { id: 'at6' }).commit());
+});
+
+test('anotação sigilosa da neuropsicologia: só a autora lê e grava', async () => {
+  const sig = (f, uid, texto = 'Informação sigilosa') => ({ profissional_uid: uid, estudante_id: 'alunoA', texto, atualizado_em: serverTimestamp() });
+  const fn = db('neuro'), b = loteAtendimento(fn, 'neuro', { id: 'atN', esp: 'neuropsicologia' });
+  b.set(doc(fn, 'atendimentos_sigilo', 'atN'), sig(null, 'neuro'));
+  await assertSucceeds(b.commit());
+  await assertSucceeds(getDoc(doc(db('neuro'), 'atendimentos_sigilo', 'atN')));
+  for (const outro of ['neuro2', 'fono', 'admin', 'sec', 'dirA']) await assertFails(getDoc(doc(db(outro), 'atendimentos_sigilo', 'atN')));
+  // outra profissional não grava sigilo em registro alheio; fono não tem o campo
+  await assertFails(setDoc(doc(db('neuro2'), 'atendimentos_sigilo', 'atN'), sig(null, 'neuro2')));
+  const ff = db('fono'), bf = loteAtendimento(ff, 'fono', { id: 'atF' });
+  bf.set(doc(ff, 'atendimentos_sigilo', 'atF'), sig(null, 'fono'));
+  await assertFails(bf.commit());
+  await assertFails(setDoc(doc(db('neuro'), 'atendimentos_sigilo', 'atN'), sig(null, 'neuro', 'x'.repeat(1001))));
+  await assertFails(deleteDoc(doc(db('neuro'), 'atendimentos_sigilo', 'atN')));
 });
 
 test('prontuário compartilhado: equipe lê, gestão e direção só metadados', async () => {

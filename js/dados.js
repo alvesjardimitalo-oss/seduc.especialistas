@@ -304,12 +304,14 @@ export async function listarVersoes(atendimentoId) {
 }
 
 /** Registra o atendimento; se veio de um agendamento, conclui-o no mesmo lote. */
-export async function registrarAtendimento({ meta, registro, agendamentoId = '', codigo = '' }) {
+export async function registrarAtendimento({ meta, registro, agendamentoId = '', codigo = '', sigilo = null }) {
   const ref = doc(collection(db, 'atendimentos')), b = writeBatch(db), uid = uidAtual();
   // A consulta agendada mantém o mesmo código; atendimento sem agendamento ganha um código novo.
   const cod = codigo || gerarCodigo(meta.data);
   b.set(ref, { ...meta, data: ts(meta.data), agendamento_id: agendamentoId, codigo: cod, profissional_uid: uid, situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
   b.set(doc(db, 'atendimentos_registro', ref.id), { ...registro, estudante_id: meta.estudante_id, profissional_uid: uid, versao: 1 });
+  // Anotação sigilosa (neuropsicologia): documento separado, legível só pela autora.
+  if (sigilo) b.set(doc(db, 'atendimentos_sigilo', ref.id), { profissional_uid: uid, estudante_id: meta.estudante_id, texto: sigilo, atualizado_em: serverTimestamp() });
   if (agendamentoId) b.update(doc(db, 'agendamentos', agendamentoId), { status: 'realizado', atendimento_id: ref.id, alterado_por: uid, alterado_em: serverTimestamp() });
   const r = await enviar(b, 'Atendimento de ' + (meta.data instanceof Date ? meta.data.toLocaleDateString('pt-BR') : 'hoje'));
   return r?.pendente ? { id: ref.id, pendente: true } : ref.id;
@@ -329,8 +331,9 @@ async function comVersao(id, motivo, alterar) {
     alterar(tx, aRef, rRef, atual, r.exists() ? r.data() : null);
   });
 }
-export function retificarAtendimento(id, meta, registro, motivo) {
+export function retificarAtendimento(id, meta, registro, motivo, sigilo = null) {
   return comVersao(id, motivo, (tx, aRef, rRef, atual, reg) => {
+    if (sigilo !== null) tx.set(doc(db, 'atendimentos_sigilo', id), { profissional_uid: uidAtual(), estudante_id: atual.estudante_id, texto: sigilo, atualizado_em: serverTimestamp() });
     const versao = atual.versao + 1;
     tx.update(aRef, { tipo: meta.tipo, evolucao: meta.evolucao, data: ts(meta.data), duracao_min: meta.duracao_min, orientacao_escola: meta.orientacao_escola || '', versao, atualizado_em: serverTimestamp() });
     // A edição grava no formato SOAP e limpa os campos do formato anterior (já guardados na versão).

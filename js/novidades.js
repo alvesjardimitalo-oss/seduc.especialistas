@@ -1,12 +1,24 @@
 // Boletim de novidades: o que mudou e por quê, mostrado uma vez a cada pessoa afetada.
 // Ao publicar um boletim novo, troque VERSAO_NOVIDADES e a lista NOVIDADES.
 // Módulo só de dados (sem DOM): também é importado pelo teste de interface.
-export const VERSAO_NOVIDADES = '2026-11-24b';
+export const VERSAO_NOVIDADES = '2026-11-25';
 export const TITULO_NOVIDADES = 'Novidades de novembro de 2026';
 
 const GESTAO = ['superadmin', 'secretaria'], ESCOLA = ['direcao', 'secretaria_escolar', 'pedagogico'];
 /** para: perfis que veem o item ('todos' = qualquer perfil ativo). link: tela onde conferir. */
 export const NOVIDADES = [
+  { para: 'todos', titulo: 'Agenda: calendário do mês e consultas por período', link: '#/agenda',
+    oque: 'Na Agenda, o botão “Período” permite escolher as datas (de/até) e ver as consultas agendadas, realizadas, faltas ou todas, dia a dia, com atalhos para hoje, 7, 15 e 30 dias. O botão “Mês” mostra o calendário com todas as consultas marcadas em cada dia (horário, aluno e profissional), coloridas pela situação. Clique numa consulta para abri-la ou no dia para ver a semana.',
+    porque: 'Para enxergar o mês inteiro de uma vez: dias cheios, dias livres, faltas e consultas realizadas.' },
+  { para: ['especialista'], titulo: 'Atendimento em grupo: vários alunos, registro individual', link: '#/painel',
+    oque: 'Em “Registrar atendimento”, escolha o tipo “Atendimento em grupo” e marque todos os alunos que participaram. A consulta é a mesma (data, horário e duração); depois de salvar o primeiro, o sistema abre o registro do próximo aluno já preenchido com o horário, e cada um recebe o próprio registro no prontuário.',
+    porque: 'Para atender mais alunos no mesmo horário sem misturar as informações: o relatório de cada aluno continua individual.' },
+  { para: 'todos', titulo: 'Seleção de aluno funciona no Mac', 
+    oque: 'A lista de alunos virou uma lista própria: basta clicar no nome (ele fica marcado em verde) ou digitar parte do nome e apertar Enter.',
+    porque: 'No Safari do Mac a lista antiga não marcava o aluno clicado.' },
+  { para: ['especialista'], titulo: 'Anotação sigilosa da neuropsicologia', link: '#/painel',
+    oque: 'O registro da neuropsicóloga tem um campo “Anotação sigilosa” (até 1.000 caracteres). No prontuário, o botão “🔒 Anotação sigilosa” mostra o texto somente para ela.',
+    porque: 'Há informações que precisam ser preservadas: o campo não aparece para as outras especialistas, direção, secretaria ou administração, nem em relatórios, impressões ou versões anteriores.' },
   { para: [...GESTAO, 'direcao', 'secretaria_escolar'], titulo: 'Acompanhamento do dia, em tempo real', link: '#/acompanhamento',
     oque: 'Novo item no menu: cada consulta de hoje aparece com a situação atual — próxima, aluno chegou, em atendimento, realizada, não compareceu ou passou do horário sem registro — e muda sozinha, sem recarregar a página.',
     porque: 'Antes a consulta continuava como “Agendada” até alguém abrir a agenda, mesmo depois do horário. Agora a administração vê na hora o que foi realizado, as faltas e o que ainda precisa de registro.' },
