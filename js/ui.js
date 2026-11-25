@@ -63,13 +63,20 @@ export function modal({ titulo, corpo, botao = 'Salvar', aoSalvar, largo = false
 }
 export function fecharModal() { document.getElementById('modal')?.remove(); }
 
+// Padronização: tudo o que as especialistas digitam é gravado em CAIXA ALTA
+// (a tela já mostra em maiúsculas enquanto digita; o corretor continua funcionando).
+// Campos marcados com data-sem-caixa (ex.: mensagem de WhatsApp) ficam como digitados.
+function emCaixaAlta(el) {
+  return document.body.classList.contains('caixa-alta') && !el.hasAttribute('data-sem-caixa')
+    && (el.tagName === 'TEXTAREA' || el.type === 'text');
+}
 export function dadosDoForm(form) {
   const d = {};
   for (const el of form.elements) {
     if (!el.name || el.disabled) continue;
     if (el.type === 'checkbox') { if (el.dataset.lista !== undefined) { (d[el.name] ||= []); if (el.checked) d[el.name].push(el.value); } else d[el.name] = el.checked; }
     else if (el.type === 'radio') { if (el.checked) d[el.name] = el.value; }
-    else d[el.name] = el.value;
+    else d[el.name] = emCaixaAlta(el) ? el.value.toLocaleUpperCase('pt-BR') : el.value;
   }
   return d;
 }

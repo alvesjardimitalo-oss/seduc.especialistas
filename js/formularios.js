@@ -463,7 +463,7 @@ export async function lembreteWhatsApp(ag) {
     titulo: 'Lembrete por WhatsApp', botao: 'Abrir WhatsApp',
     corpo: '<p class="nota">A mensagem não cita especialidade, condição nem o sobrenome do aluno.</p>'
       + campo('telefone', 'WhatsApp da família', { tipo: 'tel', valor: tel, obrig: true, extra: 'maxlength="40" inputmode="tel"', dica: tel ? 'Telefone do cadastro do aluno' : 'Sem telefone no cadastro: digite com DDD' })
-      + '<label class="campo largo"><span>Mensagem</span><textarea name="texto" rows="5" maxlength="600" ' + CORRETOR + '>' + esc(texto) + '</textarea></label>',
+      + '<label class="campo largo"><span>Mensagem</span><textarea name="texto" rows="5" maxlength="600" data-sem-caixa ' + CORRETOR + '>' + esc(texto) + '</textarea></label>',
     aoSalvar: async d => {
       const link = linkWhatsApp(d.telefone, d.texto.trim());
       if (!link) throw Error('Telefone inválido: use DDD + número (ex.: 33 99999-0000).');

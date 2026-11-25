@@ -126,8 +126,8 @@ try {
   await pg.fill('[name=orientacao_escola]', 'Ler junto com o aluno, apontando as sílabas.'); await pg.selectOption('[name=tipo]', 'observacao_sala');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(300);
   await pg.click('#conteudo .linha-agenda'); await pg.waitForSelector('.registro-consulta');
-  assert.match(await pg.textContent('.registro-consulta'), /sílabas complexas/);
-  assert.match(await pg.textContent('#modal .orientacao-escola'), /apontando as sílabas/);
+  assert.match(await pg.textContent('.registro-consulta'), /sílabas complexas/i);
+  assert.match(await pg.textContent('#modal .orientacao-escola'), /apontando as sílabas/i);
   assert.match(await pg.textContent('.registro-consulta'), /Observação em sala/);
   await pg.click('#modal [data-fechar]');
   await pg.fill('#busca [name=busca]', ''); await pg.waitForTimeout(400);
@@ -151,6 +151,7 @@ try {
   await foto(pg, '04-form-atendimento');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
   await pg.waitForSelector('.card-atendimento .secao >> text=discriminação auditiva');
+  assert.ok(await pg.evaluate(() => [...window.__banco.values()].some(v => v.objetivo === 'TREINO DE DISCRIMINAÇÃO AUDITIVA /P/ X /B/ COM FIGURAS E JOGO DE MEMÓRIA.')), 'registro gravado em caixa alta');
   assert.equal(await pg.locator('.card-atendimento').count(), 2);
   await foto(pg, '05-prontuario-com-registro');
 
@@ -169,7 +170,7 @@ try {
   assert.match(await pg.textContent('.folha-rosto'), /Paula Psicopedagoga[\s\S]*Plano:[\s\S]*avaliação fonoaudiológica/);
   await pg.click('[data-acao=nova-condicao]'); await pg.fill('#modal [name=descricao]', 'Troca de fonemas /p/ e /b/');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.cond-ativo');
-  assert.match(await pg.textContent('.cond-ativo'), /Troca de fonemas[\s\S]*Fonoaudiologia/);
+  assert.match(await pg.textContent('.cond-ativo'), /Troca de fonemas[\s\S]*Fonoaudiologia/i);
   await foto(pg, '05b-folha-de-rosto');
   await pg.click('[data-condicao][data-para=resolvido]'); await pg.fill('#modal [name=observacao]', 'Objetivo atingido.');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.resolvidos');
@@ -220,13 +221,13 @@ try {
   await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(200);
   assert.equal(await pg.locator('.card-atendimento').count(), 2);
   await pg.check('#mostrar-anulados'); await pg.waitForSelector('.card-atendimento.anulado');
-  assert.match(await pg.textContent('.card-atendimento.anulado'), /Registrado no aluno errado/);
+  assert.match(await pg.textContent('.card-atendimento.anulado'), /Registrado no aluno errado/i);
   await pg.uncheck('#mostrar-anulados');
 
   // relatório descritivo
   await pg.goto(url + '#/aluno/a1/relatorios'); await pg.waitForSelector('[data-acao=relatorio]');
   await pg.click('[data-acao=relatorio]'); await pg.click('#preencher');
-  assert.match(await pg.inputValue('[name=texto]'), /discriminação auditiva/);
+  assert.match(await pg.inputValue('[name=texto]'), /discriminação auditiva/i);
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
   await pg.waitForSelector('.card-atendimento >> text=Relatório de acompanhamento');
   await foto(pg, '08-relatorios-aluno');
@@ -250,7 +251,7 @@ try {
   await pg.fill('[name=objetivo]', 'Registro feito sem internet na escola.');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.toast >> text=Sem internet');
   await pg.context().setOffline(false); await pg.waitForTimeout(300);
-  assert.equal(await pg.evaluate(() => [...window.__banco.values()].filter(v => v.objetivo === 'Registro feito sem internet na escola.').length), 1);
+  assert.equal(await pg.evaluate(() => [...window.__banco.values()].filter(v => v.objetivo === 'REGISTRO FEITO SEM INTERNET NA ESCOLA.').length), 1);
 
   // frequência: entrada e saída
   await pg.goto(url + '#/frequencia'); await pg.waitForSelector('#form-entrada');
@@ -298,7 +299,7 @@ try {
   await pg.fill('#modal [name=objetivo]', 'Grupo: registro individual da Ana.');
   await pg.click('#modal [type=submit]');
   await pg.waitForSelector('#modal .alerta-caixa >> text=2 de 2');
-  assert.match(await pg.textContent('#modal .aluno-fixo'), /Carlos Eduardo/);
+  assert.match(await pg.textContent('#modal .aluno-fixo'), /Carlos Eduardo/i);
   await pg.fill('#modal [name=objetivo]', 'Grupo: registro individual do Carlos.');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
   const bancoG = Object.fromEntries(await pg.evaluate(() => [...window.__banco.entries()]));
@@ -306,7 +307,7 @@ try {
   assert.equal(grupo.length, 2);
   assert.equal(new Set(grupo.map(([, v]) => v.estudante_id)).size, 2);
   const regs = grupo.map(([k]) => bancoG['atendimentos_registro/' + k.split('/')[1]]?.objetivo);
-  assert.ok(regs.includes('Grupo: registro individual da Ana.') && regs.includes('Grupo: registro individual do Carlos.'));
+  assert.ok(regs.includes('GRUPO: REGISTRO INDIVIDUAL DA ANA.') && regs.includes('GRUPO: REGISTRO INDIVIDUAL DO CARLOS.'));
 
   // agendamento em grupo: dois alunos no mesmo horário, cada um com a própria consulta
   await pg.goto(url + '#/agenda'); await pg.waitForSelector('#agendar'); await pg.click('#agendar');
