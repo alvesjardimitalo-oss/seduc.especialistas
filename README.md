@@ -9,3 +9,7 @@ Inclui escolas, profissionais, vínculos e jornadas, alunos e matrículas, agend
 Consulte a [especificação funcional](docs/ESPECIFICACAO.md) e o [guia operacional](docs/OPERACAO.md) para desenvolvimento, publicação, segurança e consumo de leituras.
 
 > **Privacidade:** este repositório é público apenas para código e documentação. Os dados de alunos, menores de idade, famílias, profissionais e atendimentos não podem ser armazenados aqui nem ficar acessíveis sem autenticação e autorização.
+
+## Atualizações
+
+Toda alteração do sistema deve ser registrada no topo de `src/updates.js`, que alimenta a página **Atualizações** do menu.

@@ -1604,3 +1604,40 @@ dialog::backdrop {
 .workspace > footer .credito-ti { font-size: 10px; }
 @media(max-width:700px) { .workspace > footer .credito-ti { display: inline; } .login-brand .credito-login { display: block; } }
 @media print { .credito-ti { display: none !important; } }
+
+.update-panel {
+  padding: 22px 26px;
+  margin-bottom: 18px;
+}
+.update-panel h2 {
+  margin: 4px 0 12px;
+}
+.update-panel ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.8;
+  font-size: 12px;
+}
+.group-note {
+  border: 1px solid #e6e1d4;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.group-note legend {
+  font-weight: 700;
+  font-size: 12px;
+  padding: 0 6px;
+}
+.group-note label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+}
+.group-note label.group-toggle {
+  flex-direction: row;
+}

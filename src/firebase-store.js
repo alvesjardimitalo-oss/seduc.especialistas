@@ -190,6 +190,8 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
       ["appointments", "professionals", "attendance"].forEach((t) =>
         needed.add(t),
       );
+    } else if (module === "updates") {
+      // Página estática: não consulta o banco.
     } else if (module !== "users" || manager()) needed.add(module);
     if (
       ["appointments", "attendance", "referrals", "notes", "links"].includes(

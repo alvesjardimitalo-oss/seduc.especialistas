@@ -372,7 +372,8 @@ try {
         modality: "Atividade em grupo",
         groupId: "grupo-teste-1",
       };
-      await specialist.stateFor("appointments");
+      await specialist.stateFor("students", true);
+      await specialist.stateFor("appointments", true);
       await specialist.formOptions("appointments");
       const first = await specialist.save({
         table: "appointments",

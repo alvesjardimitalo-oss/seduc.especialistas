@@ -8,6 +8,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { createStore } from "./firebase-store.js";
+import { updates } from "./updates.js";
 import {
   createIcons,
   LayoutDashboard,
@@ -35,6 +36,7 @@ import {
   Download,
   Printer,
   NotebookPen,
+  Megaphone,
 } from "lucide";
 const icons = {
   LayoutDashboard,
@@ -62,6 +64,7 @@ const icons = {
   Download,
   Printer,
   NotebookPen,
+  Megaphone,
 };
 const app = document.querySelector("#app");
 const esc = (v) =>
@@ -95,6 +98,7 @@ const nav = [
   ["users", "Usuários e permissões", "shield-check"],
   ["blocks", "Afastamentos", "calendar-off"],
   ["audit", "Auditoria", "history"],
+  ["updates", "Atualizações", "megaphone"],
 ];
 let state = {},
   page = "dashboard",
@@ -224,7 +228,7 @@ function render() {
   );
   if (!visibleNav.some(([key]) => key === page)) page = "dashboard";
   const title = nav.find(([key]) => key === page)?.[1];
-  app.innerHTML = `<div class="shell"><aside id="sidebar"><a class="brand" href="#dashboard"><div class="brand-mark">S<span>✦</span></div><div>SEDUC<strong>Especialistas</strong></div></a><div class="nav-caption">ACOMPANHAMENTO EDUCACIONAL</div><nav>${visibleNav.map(([key, text, ico]) => `<a href="#${key}" class="${page === key ? "active" : ""}">${icon(ico)}<span>${text}</span>${page === key ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom">${icon("shield-check")}<span>Rede municipal<br><small>Acesso institucional protegido</small></span></div></aside><div class="workspace"><header><button class="icon-btn mobile-menu" data-action="menu" aria-label="Abrir menu">${icon("menu")}</button><div class="breadcrumb">SEDUC <span>/</span> <strong>${title}</strong></div><div class="user"><span class="avatar">${esc(state.user.name.slice(0, 2).toUpperCase())}</span><div>${esc(state.user.name)}<small>${labelRole[state.user.role]}</small></div><button class="icon-btn" data-action="logout" aria-label="Sair">${icon("log-out")}</button></div></header>${demo ? '<div class="demo-bar">AMBIENTE DE DEMONSTRAÇÃO · Dados locais fictícios. Não insira informações reais.</div>' : ""}<main><div class="page-heading"><div><p class="eyebrow">REDE MUNICIPAL · EDUCAÇÃO INCLUSIVA</p><h1>${title}<span class="heading-dot">.</span></h1><p class="subtitle">${subtitles[page] || "Informações integradas para um acompanhamento mais próximo."}</p></div><div class="actions">${button("Atualizar", "refresh", "ghost", "refresh-cw")}${canCreate(page) ? button(page === "appointments" ? "Agendar consulta" : "Novo cadastro", "new") : page === "dashboard" && clinical() ? button("Novo atendimento", "new-immediate") : ""}</div></div>${page === "dashboard" ? dashboard() : page === "reports" ? reports() : modulePage()}</main><footer>SEDUC Especialistas <span>Gestão com cuidado. Educação com propósito.</span><small class="credito-ti">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></small></footer></div></div><dialog id="editor"></dialog>`;
+  app.innerHTML = `<div class="shell"><aside id="sidebar"><a class="brand" href="#dashboard"><div class="brand-mark">S<span>✦</span></div><div>SEDUC<strong>Especialistas</strong></div></a><div class="nav-caption">ACOMPANHAMENTO EDUCACIONAL</div><nav>${visibleNav.map(([key, text, ico]) => `<a href="#${key}" class="${page === key ? "active" : ""}">${icon(ico)}<span>${text}</span>${page === key ? '<span class="nav-dot"></span>' : ""}</a>`).join("")}</nav><div class="sidebar-bottom">${icon("shield-check")}<span>Rede municipal<br><small>Acesso institucional protegido</small></span></div></aside><div class="workspace"><header><button class="icon-btn mobile-menu" data-action="menu" aria-label="Abrir menu">${icon("menu")}</button><div class="breadcrumb">SEDUC <span>/</span> <strong>${title}</strong></div><div class="user"><span class="avatar">${esc(state.user.name.slice(0, 2).toUpperCase())}</span><div>${esc(state.user.name)}<small>${labelRole[state.user.role]}</small></div><button class="icon-btn" data-action="logout" aria-label="Sair">${icon("log-out")}</button></div></header>${demo ? '<div class="demo-bar">AMBIENTE DE DEMONSTRAÇÃO · Dados locais fictícios. Não insira informações reais.</div>' : ""}<main><div class="page-heading"><div><p class="eyebrow">REDE MUNICIPAL · EDUCAÇÃO INCLUSIVA</p><h1>${title}<span class="heading-dot">.</span></h1><p class="subtitle">${subtitles[page] || "Informações integradas para um acompanhamento mais próximo."}</p></div><div class="actions">${button("Atualizar", "refresh", "ghost", "refresh-cw")}${canCreate(page) ? button(page === "appointments" ? "Agendar consulta" : "Novo cadastro", "new") : page === "dashboard" && clinical() ? button("Novo atendimento", "new-immediate") : ""}</div></div>${page === "dashboard" ? dashboard() : page === "reports" ? reports() : page === "updates" ? updatesPage() : modulePage()}</main><footer>SEDUC Especialistas <span>Gestão com cuidado. Educação com propósito.</span><small class="credito-ti">Tecnologia <a href="https://italoinfotec.com.br/" target="_blank" rel="noopener noreferrer">Ítalo InfoTec</a></small></footer></div></div><dialog id="editor"></dialog>`;
   bind();
   if (
     state._hasMore?.[page] ||
@@ -260,6 +264,7 @@ const subtitles = {
   users: "Aprovação de acesso, responsabilidades e abrangência.",
   audit: "Histórico de operações para acompanhamento da administração.",
   blocks: "Afastamentos e períodos indisponíveis para agendamento.",
+  updates: "Novidades e melhorias do sistema.",
 };
 function filtered(rows) {
   return rows.filter((x) => {
@@ -523,7 +528,15 @@ function modulePage() {
         : page === "attendance"
           ? '<div class="info">Atendimentos realizados não registram frequência automaticamente. Informe a jornada efetivamente cumprida.</div>'
           : "";
-  return `${info}${filters(page === "appointments")}<section class="panel table-panel"><div class="table-caption"><strong>${rows.length} registro${rows.length === 1 ? "" : "s"}</strong><span>Atualizado nesta sessão</span></div>${rows.length ? `<div class="table-scroll"><table><thead><tr>${cols.map(([c]) => `<th>${c}</th>`).join("")}<th><span class="sr-only">Ações</span></th></tr></thead><tbody>${rows.map((x) => `<tr>${cols.map(([, fn]) => `<td>${fn(x)}</td>`).join("")}<td class="row-actions">${page === "students" ? `<button class="text-btn" data-history="${x.id}">Histórico</button>` : ""}${page === "appointments" && clinical() && (admin() || x.authorId === state.user.id) && !["Cancelado", "Remarcado"].includes(x.status) ? `<button class="text-btn" data-note="${x.id}">Registrar</button>` : ""}${editable(page, x) ? `<button class="text-btn" data-edit="${x.id}">Editar ${icon("arrow-up-right")}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum registro encontrado", "Cadastre as primeiras informações ou ajuste os filtros.")}</section>${page === "audit" && state.versions?.length ? `<section class="panel version-panel"><h2>Versões anteriores</h2>${state.versions.map((v) => `<details><summary>${fmt(v.at, true)} · ${esc(v.table)} · ${esc(v.targetId)}</summary><pre>${esc(JSON.stringify(v.before, null, 2))}</pre></details>`).join("")}</section>` : ""}`;
+  return `${info}${filters(page === "appointments")}<section class="panel table-panel"><div class="table-caption"><strong>${rows.length} registro${rows.length === 1 ? "" : "s"}</strong><span>Atualizado nesta sessão</span></div>${rows.length ? `<div class="table-scroll"><table><thead><tr>${cols.map(([c]) => `<th>${c}</th>`).join("")}<th><span class="sr-only">Ações</span></th></tr></thead><tbody>${rows.map((x) => `<tr>${cols.map(([, fn]) => `<td>${fn(x)}</td>`).join("")}<td class="row-actions">${page === "students" ? `<button class="text-btn" data-history="${x.id}">Histórico</button>` : ""}${page === "appointments" && clinical() && (admin() || x.authorId === state.user.id) && !["Cancelado", "Remarcado"].includes(x.status) ? `<button class="text-btn" data-note="${x.id}">Registrar</button>${x.groupId ? `<button class="text-btn" data-group-note="${esc(x.groupId)}">Registrar grupo</button>` : ""}` : ""}${editable(page, x) ? `<button class="text-btn" data-edit="${x.id}">Editar ${icon("arrow-up-right")}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum registro encontrado", "Cadastre as primeiras informações ou ajuste os filtros.")}</section>${page === "audit" && state.versions?.length ? `<section class="panel version-panel"><h2>Versões anteriores</h2>${state.versions.map((v) => `<details><summary>${fmt(v.at, true)} · ${esc(v.table)} · ${esc(v.targetId)}</summary><pre>${esc(JSON.stringify(v.before, null, 2))}</pre></details>`).join("")}</section>` : ""}`;
+}
+function updatesPage() {
+  return updates
+    .map(
+      (u) =>
+        `<section class="panel update-panel"><p class="eyebrow">${fmt(u.date)}</p><h2>${esc(u.title)}</h2><ul>${u.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></section>`,
+    )
+    .join("");
 }
 function reports() {
   const rows = filtered(state.appointments || []),
@@ -1032,6 +1045,97 @@ async function edit(table, row = {}, prefill = {}) {
     }
   };
 }
+// Registro da consulta em grupo: uma tela, um registro individual por aluno.
+async function groupNotes(groupId) {
+  try {
+    if (store) state = { ...state, ...(await store.formOptions("notes")) };
+  } catch (e) {
+    toast(friendly(e), true);
+    return;
+  }
+  const members = (state.appointments || []).filter(
+    (x) =>
+      x.groupId === groupId &&
+      !["Cancelado", "Remarcado"].includes(x.status) &&
+      (admin() || x.authorId === state.user.id),
+  );
+  if (!members.length) return toast("Nenhum aluno ativo neste grupo.", true);
+  const first = members[0],
+    dialog = document.querySelector("#editor");
+  dialog.innerHTML = `<form id="group-form"><div class="dialog-heading"><div><p class="eyebrow">CONSULTA EM GRUPO · ${fmt(first.start, true)}</p><h2>Registrar atendimentos</h2><p>${members.length} aluno(s) · ${esc(name("professionals", first.professionalId))}</p></div><button type="button" class="icon-btn" id="close-dialog" aria-label="Fechar">${icon("x")}</button></div><div class="dialog-body"><div class="info">A consulta foi uma só, mas cada registro é individual e vai apenas para o prontuário do aluno. Deixe em branco quem não deve ser registrado agora.</div>${members
+    .map((a) => {
+      const done = state.notes.some((n) => n.appointmentId === a.id);
+      return `<fieldset class="group-note"><legend>${esc(name("students", a.studentId))}</legend>${
+        done
+          ? '<p class="group-hint">Atendimento já registrado. Para alterar, use "Registrar" na linha deste aluno.</p>'
+          : `<label>Observação do atendimento (até 1.000 caracteres)<textarea data-id="${a.id}" data-k="text" rows="3" maxlength="1000"></textarea></label><label>Encaminhamentos<textarea data-id="${a.id}" data-k="referral" rows="2" maxlength="1000"></textarea></label><label>Retorno sugerido<input type="date" data-id="${a.id}" data-k="returnDate"></label><label class="group-toggle"><input type="checkbox" data-id="${a.id}" data-k="absent"> Faltou (marcar "Falta do aluno")</label>`
+      }</fieldset>`;
+    })
+    .join(
+      "",
+    )}<p class="form-error" id="form-error" role="alert"></p></div><div class="dialog-footer"><small>Cada aluno recebe um registro separado.</small><button type="button" class="ghost" id="cancel-edit">Cancelar</button><button class="primary" type="submit">${icon("check")}Salvar registros</button></div></form>`;
+  dialog.showModal();
+  createIcons({ icons });
+  document.querySelector("#close-dialog").onclick = () => dialog.close();
+  document.querySelector("#cancel-edit").onclick = () => dialog.close();
+  document.querySelector("#group-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget,
+      submit = form.querySelector('[type="submit"]'),
+      val = (id, k) => form.querySelector(`[data-id="${id}"][data-k="${k}"]`);
+    const jobs = members
+      .filter((a) => val(a.id, "text"))
+      .map((a) => ({
+        a,
+        text: val(a.id, "text").value.trim(),
+        referral: val(a.id, "referral").value.trim(),
+        returnDate: val(a.id, "returnDate").value,
+        absent: val(a.id, "absent").checked,
+      }))
+      .filter((j) => j.text || j.absent);
+    if (!jobs.length) {
+      document.querySelector("#form-error").textContent =
+        "Preencha o registro de ao menos um aluno.";
+      return;
+    }
+    submit.disabled = true;
+    const failed = [];
+    let saved = 0;
+    for (const j of jobs) {
+      try {
+        if (j.absent) {
+          const { id, version, schoolId, studentId, linkId, start, end, modality, reason } = j.a;
+          await api("save", {
+            table: "appointments",
+            id,
+            version,
+            data: { schoolId, studentId, linkId, start, end, modality, reason: reason || "", status: "Falta do aluno" },
+          });
+        } else
+          await api("save", {
+            table: "notes",
+            data: {
+              appointmentId: j.a.id,
+              text: j.text,
+              referral: j.referral,
+              returnDate: j.returnDate,
+            },
+          });
+        saved++;
+      } catch (error) {
+        failed.push(`${name("students", j.a.studentId)}: ${error.message}`);
+      }
+    }
+    dialog.close();
+    toast(
+      failed.length
+        ? `${saved} registro(s) salvo(s). Com erro: ${failed.join("; ")}`
+        : `${saved} registro(s) individual(is) salvo(s).`,
+      !!failed.length,
+    );
+    await load();
+  };
+}
 async function history(studentId) {
   if (store) {
     try {
@@ -1168,6 +1272,9 @@ function bind() {
         edit("notes", note || {}, { appointmentId: el.dataset.note });
       }),
   );
+  document
+    .querySelectorAll("[data-group-note]")
+    .forEach((el) => (el.onclick = () => groupNotes(el.dataset.groupNote)));
   const bindFilter = (id, set) => {
     const el = document.getElementById(id);
     if (el)
