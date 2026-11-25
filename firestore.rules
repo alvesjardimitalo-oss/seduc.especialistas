@@ -309,6 +309,21 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Anotação sigilosa da neuropsicologia: só a autora lê e grava (nem a equipe,
+    // nem a administração). Fica fora das versões, relatórios e impressões.
+    match /atendimentos_sigilo/{id} {
+      allow get: if equipe() && resource.data.profissional_uid == request.auth.uid;
+      allow create, update: if equipe() && eu().especialidade == 'neuropsicologia'
+        && request.resource.data.keys().hasOnly(['profissional_uid', 'estudante_id', 'texto', 'atualizado_em'])
+        && request.resource.data.profissional_uid == request.auth.uid
+        && txt(request.resource.data.texto, 1000)
+        && request.resource.data.atualizado_em == request.time
+        && (resource == null || resource.data.profissional_uid == request.auth.uid)
+        && getAfter(doc('atendimentos', id)).data.profissional_uid == request.auth.uid
+        && getAfter(doc('atendimentos', id)).data.estudante_id == request.resource.data.estudante_id;
+      allow delete: if false;
+    }
+
     // Cópia fiel da versão anterior (metadados + texto), com motivo. Nunca alterada.
     match /atendimentos_versoes/{vid} {
       allow get, list: if clinico();

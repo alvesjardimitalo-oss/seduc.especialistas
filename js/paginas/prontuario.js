@@ -90,6 +90,11 @@ export async function render(main, vigente) {
   $$('[data-filtro-esp]', main).forEach(b => b.onclick = () => { filtroEsp = b.dataset.filtroEsp; render(main, vigente); });
   $('#mostrar-anulados', main)?.addEventListener('change', ev => { mostrarAnulados = ev.target.checked; render(main, vigente); });
   $$('[data-retificar]', main).forEach(b => b.onclick = () => { const a = atendimentos.find(x => x.id === b.dataset.retificar); formAtendimento({ atendimento: a, registro: reg.get(a.id) }); });
+  $$('[data-sigilo]', main).forEach(b => b.onclick = async () => {
+    let t = '';
+    try { t = (await dados.lerDoc('atendimentos_sigilo', b.dataset.sigilo))?.texto || ''; } catch (err) { return erro(err); }
+    modal({ titulo: '🔒 Anotação sigilosa', somenteLeitura: true, corpo: '<p class="nota">Visível somente para você. Para alterar, use Editar no registro.</p>' + (t ? '<div class="secao"><p>' + esc(t) + '</p></div>' : '<p class="nota">Nenhuma anotação sigilosa neste registro.</p>') });
+  });
   $$('[data-anular]', main).forEach(b => b.onclick = () => anularAtendimento(atendimentos.find(x => x.id === b.dataset.anular)));
   $$('[data-versoes]', main).forEach(b => b.onclick = () => verVersoes(b.dataset.versoes));
   $$('[data-agendamento]', main).forEach(b => b.onclick = () => abrirAgendamento(agenda.find(x => x.id === b.dataset.agendamento)));
@@ -164,6 +169,7 @@ function cardAtendimento(a, r, clinico, aberto) {
     + (a.orientacao_escola && !anulado ? '<div class="orientacao-escola"><h4>Orientação para a professora / escola</h4><p>' + esc(a.orientacao_escola) + '</p></div>' : '')
     + (clinico ? '<div class="acoes-linha pequeno">'
       + (autor && !anulado && pode.registrar() ? '<button type="button" class="btn sec pequeno" data-retificar="' + esc(a.id) + '">Editar</button>' : '')
+      + (autor && a.especialidade === 'neuropsicologia' && S.perfil.especialidade === 'neuropsicologia' ? '<button type="button" class="btn sec pequeno" data-sigilo="' + esc(a.id) + '">🔒 Anotação sigilosa</button>' : '')
       + ((autor || pode.admin()) && !anulado ? '<button type="button" class="btn sec pequeno perigo" data-anular="' + esc(a.id) + '">Anular</button>' : '')
       + (a.versao > 1 ? '<button type="button" class="link" data-versoes="' + esc(a.id) + '">Ver versões anteriores</button>' : '') + '</div>' : '')
     + '</div></details>';
