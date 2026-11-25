@@ -394,7 +394,10 @@ service cloud.firestore {
         && request.resource.data.criado_por == request.auth.uid && request.resource.data.criado_em == request.time
         && txt(request.resource.data.get('observacao', ''), 300) && txtObr(request.resource.data.profissional_nome, 180)
         && request.resource.data.duracao_min in [30, 60]
-        && request.resource.data.inicio is timestamp && request.resource.data.inicio > request.time
+        && request.resource.data.inicio is timestamp
+        // entrar num horário em grupo já reservado vale também no dia (a especialista pega mais alunos na sala)
+        && (request.resource.data.inicio > request.time
+          || (request.resource.data.get('grupo_id', '') != '' && request.resource.data.inicio > request.time - duration.value(12, 'h')))
         && request.resource.data.inicio.toMillis() % 1800000 == 0
         && diaLivre(request.resource.data.inicio, request.resource.data.escola_id)
         && get(doc('usuarios', request.resource.data.profissional_uid)).data.ativo == true
@@ -449,6 +452,12 @@ service cloud.firestore {
             && request.resource.data.iniciado_em == request.time
             && equipe() && resource.data.profissional_uid == request.auth.uid
             && request.time >= resource.data.inicio - duration.value(30, 'm'))
+          ||
+          // vira consulta em grupo (para receber mais alunos no mesmo horário)
+          (request.resource.data.status == 'agendado'
+            && soMudar(['grupo_id', 'alterado_por', 'alterado_em'])
+            && resource.data.get('grupo_id', '') == '' && txtObr(request.resource.data.grupo_id, 40)
+            && ((equipe() && resource.data.profissional_uid == request.auth.uid) || gestao() || direcaoDe(resource.data.escola_id)))
           ||
           // realizado: somente junto com o registro do atendimento pela profissional
           (request.resource.data.status == 'realizado'

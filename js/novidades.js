@@ -1,12 +1,15 @@
 // Boletim de novidades: o que mudou e por quê, mostrado uma vez a cada pessoa afetada.
 // Ao publicar um boletim novo, troque VERSAO_NOVIDADES e a lista NOVIDADES.
 // Módulo só de dados (sem DOM): também é importado pelo teste de interface.
-export const VERSAO_NOVIDADES = '2026-11-25g';
+export const VERSAO_NOVIDADES = '2026-11-25h';
 export const TITULO_NOVIDADES = 'Novidades de novembro de 2026';
 
 const GESTAO = ['superadmin', 'secretaria'], ESCOLA = ['direcao', 'secretaria_escolar', 'pedagogico'];
 /** para: perfis que veem o item ('todos' = qualquer perfil ativo). link: tela onde conferir. */
 export const NOVIDADES = [
+  { para: ['especialista', 'superadmin', 'secretaria', 'direcao', 'secretaria_escolar'], titulo: 'Mais alunos no mesmo horário', link: '#/agenda',
+    oque: 'Abra uma consulta agendada e clique em “+ Adicionar alunos a este horário” para incluir 2, 3 ou mais alunos da mesma escola — inclusive na hora, quando a especialista busca os alunos na sala. A consulta vira em grupo: cada aluno tem a própria presença e o próprio registro.',
+    porque: 'Às vezes a especialista atende vários alunos de uma vez sem ter agendado em grupo. Agora isso fica registrado certinho, sem ocupar outro horário.' },
   { para: ['especialista'], titulo: 'Textos em CAIXA ALTA',
     oque: 'Tudo o que você digita nos formulários (registro da consulta, orientações, motivos, cadastros) aparece e é gravado em letras maiúsculas.',
     porque: 'Para manter os prontuários e documentos padronizados. O corretor ortográfico continua funcionando enquanto você digita.' },
