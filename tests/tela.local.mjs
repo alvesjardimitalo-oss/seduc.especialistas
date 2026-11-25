@@ -85,20 +85,20 @@ try {
   await pg0.goto(url); await pg0.waitForSelector('#form-login'); await foto(pg0, '00-login'); await pg0.close();
   const pg = await sessao('fono', { senha: true });
   await pg.waitForSelector('#busca'); await foto(pg, '01-painel-fono');
-  assert.match(await pg.textContent('.painel-topo'), /Fernanda/);
+  assert.match(await pg.textContent('.painel-topo'), /Fernanda/i);
   // lista de atendimento do dia: "Chegou" e "Atender"
   await pg.click('[data-chegou=agH]'); await pg.waitForSelector('.item-fila.chegou');
-  assert.match(await pg.textContent('.item-fila.chegou'), /1º[\s\S]*Chegou às \d\d:\d\d/);
+  assert.match(await pg.textContent('.item-fila.chegou'), /1º[\s\S]*Chegou às \d\d:\d\d/i);
   await foto(pg, '01a-lista-do-dia');
   await pg.click('[data-atender=agH]'); await pg.waitForSelector('#modal [name=objetivo]');
   // "Atender" registra o início do atendimento (acompanhamento do dia)
   assert.ok(await pg.evaluate(() => window.__banco.get('agendamentos/agH').iniciado_em), 'início do atendimento gravado');
-  assert.match(await pg.textContent('#modal'), /S — Subjetivo[\s\S]*O — Objetivo[\s\S]*A — Avaliação[\s\S]*P — Plano/);
+  assert.match(await pg.textContent('#modal'), /S — Subjetivo[\s\S]*O — Objetivo[\s\S]*A — Avaliação[\s\S]*P — Plano/i);
   await pg.locator('#modal [data-fechar]').first().click(); await pg.waitForSelector('#modal', { state: 'detached' });
   // consulta vencida sem registro: "O aluno compareceu?" → Não → falta e reagendar
-  assert.match(await pg.textContent('#conteudo'), /1 consulta\(s\) sem registro/);
+  assert.match(await pg.textContent('#conteudo'), /1 consulta\(s\) sem registro/i);
   await pg.click('.alerta-caixa [data-consulta=agP]'); await pg.waitForSelector('.pergunta-presenca');
-  assert.match(await pg.textContent('.codigo'), /C\d{6}-TEST/);
+  assert.match(await pg.textContent('.codigo'), /C\d{6}-TEST/i);
   await foto(pg, '01b-consulta-ampliada');
   await pg.click('[data-c=nao]');
   await pg.fill('[name=motivo]', 'Não compareceu; escola avisada.'); await pg.click('#modal [type=submit]');
@@ -119,16 +119,16 @@ try {
   await pg.click('#conteudo .linha-agenda'); await pg.click('[data-c=sim]'); await pg.waitForSelector('#modal [name=objetivo]');
   assert.match(await pg.textContent('#modal-titulo'), new RegExp(codigo));
   await pg.fill('[name=subjetivo]', 'w'.repeat(4000)); await pg.fill('[name=objetivo]', 'x'.repeat(4000)); await pg.fill('[name=avaliacao]', 'y'.repeat(2010));
-  assert.match(await pg.textContent('.contador-total'), /10010\/10000/);
+  assert.match(await pg.textContent('.contador-total'), /10010\/10000/i);
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.form-erro:not([hidden])');
-  assert.match(await pg.textContent('.form-erro'), /10000/);
+  assert.match(await pg.textContent('.form-erro'), /10000/i);
   await pg.fill('[name=subjetivo]', ''); await pg.fill('[name=objetivo]', 'Leitura de sílabas complexas com apoio visual.'); await pg.fill('[name=avaliacao]', 'Leu 6 de 10.');
   await pg.fill('[name=orientacao_escola]', 'Ler junto com o aluno, apontando as sílabas.'); await pg.selectOption('[name=tipo]', 'observacao_sala');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(300);
   await pg.click('#conteudo .linha-agenda'); await pg.waitForSelector('.registro-consulta');
   assert.match(await pg.textContent('.registro-consulta'), /sílabas complexas/i);
   assert.match(await pg.textContent('#modal .orientacao-escola'), /apontando as sílabas/i);
-  assert.match(await pg.textContent('.registro-consulta'), /Observação em sala/);
+  assert.match(await pg.textContent('.registro-consulta'), /Observação em sala/i);
   await pg.click('#modal [data-fechar]');
   await pg.fill('#busca [name=busca]', ''); await pg.waitForTimeout(400);
   await pg.click('a[href="#/alunos"]'); await pg.waitForSelector('.aluno-item');
@@ -138,7 +138,7 @@ try {
   await pg.fill('#filtros [name=busca]', ''); await pg.waitForTimeout(400);
   await foto(pg, '02-alunos');
   await pg.click('.aluno-item >> text=Ana Clara'); await pg.waitForSelector('.linha-tempo');
-  assert.match(await pg.textContent('.card-atendimento'), /provas operatórias/);
+  assert.match(await pg.textContent('.card-atendimento'), /provas operatórias/i);
   await foto(pg, '03-prontuario');
 
   // registrar atendimento
@@ -162,12 +162,12 @@ try {
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' });
   await pg.waitForSelector('text=editada');
   await pg.click('[data-versoes]'); await pg.waitForSelector('.versao');
-  assert.match(await pg.textContent('.versao'), /7 de 10/);
+  assert.match(await pg.textContent('.versao'), /7 de 10/i);
   await pg.click('#modal [data-fechar]');
 
   // folha de rosto: problemas e condições
   assert.match(await pg.textContent('.folha-rosto'), /Informado pela escola:[\s\S]*dislalia/i);
-  assert.match(await pg.textContent('.folha-rosto'), /Paula Psicopedagoga[\s\S]*Plano:[\s\S]*avaliação fonoaudiológica/);
+  assert.match(await pg.textContent('.folha-rosto'), /Paula Psicopedagoga[\s\S]*Plano:[\s\S]*avaliação fonoaudiológica/i);
   await pg.click('[data-acao=nova-condicao]'); await pg.fill('#modal [name=descricao]', 'Troca de fonemas /p/ e /b/');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.cond-ativo');
   assert.match(await pg.textContent('.cond-ativo'), /Troca de fonemas[\s\S]*Fonoaudiologia/i);
@@ -206,7 +206,7 @@ try {
   await foto(pg, '07b-remarcar');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(200);
   assert.equal(await pg.locator('.linha-agenda.s-agendado').count(), 1);
-  assert.match(await pg.textContent('#conteudo'), /Remarcado para|Cancelado/);
+  assert.match(await pg.textContent('#conteudo'), /Remarcado para|Cancelado/i);
   await pg.click('.linha-agenda.s-agendado'); await pg.click('[data-c=sim]');
   await pg.fill('[name=objetivo]', 'Sessão agendada: leitura de pseudopalavras.');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('#modal', { state: 'detached' }); await pg.waitForTimeout(200);
@@ -266,9 +266,9 @@ try {
   await pg.evaluate(() => { window.open = u => { window.__aberto = u; return null; }; });
   await pg.locator('[data-lembrete]').first().click(); await pg.waitForSelector('#modal [name=telefone]');
   const textoLembrete = await pg.inputValue('#modal [name=texto]');
-  assert.match(textoLembrete, /Bruno tem atendimento/); assert.doesNotMatch(textoLembrete, /Fono|Henrique|Lima/);
+  assert.match(textoLembrete, /Bruno tem atendimento/i); assert.doesNotMatch(textoLembrete, /Fono|Henrique|Lima/);
   await pg.fill('#modal [name=telefone]', '(33) 99999-1234'); await pg.click('#modal [type=submit]');
-  assert.match(await pg.evaluate(() => window.__aberto), /^https:\/\/wa\.me\/5533999991234\?text=Ol/);
+  assert.match(await pg.evaluate(() => window.__aberto), /^https:\/\/wa\.me\/5533999991234\?text=Ol/i);
 
   // agenda: visão do mês com todas as consultas
   await pg.goto(url + '#/agenda'); await pg.waitForSelector('[data-visao=mes]');
@@ -287,7 +287,7 @@ try {
   await pg.fill('[name=nome]', 'Carlos Eduardo Teste'); await pg.selectOption('[name=escola_id]', 'monteiro-lobato');
   await pg.fill('[name=motivo_encaminhamento]', 'Não consegue acompanhar a leitura.');
   await pg.click('#modal [type=submit]'); await pg.waitForSelector('.perfil-topo >> text=Carlos Eduardo');
-  assert.match(await pg.textContent('.chips'), /Aguardando/);
+  assert.match(await pg.textContent('.chips'), /Aguardando/i);
 
   // atendimento em grupo: seleção por clique (lista própria, funciona no Safari) e registro individual por aluno
   await pg.goto(url + '#/painel'); await pg.waitForSelector('#busca');
@@ -344,21 +344,21 @@ try {
   assert.ok(!nomes.includes('Bruno Henrique Lima'), 'direção não vê aluno de outra escola');
   await dir.goto(url + '#/aluno/a1'); await dir.waitForSelector('.linha-tempo');
   assert.doesNotMatch(await dir.textContent('#conteudo'), /provas operatórias/);
-  assert.match(await dir.textContent('#conteudo'), /restrito à equipe/);
+  assert.match(await dir.textContent('#conteudo'), /restrito à equipe/i);
   await dir.locator('.card-atendimento summary').first().click();
-  assert.match(await dir.textContent('.card-atendimento .orientacao-escola'), /letra bastão/);
+  assert.match(await dir.textContent('.card-atendimento .orientacao-escola'), /letra bastão/i);
   await dir.click('[data-acao=ficha-escola]'); assert.doesNotMatch(await dir.textContent('#modal'), /Incluir a condição/); await dir.click('#modal [data-fechar]');
   await dir.goto(url + '#/painel'); await dir.waitForSelector('#busca');
-  assert.match(await dir.textContent('#conteudo'), /Orientações recentes para a escola[\s\S]*letra bastão/);
+  assert.match(await dir.textContent('#conteudo'), /Orientações recentes para a escola[\s\S]*letra bastão/i);
   await foto(dir, '10-prontuario-direcao');
   // direção (vice-diretora) imprime documento emitido: rodapé com nome, cargo e registro da impressão
   await dir.goto(url + '#/aluno/a1/relatorios'); await dir.waitForSelector('[data-imprimir-rel=r1]', { state: 'attached' });
   await dir.evaluate(() => { window.open = () => ({ document: { write: h => { window.__impresso = h; }, close() {} } }); });
   await dir.locator('.card-atendimento summary').first().click(); await dir.click('[data-imprimir-rel=r1]');
   const impresso = await dir.evaluate(() => window.__impresso);
-  assert.match(impresso, /Impresso por:<\/b> Diretora Monteiro — Vice-diretor\(a\)/); assert.match(impresso, /Registro de impressão:<\/b> [A-Z0-9]{6,}/);
+  assert.match(impresso, /Impresso por:<\/b> Diretora Monteiro — Vice-diretor\(a\)/i); assert.match(impresso, /Registro de impressão:<\/b> [A-Z0-9]{6,}/i);
   await dir.waitForFunction(() => [...window.__banco].some(([k, v]) => k.startsWith('acessos/') && v.acao === 'relatorio' && v.cargo === 'Vice-diretor(a)' && v.documento === 'r1'));
-  assert.match(await dir.textContent('.topo-usuario'), /Vice-diretor/);
+  assert.match(await dir.textContent('.topo-usuario'), /Vice-diretor/i);
   // fila de espera: a direção pede atendimento
   await dir.goto(url + '#/fila'); await dir.waitForSelector('#novo-pedido'); await dir.click('#novo-pedido');
   await dir.click('#modal [data-lista-aluno] [data-id="a1"]'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
@@ -366,7 +366,7 @@ try {
   await dir.click('#modal [type=submit]'); await dir.waitForSelector('.pedido');
   await dir.click('#novo-pedido'); await dir.click('#modal [data-lista-aluno] [data-id="a1"]'); await dir.selectOption('#modal [name=especialidade]', 'fonoaudiologia');
   await dir.fill('#modal [name=motivo]', 'Pedido repetido para o mesmo aluno.'); await dir.click('#modal [type=submit]');
-  await dir.waitForSelector('#modal .form-erro:not([hidden])'); assert.match(await dir.textContent('#modal .form-erro'), /já está na fila/);
+  await dir.waitForSelector('#modal .form-erro:not([hidden])'); assert.match(await dir.textContent('#modal .form-erro'), /já está na fila/i);
   await dir.click('#modal [data-fechar]');
   await foto(dir, '17-fila-de-espera');
   await dir.goto(url + '#/aluno/a1'); await dir.waitForSelector('.faixa-fila');
@@ -408,10 +408,10 @@ try {
   await adm.waitForFunction(() => [...window.__banco].some(([k, v]) => k.startsWith('pedidos/') && v.situacao === 'agendado' && v.agendamento_id));
   // segurança: quem acessou e cópia criptografada
   await adm.goto(url + '#/seguranca'); await adm.waitForSelector('#form-backup');
-  assert.match(await adm.textContent('#conteudo'), /Ítalo Admin[\s\S]*Abriu o prontuário/);
+  assert.match(await adm.textContent('#conteudo'), /Ítalo Admin[\s\S]*Abriu o prontuário/i);
   // registro retroativo: a administração libera temporariamente e pode encerrar
   await adm.click('#form-retro [type=submit]'); await adm.waitForSelector('#encerrar-retro');
-  assert.match(await adm.textContent('#retroativo'), /Liberado/);
+  assert.match(await adm.textContent('#retroativo'), /Liberado/i);
   await adm.click('#encerrar-retro'); await adm.waitForSelector('#retroativo >> text=não liberado');
   await adm.fill('#form-backup [name=senha]', 'senha-de-teste-123'); await adm.fill('#form-backup [name=senha2]', 'senha-de-teste-123');
   const [download] = await Promise.all([adm.waitForEvent('download'), adm.click('#form-backup [type=submit]')]);
@@ -424,7 +424,7 @@ try {
   await foto(adm, '18-seguranca');
   // frequência da equipe
   await adm.goto(url + '#/frequencia'); await adm.waitForSelector('#mes');
-  assert.match(await adm.textContent('#conteudo'), /Fernanda Fono/);
+  assert.match(await adm.textContent('#conteudo'), /Fernanda Fono/i);
   await foto(adm, '19-frequencia-equipe');
   // novo acesso com login e senha
   await adm.goto(url + '#/equipe'); await adm.waitForSelector('.pessoa'); await adm.waitForTimeout(300); await adm.click('#convidar'); await adm.waitForSelector('#modal [name=email]');
@@ -445,7 +445,7 @@ try {
   assert.deepEqual(await adm.evaluate(() => { const u = window.__banco.get('usuarios/novo_carlacerto'); return [u.email, u.especialidade, u.escolas]; }), ['carla.certo@x.br', 'psicopedagogia', ['monteiro-lobato']]);
   // conta com registros: orienta a troca pela própria profissional
   await adm.waitForSelector('[data-trocar-email=fono]'); await adm.click('[data-trocar-email=fono]'); await adm.waitForSelector('#modal');
-  assert.match(await adm.textContent('#modal'), /Minha conta/); await adm.click('#modal [data-fechar]');
+  assert.match(await adm.textContent('#modal'), /Minha conta/i); await adm.click('#modal [data-fechar]');
   // "Minha conta": troca do próprio e-mail
   await adm.click('#minha-conta'); await adm.waitForSelector('#modal [name=email]');
   await adm.fill('#modal [name=email]', 'admin.novo@x.br'); if (await adm.$('#modal [name=senha]')) await adm.fill('#modal [name=senha]', 'x');
@@ -486,12 +486,12 @@ try {
   await adm.goto(url + '#/agenda'); await adm.waitForSelector('.semana');
   await adm.selectOption('#prof', 'fono'); await adm.waitForTimeout(300);
   if (await adm.$('.faixa-bloqueio') === null) { await adm.click('#prox'); await adm.waitForSelector('.semana'); }
-  assert.match(await adm.textContent('.faixa-bloqueio'), /Conselho de classe/);
+  assert.match(await adm.textContent('.faixa-bloqueio'), /Conselho de classe/i);
   // calendário do ano letivo a partir do PDF emitido pelo sistema da escola
   await adm.click('#calendario'); await adm.click('#importar-pdf');
   await adm.setInputFiles('#modal [name=pdf]', new URL('./fixtures/calendario-2026.pdf', import.meta.url).pathname);
   await adm.waitForSelector('#modal .conferencia', { timeout: 30000 });
-  assert.match(await adm.textContent('#modal .alerta-caixa'), /200 dias letivos lidos[\s\S]*Conferido/);
+  assert.match(await adm.textContent('#modal .alerta-caixa'), /200 dias letivos lidos[\s\S]*Conferido/i);
   assert.equal(await adm.locator('#modal [data-incluir]').count(), 12);
   await adm.fill('#modal [data-motivo="8"]', 'Semana do Professor');
   await foto(adm, '13d-calendario-pdf');
@@ -511,7 +511,7 @@ try {
   await adm.goto(url + '#/equipe'); await adm.waitForSelector('.pessoa');
   // excluir acesso (com agendamentos futuros cancelados) e restaurar
   await adm.click('[data-excluir=fono]'); await adm.waitForSelector('[name=cancelar]');
-  assert.match(await adm.textContent('#modal'), /agendamento\(s\) futuro/);
+  assert.match(await adm.textContent('#modal'), /agendamento\(s\) futuro/i);
   await adm.fill('[name=motivo]', 'Teste de exclusão'); await foto(adm, '12b-excluir-acesso');
   await adm.click('#modal [type=submit]'); await adm.waitForSelector('#modal', { state: 'detached' });
   if ((await adm.textContent('#ver-excluidos')).includes('Mostrar')) await adm.click('#ver-excluidos'); await adm.waitForSelector('[data-restaurar=fono]');
@@ -536,7 +536,7 @@ try {
   await adm.evaluate(() => { window.__usuarioTeste = { uid: 'fono', email: 'fono@x.br', emailVerified: true }; });
   await adm.click('#sair'); assert.equal(await adm.evaluate(() => window.__cacheLimpo), true, 'cache local apagado ao sair');
   await adm.click('#entrar'); await adm.waitForSelector('.alerta-caixa');
-  assert.match(await adm.textContent('.alerta-caixa'), /desativado/);
+  assert.match(await adm.textContent('.alerta-caixa'), /desativado/i);
   await adm.evaluate(() => { window.__usuarioTeste = { uid: 'admin', email: 'admin@x.br', emailVerified: true }; });
   await adm.click('#sair'); await adm.click('#entrar'); await adm.waitForSelector('.topo-usuario');
   await adm.goto(url + '#/escolas'); await adm.waitForSelector('#semear');
@@ -582,12 +582,12 @@ try {
   // acompanhamento do dia: a gestão vê a mudança feita por outra pessoa sem recarregar, e a escuta termina ao sair
   const acomp = await sessao('admin');
   await acomp.goto(url + '#/acompanhamento'); await acomp.waitForSelector('.ac-linha[data-ag=agH]');
-  assert.match(await acomp.textContent('#ao-vivo'), /Ao vivo/);
+  assert.match(await acomp.textContent('#ao-vivo'), /Ao vivo/i);
   assert.equal(await acomp.evaluate(() => window.__escutasAtivas), 1);
   await foto(acomp, '23-acompanhamento');
   await acomp.evaluate(async () => { const fb = await import('/js/firebase.js'); await fb.writeBatch().update(fb.doc(null, 'agendamentos/agH'), { status: 'falta', alterado_em: Date.now() }).commit(); });
   await acomp.waitForSelector('.ac-linha.ac-falta[data-ag=agH]');
-  assert.match(await acomp.textContent('.ac-linha[data-ag=agH]'), /Não compareceu/);
+  assert.match(await acomp.textContent('.ac-linha[data-ag=agH]'), /Não compareceu/i);
   await acomp.click('a[href="#/painel"]'); await acomp.waitForSelector('#busca');
   assert.equal(await acomp.evaluate(() => window.__escutasAtivas), 0, 'escuta encerrada ao sair da tela');
   await acomp.close();
@@ -596,7 +596,7 @@ try {
   const nov = await sessao('dir', { novidades: true });
   await nov.waitForSelector('.modal-novidades .novidades li');
   const textoNov = await nov.textContent('.modal-novidades');
-  assert.match(textoNov, /Relatórios ampliados/); assert.doesNotMatch(textoNov, /Minha semana/, 'direção não vê novidade da especialista');
+  assert.match(textoNov, /Relatórios ampliados/i); assert.doesNotMatch(textoNov, /Minha semana/, 'direção não vê novidade da especialista');
   await foto(nov, '22-novidades');
   await nov.check('.modal-novidades [name=nao_mostrar]'); await nov.click('.modal-novidades [type=submit]'); await nov.waitForSelector('#modal', { state: 'detached' });
   assert.equal(await nov.evaluate(k => localStorage.getItem(k), chaveNovidades('dir')), VERSAO_NOVIDADES);
