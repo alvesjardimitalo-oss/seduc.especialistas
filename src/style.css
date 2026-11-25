@@ -1641,3 +1641,10 @@ dialog::backdrop {
 .group-note label.group-toggle {
   flex-direction: row;
 }
+
+.secret-info {
+  background: #fbf4e6;
+  border-color: #ead7ad;
+  color: #7a5b1e;
+  margin-top: 14px;
+}

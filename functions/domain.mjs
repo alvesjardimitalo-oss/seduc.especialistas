@@ -502,7 +502,16 @@ function validate(s, u, table, d, old) {
       };
     }
     case "notes": {
-      pick(d, ["appointmentId", "text", "referral", "returnDate", "reason"]);
+      pick(d, [
+        "appointmentId",
+        "text",
+        "referral",
+        "returnDate",
+        "reason",
+        "secret",
+      ]);
+      // A anotação sigilosa nunca entra no registro compartilhado.
+      text(d.secret || "", 1000);
       const a = ref(s, "appointments", d.appointmentId);
       writer(s, u, a.schoolId);
       fail(

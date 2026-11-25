@@ -14,6 +14,7 @@ import {
   limit,
   updateDoc,
   deleteDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
@@ -412,6 +413,41 @@ try {
       assert.equal(
         (await getDoc(doc(a, "notes", second.id))).data().studentId,
         g2.id,
+      );
+      // Anotação sigilosa: só a autora lê; outra escola e a administração não.
+      await specialist.stateFor("notes", true);
+      const n1 = (await specialist.stateFor("notes", true)).notes.find(
+        (n) => n.id === first.id,
+      );
+      await specialist.save({
+        table: "notes",
+        id: n1.id,
+        version: n1.version,
+        data: {
+          appointmentId: first.id,
+          text: "Evolução individual um",
+          reason: "Inclusão de anotação",
+          secret: "Informação sigilosa fictícia",
+        },
+      });
+      assert.equal(
+        (await getDoc(doc(a, "notes_private", first.id))).data().text,
+        "Informação sigilosa fictícia",
+      );
+      assert.equal(
+        JSON.stringify((await getDoc(doc(a, "notes", first.id))).data()).includes("sigilosa fictícia"),
+        false,
+      );
+      await assertFails(getDoc(doc(b, "notes_private", first.id)));
+      await assertFails(getDoc(doc(root, "notes_private", first.id)));
+      await assertFails(
+        setDoc(doc(b, "notes_private", first.id), {
+          id: first.id,
+          appointmentId: first.id,
+          authorId: "b",
+          text: "x",
+          serverAt: serverTimestamp(),
+        }),
       );
       // Cancelar um participante mantém o horário do grupo reservado.
       const s = await specialist.stateFor("appointments");

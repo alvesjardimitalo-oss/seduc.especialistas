@@ -3,6 +3,15 @@
 export const updates = [
   {
     date: "2026-11-25",
+    title: "Anotação sigilosa da neuropsicologia",
+    items: [
+      "Novo campo \"Anotação sigilosa\" (até 1.000 caracteres) no registro de atendimento, exibido apenas para a neuropsicóloga que realizou a consulta.",
+      "A anotação fica guardada separada do prontuário: não aparece para as demais especialistas, direção, secretaria ou administração, nem em relatórios e impressões.",
+      "Também disponível no \"Registrar grupo\", individualmente para cada aluno.",
+    ],
+  },
+  {
+    date: "2026-11-25",
     title: "Consulta em grupo com registro individual",
     items: [
       "Na Agenda, ao agendar consulta, marque \"Consulta em grupo\" para incluir mais de um aluno da mesma escola no mesmo horário.",

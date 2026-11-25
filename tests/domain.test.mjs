@@ -422,6 +422,18 @@ test("group appointment: several students, same slot, individual notes", () => {
     notes.map((n) => n.studentId).sort(),
     [appointment.studentId, second.id].sort(),
   );
+  // Sigilosa nunca vai para o registro compartilhado.
+  const third2 = save(s, "a", "appointments", {
+    ...appointment,
+    start: "2030-11-04T12:00:00.000Z",
+    end: "2030-11-04T13:00:00.000Z",
+  });
+  const secretNote = save(s, "a", "notes", {
+    appointmentId: third2.id,
+    text: "Compartilhado",
+    secret: "Sigiloso",
+  });
+  assert.equal(JSON.stringify(s.notes.find((n) => n.id === secretNote.id)).includes("Sigiloso"), false);
   // Editing keeps the group link.
   const old = s.appointments.find((x) => x.id === b.id);
   const { groupId, ...edit } = group;

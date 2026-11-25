@@ -369,6 +369,23 @@ function dashboard() {
       "",
     )}</section></div><div class="care-note">${icon("shield-check")}<p><strong>Cada informação merece cuidado.</strong> O acesso é definido pelo seu perfil e pelos vínculos com as escolas.</p></div>`;
 }
+// Campo sigiloso: só para a neuropsicóloga autora da consulta.
+const neuro = (txt) =>
+  String(txt || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .includes("neuropsic");
+function canSecret(appointment) {
+  if (!appointment || appointment.authorId !== state.user?.id) return false;
+  const link = (state.links || []).find((l) => l.id === appointment.linkId),
+    p = (state.professionals || []).find(
+      (x) => x.id === appointment.professionalId,
+    );
+  return neuro(link?.specialty) || neuro(p?.specialty);
+}
+const SECRET_INFO =
+  '<div class="info secret-info">🔒 A anotação sigilosa fica guardada à parte: não aparece no prontuário compartilhado, para a equipe, a direção ou a administração, nem em relatórios e impressões. Somente você a vê.</div>';
 // Consulta em grupo: um agendamento por aluno, ligados pelo mesmo groupId.
 function groupMembers(a) {
   return (state.appointments || []).filter((x) => x.groupId === a.groupId);
@@ -675,6 +692,12 @@ const configs = {
     f("referral", "Encaminhamentos", "textarea"),
     f("returnDate", "Retorno sugerido", "date"),
     f("reason", "Motivo da alteração", "textarea"),
+    f(
+      "secret",
+      "🔒 Anotação sigilosa — visível somente para você (até 1.000 caracteres)",
+      "textarea",
+      { max: 1000 },
+    ),
   ],
   attendance: [
     f("linkId", "Vínculo do profissional", "relation", {
@@ -790,7 +813,13 @@ async function edit(table, row = {}, prefill = {}) {
   const dialog = document.querySelector("#editor");
   const existing = !!row.id,
     values = { ...prefill, ...row };
-  dialog.innerHTML = `<form id="edit-form"><div class="dialog-heading"><div><p class="eyebrow">SEDUC ESPECIALISTAS</p><h2>${existing ? "Editar" : "Novo"} · ${nav.find((x) => x[0] === table)?.[1]}</h2></div><button type="button" class="icon-btn" id="close-dialog" aria-label="Fechar">${icon("x")}</button></div><div class="dialog-body">${table === "students" && existing ? '<div class="info">Arquivar preserva todos os atendimentos. Transferir restringe o cadastro à nova escola; registros anteriores mantêm a escola de origem.</div>' : ""}${table === "appointments" ? '<div class="info">O servidor confere vigência, jornada, bloqueios e conflitos. Para reagendar, justifique a remarcação e crie a nova consulta.</div>' : ""}<div class="form-grid">${configs[table].map((c) => field(c, values[c.key])).join("")}</div>${table === "appointments" && !existing ? groupField() : ""}${table === "appointments" && existing && row.groupId ? `<div class="info">${esc(groupLabel(row))}. Este agendamento é individual deste aluno: alterar a situação aqui não muda os demais participantes.</div>` : ""}${table === "notes" && state.appointments.find((a) => a.id === values.appointmentId)?.groupId ? '<div class="info">Consulta em grupo: este registro de atendimento é individual e aparece apenas no prontuário deste aluno. Registre cada participante separadamente.</div>' : ""}${store && ["appointments", "referrals"].includes(table) ? '<button type="button" id="more-student-options" class="text-btn">Carregar mais alunos na seleção</button>' : ""}<p class="form-error" id="form-error" role="alert"></p></div><div class="dialog-footer"><small>Os campos com * são obrigatórios.</small><button type="button" class="ghost" id="cancel-edit">Cancelar</button><button class="primary" type="submit">${icon("check")}Salvar registro</button></div></form>`;
+  const showSecret =
+    table === "notes" &&
+    canSecret(state.appointments.find((a) => a.id === values.appointmentId));
+  const fields = configs[table].filter(
+    (c) => c.key !== "secret" || showSecret,
+  );
+  dialog.innerHTML = `<form id="edit-form"><div class="dialog-heading"><div><p class="eyebrow">SEDUC ESPECIALISTAS</p><h2>${existing ? "Editar" : "Novo"} · ${nav.find((x) => x[0] === table)?.[1]}</h2></div><button type="button" class="icon-btn" id="close-dialog" aria-label="Fechar">${icon("x")}</button></div><div class="dialog-body">${table === "students" && existing ? '<div class="info">Arquivar preserva todos os atendimentos. Transferir restringe o cadastro à nova escola; registros anteriores mantêm a escola de origem.</div>' : ""}${table === "appointments" ? '<div class="info">O servidor confere vigência, jornada, bloqueios e conflitos. Para reagendar, justifique a remarcação e crie a nova consulta.</div>' : ""}<div class="form-grid">${fields.map((c) => field(c, values[c.key])).join("")}</div>${showSecret ? SECRET_INFO : ""}${table === "appointments" && !existing ? groupField() : ""}${table === "appointments" && existing && row.groupId ? `<div class="info">${esc(groupLabel(row))}. Este agendamento é individual deste aluno: alterar a situação aqui não muda os demais participantes.</div>` : ""}${table === "notes" && state.appointments.find((a) => a.id === values.appointmentId)?.groupId ? '<div class="info">Consulta em grupo: este registro de atendimento é individual e aparece apenas no prontuário deste aluno. Registre cada participante separadamente.</div>' : ""}${store && ["appointments", "referrals"].includes(table) ? '<button type="button" id="more-student-options" class="text-btn">Carregar mais alunos na seleção</button>' : ""}<p class="form-error" id="form-error" role="alert"></p></div><div class="dialog-footer"><small>Os campos com * são obrigatórios.</small><button type="button" class="ghost" id="cancel-edit">Cancelar</button><button class="primary" type="submit">${icon("check")}Salvar registro</button></div></form>`;
   dialog.showModal();
   createIcons({ icons });
   document.querySelector("#close-dialog").onclick = () => dialog.close();
@@ -923,7 +952,7 @@ async function edit(table, row = {}, prefill = {}) {
     const form = e.currentTarget,
       submit = form.querySelector('[type="submit"]'),
       data = {};
-    for (const c of configs[table]) {
+    for (const c of fields) {
       const el = form.elements[c.key];
       if (c.type === "schedule")
         data[c.key] = [...form.querySelectorAll(".schedule-row")].map((r) => {
@@ -1068,7 +1097,7 @@ async function groupNotes(groupId) {
       return `<fieldset class="group-note"><legend>${esc(name("students", a.studentId))}</legend>${
         done
           ? '<p class="group-hint">Atendimento já registrado. Para alterar, use "Registrar" na linha deste aluno.</p>'
-          : `<label>Observação do atendimento (até 1.000 caracteres)<textarea data-id="${a.id}" data-k="text" rows="3" maxlength="1000"></textarea></label><label>Encaminhamentos<textarea data-id="${a.id}" data-k="referral" rows="2" maxlength="1000"></textarea></label><label>Retorno sugerido<input type="date" data-id="${a.id}" data-k="returnDate"></label><label class="group-toggle"><input type="checkbox" data-id="${a.id}" data-k="absent"> Faltou (marcar "Falta do aluno")</label>`
+          : `<label>Observação do atendimento (até 1.000 caracteres)<textarea data-id="${a.id}" data-k="text" rows="3" maxlength="1000"></textarea></label><label>Encaminhamentos<textarea data-id="${a.id}" data-k="referral" rows="2" maxlength="1000"></textarea></label><label>Retorno sugerido<input type="date" data-id="${a.id}" data-k="returnDate"></label>${canSecret(a) ? `<label>🔒 Anotação sigilosa — só você vê (até 1.000 caracteres)<textarea data-id="${a.id}" data-k="secret" rows="2" maxlength="1000"></textarea></label>` : ""}<label class="group-toggle"><input type="checkbox" data-id="${a.id}" data-k="absent"> Faltou (marcar "Falta do aluno")</label>`
       }</fieldset>`;
     })
     .join(
@@ -1090,6 +1119,7 @@ async function groupNotes(groupId) {
         text: val(a.id, "text").value.trim(),
         referral: val(a.id, "referral").value.trim(),
         returnDate: val(a.id, "returnDate").value,
+        secret: val(a.id, "secret")?.value.trim() || "",
         absent: val(a.id, "absent").checked,
       }))
       .filter((j) => j.text || j.absent);
@@ -1119,6 +1149,7 @@ async function groupNotes(groupId) {
               text: j.text,
               referral: j.referral,
               returnDate: j.returnDate,
+              ...(j.secret ? { secret: j.secret } : {}),
             },
           });
         saved++;

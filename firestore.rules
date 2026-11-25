@@ -102,6 +102,13 @@ service cloud.firestore {
    allow update: if (manage() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['blockedSlots']) && request.resource.data.blockedSlots is list && request.resource.data.blockedSlots.size()<=96) || active() && validGuard(request.resource.data,id) && request.resource.data.kind==resource.data.kind && request.resource.data.owner==resource.data.owner && request.resource.data.dayKey==resource.data.dayKey && request.resource.data.get('blockedSlots',[])==resource.data.get('blockedSlots',[]) && guardUpdate(request.resource.data,resource.data);
   }
   function validNote(d){let a=get(/databases/$(database)/documents/appointments/$(d.appointmentId)).data;return d.keys().hasOnly(['id','appointmentId','schoolId','studentId','authorId','text','referral','returnDate','reason','version','createdAt','createdBy','updatedAt','auditId','serverAt']) && reqstr(d.text,1000) && str(d.referral,1000) && str(d.returnDate,10) && str(d.reason,500) && d.schoolId==a.schoolId && d.studentId==a.studentId && d.authorId==a.authorId && (admin() || d.authorId==request.auth.uid) && !(a.status in ['Cancelado','Remarcado']);}
+  // Anotação sigilosa da neuropsicóloga: documento separado, lido e gravado
+  // somente pela autora do registro. Não aparece para a equipe nem para a administração.
+  function ownNote(id){let n=get(/databases/$(database)/documents/notes/$(id)).data;return active() && n.authorId==request.auth.uid;}
+  match /notes_private/{id}{
+   allow get: if active() && resource.data.authorId==request.auth.uid;
+   allow create,update: if ownNote(id) && request.resource.data.keys().hasOnly(['id','appointmentId','authorId','text','serverAt']) && request.resource.data.id==id && request.resource.data.appointmentId==id && request.resource.data.authorId==request.auth.uid && str(request.resource.data.text,1000) && request.resource.data.serverAt==request.time;
+  }
   match /notes/{id}{
    allow get: if clinical(resource.data.schoolId);allow list: if clinical(resource.data.schoolId) && request.query.limit<=40;
    allow create: if id==request.resource.data.appointmentId && clinical(request.resource.data.schoolId) && validNote(request.resource.data) && base(request.resource.data,id) && creating(request.resource.data) && audited(request.resource.data,'notes',id);

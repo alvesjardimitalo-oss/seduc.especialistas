@@ -2,6 +2,7 @@ import {
   getFirestore,
   doc,
   getDoc,
+  setDoc,
   getDocs,
   query,
   collection,
@@ -295,6 +296,15 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
     };
   }
   async function privateRow(t, id) {
+    if (t === "notes") {
+      // Anotação sigilosa: só a autora consegue ler; para as demais, nada.
+      try {
+        const snap = await getDoc(ref("notes_private", id));
+        return snap.exists() ? { secret: snap.data().text } : {};
+      } catch {
+        return {};
+      }
+    }
     if (t === "professionals" && !manager()) return {};
     if (!["professionals", "students"].includes(t)) return {};
     const snap = await getDoc(ref(t + "_private", id));
@@ -316,6 +326,14 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
     return state;
   }
   async function save(payload) {
+    let secret;
+    if (payload.table === "notes" && payload.data && "secret" in payload.data) {
+      const { secret: s, ...rest } = payload.data;
+      secret = String(s ?? "").trim();
+      if (secret.length > 1000)
+        throw Error("A anotação sigilosa aceita até 1.000 caracteres.");
+      payload = { ...payload, data: rest };
+    }
     const draft = structuredClone({ ...state, user: undefined });
     draft.users = manager() ? [...state.users] : [state.user];
     if (!draft.users.some((x) => x.id === user.uid))
@@ -556,6 +574,22 @@ export function createStore(firebaseApp, user, onAccessChange, providedDb) {
       for (const [key, value] of guards)
         tx.set(ref("calendar_guards", key), value);
     });
+    if (secret !== undefined) {
+      // Gravada à parte, nunca dentro do registro compartilhado.
+      try {
+        await setDoc(ref("notes_private", result.id), {
+          id: result.id,
+          appointmentId: result.id,
+          authorId: user.uid,
+          text: secret,
+          serverAt: serverTimestamp(),
+        });
+      } catch {
+        throw Error(
+          "O atendimento foi salvo, mas a anotação sigilosa não. Abra o registro e salve a anotação novamente.",
+        );
+      }
+    }
     cache.delete(payload.table);
     if (payload.table === "professionals") cache.delete("professionals");
     if (payload.table === "notes") cache.delete("appointments");
