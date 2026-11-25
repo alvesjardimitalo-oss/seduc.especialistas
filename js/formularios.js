@@ -459,6 +459,7 @@ export function formPedido({ estudanteId = '', rascunho = {} } = {}) {
       S.pedidos = null; aviso('Pedido enviado para a fila de ' + ESPECIALIDADES[p.especialidade] + '.'); mudou();
     }
   });
+  ativarSeletorAluno(form);
   const motivoDigitado = () => form.motivo?.value || '';
   $('#cadastrar-do-pedido', form)?.addEventListener('click', () => {
     const rascunho = { especialidade: form.especialidade.value, prioridade: form.prioridade.value, motivo: motivoDigitado() };
