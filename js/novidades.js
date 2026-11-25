@@ -1,12 +1,18 @@
 // Boletim de novidades: o que mudou e por quê, mostrado uma vez a cada pessoa afetada.
 // Ao publicar um boletim novo, troque VERSAO_NOVIDADES e a lista NOVIDADES.
 // Módulo só de dados (sem DOM): também é importado pelo teste de interface.
-export const VERSAO_NOVIDADES = '2026-11-25b';
+export const VERSAO_NOVIDADES = '2026-11-25c';
 export const TITULO_NOVIDADES = 'Novidades de novembro de 2026';
 
 const GESTAO = ['superadmin', 'secretaria'], ESCOLA = ['direcao', 'secretaria_escolar', 'pedagogico'];
 /** para: perfis que veem o item ('todos' = qualquer perfil ativo). link: tela onde conferir. */
 export const NOVIDADES = [
+  { para: ['especialista'], titulo: 'Relatórios da especialista por período', link: '#/relatorios',
+    oque: 'Em Relatórios, escolha as datas De/Até. A aba “Meus atendimentos” mostra e imprime a lista dos seus atendimentos (aluno, escola, tipo, evolução) e as faltas. A aba “Por aluno” junta tudo o que você registrou do aluno no período e gera o relatório em PDF.',
+    porque: 'Antes só dava para ver o que foi feito em uma data. Agora o relatório do período sai pronto para prestar contas ou para a devolutiva à escola e à família.' },
+  { para: ['especialista', 'superadmin', 'secretaria', 'direcao', 'secretaria_escolar'], titulo: 'Consulta em grupo: escolha o aluno', link: '#/agenda',
+    oque: 'Ao abrir uma consulta em grupo, aparecem os nomes dos alunos (Aluno A, Aluno B…). Clique em um nome para abrir a consulta completa daquele aluno: presença, registro e prontuário.',
+    porque: 'Para atender o grupo sem procurar cada aluno na agenda.' },
   { para: ['especialista', 'superadmin', 'secretaria', 'direcao', 'secretaria_escolar'], titulo: 'Agendamento em grupo', link: '#/agenda',
     oque: 'Ao agendar, marque “Agendamento em grupo” e selecione os alunos (da mesma escola). Todos ficam no mesmo horário da especialista, cada um com a própria consulta: presença, falta, cancelamento e registro são individuais. Na agenda, as consultas em grupo aparecem com a etiqueta “Grupo”.',
     porque: 'Para atender mais alunos no mesmo horário. Ao registrar uma consulta do grupo, o sistema já abre o registro do próximo aluno; cancelar um aluno não libera o horário dos demais.' },

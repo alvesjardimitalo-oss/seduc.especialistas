@@ -327,6 +327,12 @@ try {
 
   await pg.click('a[href="#/relatorios"]'); await pg.waitForSelector('.metricas');
   await foto(pg, '09-relatorios');
+  // relatório da especialista: meus atendimentos (lista) e por aluno
+  assert.ok(await pg.locator('#imprimir-meus').count());
+  await pg.click('[data-aba-esp=aluno]'); await pg.waitForSelector('#rel-aluno');
+  if ((await pg.locator('#rel-aluno option').count()) > 1) { await pg.selectOption('#rel-aluno', { index: 1 }); await pg.waitForSelector('#imprimir-aluno'); }
+  await foto(pg, '09b-relatorio-por-aluno');
+  await pg.click('[data-aba-esp=meus]'); await pg.waitForSelector('#imprimir-meus');
   await pg.close();
 
   // ---- direção: sem texto clínico ----

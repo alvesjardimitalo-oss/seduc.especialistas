@@ -127,6 +127,22 @@ export function imprimirGerencial(r, filtros, nomes) {
   imprimir('Relatório gerencial', documento({ titulo: 'Relatório de atendimentos realizados', subtitulo: sub, escolaId: filtros.escola || '', corpo, lgpd: false }));
 }
 
+/** Relatório da especialista: lista nominal dos atendimentos do período (sem texto clínico) e faltas. */
+export function imprimirMeusAtendimentos({ lista, faltas = [], filtros, resumo }) {
+  const sub = 'Período: ' + (dataBR(filtros.de) || 'início') + ' a ' + (dataBR(filtros.ate) || 'hoje') + ' · ' + S.perfil.nome + (S.perfil.especialidade ? ' · ' + ESPECIALIDADES[S.perfil.especialidade] : '');
+  const nome = id => S.estudantes.find(x => x.id === id)?.nome || 'Aluno';
+  const card = (rot, v) => '<div class="kpi"><small>' + esc(rot) + '</small><b>' + v + '</b></div>';
+  const ordem = lista.slice().sort((a, b) => ms(a.data) - ms(b.data));
+  const corpo = '<div class="kpis">' + card('Atendimentos realizados', resumo.atendimentos) + card('Alunos atendidos', resumo.alunos) + card('Horas de atendimento', String(resumo.horas).replace('.', ',')) + card('Faltas de alunos', faltas.length) + '</div>'
+    + secao(1, 'Atendimentos realizados', ordem.length ? '<table class="doc-tab"><thead><tr><th>Data</th><th>Aluno</th><th>Escola</th><th>Tipo</th><th>Evolução</th><th class="num">Min</th></tr></thead><tbody>'
+      + ordem.map(a => '<tr><td>' + esc(formatarDataHora(a.data)) + '</td><td>' + esc(nome(a.estudante_id)) + '</td><td>' + esc(escolaCurta(a.escola_id)) + '</td><td>' + esc(TIPOS_ATENDIMENTO[a.tipo]) + '</td><td>' + esc(EVOLUCAO[a.evolucao]) + '</td><td class="num">' + a.duracao_min + '</td></tr>').join('') + '</tbody></table>' : '<p>Nenhum atendimento no período.</p>')
+    + (faltas.length ? secao(2, 'Faltas de alunos', '<table class="doc-tab"><thead><tr><th>Data</th><th>Aluno</th><th>Escola</th><th>Motivo</th></tr></thead><tbody>'
+      + faltas.slice().sort((a, b) => ms(a.inicio) - ms(b.inicio)).map(a => '<tr><td>' + esc(formatarDataHora(a.inicio)) + '</td><td>' + esc(nome(a.estudante_id)) + '</td><td>' + esc(escolaCurta(a.escola_id)) + '</td><td>' + esc(a.motivo || '—') + '</td></tr>').join('') + '</tbody></table>') : '')
+    + '<p class="doc-nota">Lista sem registro clínico. Para o conteúdo das consultas, use o relatório por aluno.</p>'
+    + localData(Date.now()) + '<div class="assinaturas">' + assinatura(S.perfil.nome, S.perfil.especialidade, S.perfil.registro_profissional) + '</div>';
+  imprimir('Meus atendimentos', documento({ titulo: 'Relatório de atendimentos da especialista', subtitulo: sub, corpo }));
+}
+
 // ---------- ficha para a professora (sem registro clínico) ----------
 export function imprimirFichaEscola({ estudante: e, atendimentos, agenda, condicao = '' }) {
   const validos = atendimentos.filter(a => a.situacao !== 'anulado').sort((a, b) => ms(b.data) - ms(a.data));
