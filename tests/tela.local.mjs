@@ -143,6 +143,7 @@ try {
 
   // registrar atendimento
   await pg.click('[data-acao=registrar]');
+  assert.equal(await pg.getAttribute('[name=objetivo]', 'spellcheck'), 'true'); assert.equal(await pg.getAttribute('[name=objetivo]', 'lang'), 'pt-BR');
   await pg.fill('[name=objetivo]', 'Treino de discriminação auditiva /p/ x /b/ com figuras e jogo de memória.');
   await pg.fill('[name=avaliacao]', 'Acertou 7 de 10 pares; maior dificuldade em posição medial.');
   await pg.fill('[name=plano]', 'Família: leitura compartilhada 10 min/dia. Escola: posicionar a aluna próximo à professora.');

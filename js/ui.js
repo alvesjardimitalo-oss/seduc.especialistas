@@ -74,14 +74,19 @@ export function dadosDoForm(form) {
   return d;
 }
 
+// Corretor ortográfico do navegador em português nos textos digitados (registros, motivos, observações).
+export const CORRETOR = 'spellcheck="true" lang="pt-BR" autocorrect="on" autocapitalize="sentences"';
+// Campos de texto curto que são frases (não nomes, e-mails ou códigos) também ganham o corretor.
+const FRASES = /^(motivo|motivo_[a-z_]+|observacao|descricao|titulo|destinatario|fonte|necessidade_informada|texto|orientacao_[a-z_]+)$/;
 export function campo(nome, rotulo, { tipo = 'text', valor = '', obrig = false, extra = '', dica = '', largo = false } = {}) {
+  if (tipo === 'text' && FRASES.test(nome) && !/spellcheck/.test(extra)) extra += ' ' + CORRETOR;
   return '<label class="campo' + (largo ? ' largo' : '') + '"><span>' + esc(rotulo) + (obrig ? ' <b class="obrig">*</b>' : '') + '</span>'
     + '<input type="' + tipo + '" name="' + nome + '" value="' + esc(valor) + '"' + (obrig ? ' required' : '') + ' ' + extra + '>'
     + (dica ? '<small>' + esc(dica) + '</small>' : '') + '</label>';
 }
 export function area(nome, rotulo, { valor = '', obrig = false, max = 3000, dica = '', linhas = 4 } = {}) {
   return '<label class="campo largo"><span>' + esc(rotulo) + (obrig ? ' <b class="obrig">*</b>' : '') + '</span>'
-    + '<textarea name="' + nome + '" rows="' + linhas + '" maxlength="' + max + '"' + (obrig ? ' required' : '') + ' data-contador>' + esc(valor) + '</textarea>'
+    + '<textarea name="' + nome + '" rows="' + linhas + '" maxlength="' + max + '"' + (obrig ? ' required' : '') + ' data-contador ' + CORRETOR + '>' + esc(valor) + '</textarea>'
     + '<small class="contador-linha">' + (dica ? esc(dica) + ' · ' : '') + '<span data-conta>' + String(valor).length + '</span>/' + max + '</small></label>';
 }
 export function opcoes(nome, rotulo, itens, { valor = '', obrig = false, vazio = '', largo = false, extra = '', dica = '' } = {}) {

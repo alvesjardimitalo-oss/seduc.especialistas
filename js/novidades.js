@@ -1,12 +1,15 @@
 // Boletim de novidades: o que mudou e por quê, mostrado uma vez a cada pessoa afetada.
 // Ao publicar um boletim novo, troque VERSAO_NOVIDADES e a lista NOVIDADES.
 // Módulo só de dados (sem DOM): também é importado pelo teste de interface.
-export const VERSAO_NOVIDADES = '2026-11-25e';
+export const VERSAO_NOVIDADES = '2026-11-25f';
 export const TITULO_NOVIDADES = 'Novidades de novembro de 2026';
 
 const GESTAO = ['superadmin', 'secretaria'], ESCOLA = ['direcao', 'secretaria_escolar', 'pedagogico'];
 /** para: perfis que veem o item ('todos' = qualquer perfil ativo). link: tela onde conferir. */
 export const NOVIDADES = [
+  { para: 'todos', titulo: 'Corretor ortográfico em português',
+    oque: 'Os campos de texto (registro da consulta, orientações, motivos, observações e relatórios) sublinham em vermelho as palavras com erro de português. Clique com o botão direito (no Mac, Control + clique) na palavra para ver as sugestões.',
+    porque: 'Para evitar erros de português nos registros e documentos impressos. Se não aparecer o sublinhado, ative a verificação ortográfica em português nas configurações do navegador.' },
   { para: ['especialista', 'superadmin', 'secretaria'], titulo: 'Registro retroativo de atendimentos', link: '#/painel',
     oque: 'Atendimentos podem ser registrados com data de até 30 dias atrás. Para lançar atendimentos mais antigos, a Administração libera temporariamente em Segurança → Registro retroativo (a partir de qual data e até que prazo, no máximo 90 dias). Durante a liberação, o formulário de registro mostra o aviso e aceita as datas liberadas.',
     porque: 'Para incluir no prontuário os atendimentos feitos antes do sistema sem abrir mão do controle: fora do período liberado, ninguém lança registros antigos.' },
