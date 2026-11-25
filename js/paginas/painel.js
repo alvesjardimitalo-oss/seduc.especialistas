@@ -15,7 +15,7 @@ export function linhaAgenda(a, { mostrarProf = true, mostrarData = false } = {})
   const e = estudante(a.estudante_id);
   return '<button type="button" class="linha-agenda s-' + esc(a.status) + '" data-consulta="' + esc(a.id) + '">'
     + '<span class="hora">' + (mostrarData ? '<em>' + esc(formatarData(a.inicio).slice(0, 5)) + '</em>' : '') + esc(horaMunicipal(a.inicio)) + '<small>' + (a.duracao_min || '') + ' min</small></span>'
-    + '<span class="quem"><strong>' + esc(e?.nome || 'Aluno') + '</strong><small>' + esc(escolaCurta(a.escola_id)) + (mostrarProf ? ' · ' + esc(a.profissional_nome) : '') + (a.codigo ? ' · ' + esc(a.codigo) : '') + '</small></span>'
+    + '<span class="quem"><strong>' + esc(e?.nome || 'Aluno') + (a.grupo_id ? ' <span class="tag-grupo">Grupo</span>' : '') + '</strong><small>' + esc(escolaCurta(a.escola_id)) + (mostrarProf ? ' · ' + esc(a.profissional_nome) : '') + (a.codigo ? ' · ' + esc(a.codigo) : '') + '</small></span>'
     + '<span class="selo s-' + esc(a.status) + '">' + esc(STATUS_AGENDA[a.status] || a.status) + '</span></button>';
 }
 export function ligarAgendamentos(raiz, lista) {

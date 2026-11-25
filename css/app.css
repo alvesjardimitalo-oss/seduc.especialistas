@@ -578,3 +578,5 @@ legend { font-weight: 700; color: var(--marinho); padding: 0 .4rem; }
 .cal-item small { color: var(--suave); margin-left: .25rem; }
 .cal-item.s-realizado { border-left-color: var(--ok); background: #e3f4ea; } .cal-item.s-falta { border-left-color: var(--aviso); background: #fdf0dc; } .cal-item.s-cancelado { border-left-color: #b9c4cf; background: #eef1f4; text-decoration: line-through; opacity: .75; }
 .cal-legenda { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; } .cal-legenda .cal-item { width: auto; cursor: default; }
+
+.tag-grupo { display: inline-block; font-size: .68rem; font-weight: 700; background: #e8eefc; color: #2f4fa0; border-radius: 999px; padding: .05rem .45rem; margin-left: .3rem; vertical-align: middle; }

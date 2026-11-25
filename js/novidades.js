@@ -1,12 +1,15 @@
 // Boletim de novidades: o que mudou e por quê, mostrado uma vez a cada pessoa afetada.
 // Ao publicar um boletim novo, troque VERSAO_NOVIDADES e a lista NOVIDADES.
 // Módulo só de dados (sem DOM): também é importado pelo teste de interface.
-export const VERSAO_NOVIDADES = '2026-11-25';
+export const VERSAO_NOVIDADES = '2026-11-25b';
 export const TITULO_NOVIDADES = 'Novidades de novembro de 2026';
 
 const GESTAO = ['superadmin', 'secretaria'], ESCOLA = ['direcao', 'secretaria_escolar', 'pedagogico'];
 /** para: perfis que veem o item ('todos' = qualquer perfil ativo). link: tela onde conferir. */
 export const NOVIDADES = [
+  { para: ['especialista', 'superadmin', 'secretaria', 'direcao', 'secretaria_escolar'], titulo: 'Agendamento em grupo', link: '#/agenda',
+    oque: 'Ao agendar, marque “Agendamento em grupo” e selecione os alunos (da mesma escola). Todos ficam no mesmo horário da especialista, cada um com a própria consulta: presença, falta, cancelamento e registro são individuais. Na agenda, as consultas em grupo aparecem com a etiqueta “Grupo”.',
+    porque: 'Para atender mais alunos no mesmo horário. Ao registrar uma consulta do grupo, o sistema já abre o registro do próximo aluno; cancelar um aluno não libera o horário dos demais.' },
   { para: 'todos', titulo: 'Agenda: calendário do mês e consultas por período', link: '#/agenda',
     oque: 'Na Agenda, o botão “Período” permite escolher as datas (de/até) e ver as consultas agendadas, realizadas, faltas ou todas, dia a dia, com atalhos para hoje, 7, 15 e 30 dias. O botão “Mês” mostra o calendário com todas as consultas marcadas em cada dia (horário, aluno e profissional), coloridas pela situação. Clique numa consulta para abri-la ou no dia para ver a semana.',
     porque: 'Para enxergar o mês inteiro de uma vez: dias cheios, dias livres, faltas e consultas realizadas.' },
