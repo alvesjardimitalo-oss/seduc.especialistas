@@ -57,6 +57,7 @@ export const escopoEscolas = () => perfilEscolar() ? (p().escolas || []) : null;
 export async function carregarBase() {
   const [escolas, usuarios, estudantes, bloqueios] = await Promise.all([dados.listarEscolas(), dados.listarUsuarios(), dados.listarEstudantes(p()), dados.listarBloqueios().catch(() => [])]);
   S.bloqueios = bloqueios;
+  S.retroativo = await dados.lerDoc('config', 'retroativo').catch(() => null);
   S.escolas = escolas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   S.usuarios = usuarios; S.estudantes = estudantes; S.atendimentos = null; S.pedidos = null;
 }

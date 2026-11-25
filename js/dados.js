@@ -215,6 +215,10 @@ export async function listarEstudantes(perfil) {
   for (const p of pedacos(perfil.escolas || [])) out.push(...lista(await getDocs(query(collection(db, 'estudantes'), where('escola_id', 'in', p)))));
   return out;
 }
+/** Liberação temporária do registro retroativo (Administração). */
+export async function liberarRetroativo({ desde, ate }, perfil) {
+  await writeBatch(db).set(doc(db, 'config', 'retroativo'), { desde: ts(desde), liberado_ate: ts(ate), por: uidAtual(), por_nome: perfil.nome, em: serverTimestamp() }).commit();
+}
 export async function lerDoc(col, id) { const s = await getDoc(doc(db, col, id)); return s.exists() ? { id: s.id, ...s.data() } : null; }
 
 /** Cria ou atualiza o aluno com seus dados privados (e clínicos, se a equipe enviou). */

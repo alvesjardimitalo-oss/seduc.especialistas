@@ -4,7 +4,7 @@ import { S, pode, perfilEscolar, nomeEscola, escolaCurta, especialistas, estudan
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, LIMITES, validarEstudante, possiveisDuplicados, validarRegistro,
   instante, diaMunicipal, horaMunicipal, horariosLivres, validarAgendamento, somarDias, formatarData, formatarDataHora,
-  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF, bloqueioDoDia, CAMPOS_SOAP, secoesRegistro,
+  faixaDoHorario, normalizar, ms, limiteRegistro, DIAS_REGISTRO, idade, cpfValido, formatarCPF, bloqueioDoDia, CAMPOS_SOAP, secoesRegistro,
   ESCALA_META, validarNotasMetas, idPlano, validarPedido, PRIORIDADES, textoLembrete, linkWhatsApp, numeroWhatsApp
 } from './dominio.js';
 import { esc, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from './ui.js';
@@ -204,13 +204,15 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
   let sigiloAtual = '';
   if (sigiloso && atendimento?.id) { try { sigiloAtual = (await dados.lerDoc('atendimentos_sigilo', atendimento.id))?.texto || ''; } catch { /* sem anotação */ } }
   const quando = atendimento ? ms(atendimento.data) : agendamento ? Math.min(ms(agendamento.inicio), Date.now()) : grupo ? ms(instante(grupo.dia, grupo.hora)) : Date.now();
-  const corpo = (agendamento?.grupo_id ? '<p class="alerta-caixa aviso">👥 Consulta em grupo: este registro é individual e vai só para o prontuário deste aluno. Se ele não veio, feche e marque “Não compareceu” na consulta.</p>' : '')
+  const lim = limiteRegistro(S.retroativo);
+  const corpo = (lim.liberado && !ret ? '<p class="alerta-caixa aviso">Registro retroativo liberado pela administração até ' + esc(formatarData(lim.ate)) + ': datas a partir de ' + esc(formatarData(instante(lim.min, '12:00'))) + '.</p>' : '')
+    + (agendamento?.grupo_id ? '<p class="alerta-caixa aviso">👥 Consulta em grupo: este registro é individual e vai só para o prontuário deste aluno. Se ele não veio, feche e marque “Não compareceu” na consulta.</p>' : '')
     + (grupo ? '<p class="alerta-caixa aviso">Atendimento em grupo · aluno <strong>' + grupo.pos + ' de ' + grupo.total + '</strong>. A consulta é a mesma; este registro é individual e vai só para o prontuário deste aluno.</p>' : '')
     + '<div class="grade">'
     + seletorAluno('estudante_id', alunoId)
     + '<div class="campo"><span>Especialidade</span><div class="aluno-fixo">' + esc(ESPECIALIDADES[S.perfil.especialidade]) + ' · ' + esc(S.perfil.nome) + '</div></div>'
     + opcoes('tipo', 'Tipo de atendimento', TIPOS_ATENDIMENTO, { valor: atendimento?.tipo || (grupo ? 'grupo' : 'sessao'), obrig: true })
-    + campo('dia', 'Data', { tipo: 'date', valor: diaMunicipal(quando), obrig: true, extra: 'max="' + hoje() + '"' })
+    + campo('dia', 'Data', { tipo: 'date', valor: diaMunicipal(quando), obrig: true, extra: 'max="' + hoje() + '"' + (ret ? '' : ' min="' + lim.min + '"') })
     + campo('hora', 'Horário', { tipo: 'time', valor: horaMunicipal(quando), obrig: true })
     + opcoes('duracao_min', 'Duração', DURACOES, { valor: atendimento?.duracao_min || agendamento?.duracao_min || grupo?.duracao_min || 30 })
     + '</div>'
@@ -233,6 +235,7 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
       if (Object.keys(notas).length || registro?.metas) registroNovo.metas = notas;
       const data = instante(d.dia, d.hora);
       if (!data || data.getTime() > Date.now() + 5 * 60000) throw Error('A data e hora não podem estar no futuro. Para atendimentos futuros, use Agendar.');
+      if (!ret && d.dia < lim.min) throw Error(lim.liberado ? 'A data é anterior ao período liberado para registro retroativo (a partir de ' + formatarData(instante(lim.min, '12:00')) + ').' : 'Registros com mais de ' + DIAS_REGISTRO + ' dias dependem de liberação temporária da administração (Segurança → Registro retroativo).');
       const meta = { estudante_id: e.id, escola_id: e.escola_id, profissional_nome: S.perfil.nome, especialidade: S.perfil.especialidade, tipo: d.tipo, evolucao: d.evolucao, data, duracao_min: Number(d.duracao_min), orientacao_escola };
       if (ret && dados.semInternet()) throw Error('Sem internet: a edição de uma consulta precisa de conexão (a versão anterior é guardada no servidor).');
       let r;

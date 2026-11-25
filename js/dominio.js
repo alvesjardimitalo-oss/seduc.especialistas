@@ -793,3 +793,13 @@ export function resumoDoDia(agendamentos = [], agora = Date.now()) {
   const ativas = agendamentos.length - totais.cancelado, ocorridas = totais.realizado + totais.falta;
   return { totais, total: agendamentos.length, ativas, ocorridas, profissionais: [...porProfissional.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')) };
 }
+
+// ---------- registro retroativo ----------
+export const DIAS_REGISTRO = 30;
+/** Primeiro dia aceito para registrar atendimento: 30 dias atrás, ou a data liberada pela administração. */
+export function limiteRegistro(retro, agora = Date.now()) {
+  const padrao = somarDias(diaMunicipal(agora), -DIAS_REGISTRO);
+  const ate = retro?.liberado_ate ? ms(retro.liberado_ate) : 0;
+  if (ate > agora && retro?.desde) { const d = diaMunicipal(ms(retro.desde)); return { min: d < padrao ? d : padrao, liberado: true, ate }; }
+  return { min: padrao, liberado: false, ate: 0 };
+}

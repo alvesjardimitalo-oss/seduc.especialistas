@@ -50,9 +50,9 @@ beforeEach(async () => {
 
 // ---------- helpers ----------
 const COD_AG = 'C261103-AG01';
-function loteAtendimento(f, uid, { id = 'at1', aluno = 'alunoA', escola = ESC_A, esp = 'fonoaudiologia', ag = '', codigo = ag ? COD_AG : 'C261103-AT01', texto = 'Consciência fonológica' } = {}) {
+function loteAtendimento(f, uid, { id = 'at1', aluno = 'alunoA', escola = ESC_A, esp = 'fonoaudiologia', ag = '', codigo = ag ? COD_AG : 'C261103-AT01', texto = 'Consciência fonológica', data = Timestamp.now() } = {}) {
   const b = writeBatch(f);
-  b.set(doc(f, 'atendimentos', id), { estudante_id: aluno, escola_id: escola, profissional_uid: uid, profissional_nome: 'X', especialidade: esp, tipo: 'sessao', evolucao: 'avancou', data: Timestamp.now(), duracao_min: 45, agendamento_id: ag, codigo, situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
+  b.set(doc(f, 'atendimentos', id), { estudante_id: aluno, escola_id: escola, profissional_uid: uid, profissional_nome: 'X', especialidade: esp, tipo: 'sessao', evolucao: 'avancou', data, duracao_min: 45, agendamento_id: ag, codigo, situacao: 'valido', versao: 1, criado_em: serverTimestamp(), atualizado_em: serverTimestamp() });
   b.set(doc(f, 'atendimentos_registro', id), { estudante_id: aluno, profissional_uid: uid, trabalhado: texto, desenvolvido: 'Boa resposta', orientacoes: '', versao: 1 });
   return b;
 }
@@ -142,6 +142,22 @@ test('anotação sigilosa da neuropsicologia: só a autora lê e grava', async (
   await assertFails(bf.commit());
   await assertFails(setDoc(doc(db('neuro'), 'atendimentos_sigilo', 'atN'), sig(null, 'neuro', 'x'.repeat(1001))));
   await assertFails(deleteDoc(doc(db('neuro'), 'atendimentos_sigilo', 'atN')));
+});
+
+test('registro retroativo: até 30 dias; além disso só com liberação temporária da administração', async () => {
+  const dias = n => Timestamp.fromMillis(Date.now() - n * 86400000);
+  await assertSucceeds(loteAtendimento(db('fono'), 'fono', { id: 'r20', data: dias(20) }).commit());
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'r40', data: dias(40) }).commit());
+  const lib = (f, uid, extra = {}) => setDoc(doc(f, 'config', 'retroativo'), { desde: dias(200), liberado_ate: Timestamp.fromMillis(Date.now() + 7 * 86400000), por: uid, por_nome: 'Admin', em: serverTimestamp(), ...extra });
+  await assertFails(lib(db('fono'), 'fono'));     // especialista não libera
+  await assertFails(lib(db('dirA'), 'dirA'));     // direção não libera
+  await assertFails(lib(db('admin'), 'admin', { liberado_ate: Timestamp.fromMillis(Date.now() + 120 * 86400000) })); // prazo longo demais
+  await assertSucceeds(lib(db('admin'), 'admin'));
+  await assertSucceeds(loteAtendimento(db('fono'), 'fono', { id: 'r40', data: dias(40) }).commit());
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'r300', data: dias(300) }).commit()); // antes do "desde"
+  // encerrada a liberação, volta ao limite de 30 dias
+  await assertSucceeds(lib(db('sec'), 'sec', { liberado_ate: Timestamp.fromMillis(Date.now() - 60000) }));
+  await assertFails(loteAtendimento(db('fono'), 'fono', { id: 'r41', data: dias(41) }).commit());
 });
 
 test('prontuário compartilhado: equipe lê, gestão e direção só metadados', async () => {

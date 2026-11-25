@@ -348,3 +348,12 @@ test('acompanhamento do dia: situação da consulta pelo relógio e pelo registr
   assert.equal(r.ativas, 3); assert.equal(r.ocorridas, 1);
   assert.deepEqual(r.profissionais.map(p => [p.nome, p.itens.length]), [['Ana', 3], ['Bruna', 1]]);
 });
+
+test('registro retroativo: 30 dias, ou a data liberada pela administração enquanto vale o prazo', () => {
+  const agora = d.instante('2026-11-25', '10:00').getTime();
+  assert.deepEqual(d.limiteRegistro(null, agora), { min: '2026-10-26', liberado: false, ate: 0 });
+  const retro = { desde: d.instante('2026-02-01', '00:00'), liberado_ate: d.instante('2026-12-01', '23:59') };
+  const l = d.limiteRegistro(retro, agora);
+  assert.equal(l.min, '2026-02-01'); assert.equal(l.liberado, true);
+  assert.equal(d.limiteRegistro({ ...retro, liberado_ate: d.instante('2026-11-20', '23:59') }, agora).liberado, false);
+});
