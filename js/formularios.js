@@ -404,7 +404,7 @@ export async function abrirConsulta(item) {
     + '<p>' + esc(item.profissional_nome) + ' · ' + esc(ESPECIALIDADES[item.especialidade] || '') + '</p></div>'
     + '<span class="selo grande s-' + esc(status) + '">' + esc(STATUS_AGENDA[status]) + '</span></div>'
     + (ag?.iniciado_em && status === 'agendado' ? '<p class="alerta-caixa info">Em atendimento desde ' + esc(horaMunicipal(ag.iniciado_em)) + '.</p>' : '')
-    + (grupo.length > 1 ? '<p class="alerta-caixa">👥 Consulta em grupo (' + grupo.length + ' alunos): ' + grupo.map(x => esc(estudante(x.estudante_id)?.nome || 'Aluno') + ' — ' + esc(STATUS_AGENDA[x.status])).join('; ') + '. Presença e registro são individuais.</p>' : '')
+    + (grupo.length > 1 ? '<div class="abas-grupo"><span>👥 Consulta em grupo — escolha o aluno:</span><div class="abas-grupo-lista">' + grupo.map(x => '<button type="button" class="aba-aluno s-' + esc(x.status) + (x.id === ag.id ? ' atual' : '') + '" data-aluno-grupo="' + esc(x.id) + '">' + esc(estudante(x.estudante_id)?.nome || 'Aluno') + '<small>' + esc(STATUS_AGENDA[x.status]) + '</small></button>').join('') + '</div><small class="nota">Presença e registro são individuais de cada aluno.</small></div>' : '')
     + (ag?.observacao ? '<p class="nota">Observação: ' + esc(ag.observacao) + '</p>' : '')
     + (ag?.motivo && status !== 'agendado' ? '<p class="alerta-caixa aviso">' + esc(status === 'falta' ? 'Falta: ' : 'Motivo: ') + esc(ag.motivo) + '</p>' : '')
     // Pergunta de presença
@@ -425,6 +425,7 @@ export async function abrirConsulta(item) {
     + (e ? '<a class="btn sec" href="#/aluno/' + esc(e.id) + '" data-fechar-link>Abrir prontuário</a>' : '')
     + '</div>';
   const form = modal({ titulo: 'Consulta', corpo, somenteLeitura: true, largo: true });
+  $$('[data-aluno-grupo]', form).forEach(b => b.onclick = () => { const x = grupo.find(g => g.id === b.dataset.alunoGrupo); if (x && x.id !== ag.id) abrirConsulta({ ...x, tipo_item: 'agendamento' }); });
   $$('[data-fechar-link]', form).forEach(a => a.addEventListener('click', () => document.getElementById('modal')?.remove()));
   $$('[data-c]', form).forEach(b => b.onclick = () => {
     const acao = b.dataset.c;

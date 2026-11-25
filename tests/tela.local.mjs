@@ -317,6 +317,13 @@ try {
   const bancoAg = await pg.evaluate(() => [...window.__banco.entries()].filter(([k, v]) => k.startsWith('agendamentos/') && v.grupo_id));
   assert.equal(bancoAg.length, 2); assert.equal(new Set(bancoAg.map(([, v]) => v.estudante_id)).size, 2);
   assert.equal(bancoAg[0][1].grupo_id, bancoAg[1][1].grupo_id);
+  // consulta em grupo: escolher o aluno abre a consulta completa dele
+  await pg.goto(url + '#/agenda'); await pg.waitForSelector('.semana');
+  if (!(await pg.locator('.linha-agenda .tag-grupo').count())) { await pg.click('#prox'); await pg.waitForSelector('.semana'); }
+  await pg.locator('.linha-agenda', { has: pg.locator('.tag-grupo') }).first().click(); await pg.waitForSelector('#modal .abas-grupo');
+  const antes = await pg.textContent('#modal .consulta-cabecalho h3');
+  await pg.locator('#modal .aba-aluno:not(.atual)').first().click(); await pg.waitForFunction(a => document.querySelector('#modal .consulta-cabecalho h3')?.textContent !== a, antes);
+  await pg.click('#modal [data-fechar]');
 
   await pg.click('a[href="#/relatorios"]'); await pg.waitForSelector('.metricas');
   await foto(pg, '09-relatorios');
