@@ -4,7 +4,7 @@ import { S, pode, perfilEscolar, nomeEscola, escolaCurta, especialistas, estudan
 import {
   ESPECIALIDADES, TIPOS_ATENDIMENTO, EVOLUCAO, STATUS_AGENDA, LIMITES, validarEstudante, possiveisDuplicados, validarRegistro,
   instante, diaMunicipal, horaMunicipal, horariosLivres, validarAgendamento, somarDias, formatarData, formatarDataHora,
-  faixaDoHorario, normalizar, ms, idade, cpfValido, formatarCPF, bloqueioDoDia, CAMPOS_SOAP, secoesRegistro,
+  faixaDoHorario, normalizar, ms, limiteRegistro, DIAS_REGISTRO, idade, cpfValido, formatarCPF, bloqueioDoDia, CAMPOS_SOAP, secoesRegistro,
   ESCALA_META, validarNotasMetas, idPlano, validarPedido, PRIORIDADES, textoLembrete, linkWhatsApp, numeroWhatsApp
 } from './dominio.js';
 import { esc, modal, campo, area, opcoes, ativarContadores, aviso, erro, $, $$ } from './ui.js';
@@ -25,7 +25,7 @@ function seletorAluno(nome = 'estudante_id', valor = '') {
     const e = estudante(valor);
     return '<div class="campo largo"><span>Aluno</span><div class="aluno-fixo"><strong>' + esc(e?.nome) + '</strong> · ' + esc(escolaCurta(e?.escola_id)) + '</div><input type="hidden" name="' + nome + '" value="' + esc(valor) + '"></div>';
   }
-  return '<div class="campo largo seletor-aluno"><span>Aluno <b class="obrig">*</b> <small data-dica-grupo hidden>— atendimento em grupo: marque todos os alunos</small></span>'
+  return '<div class="campo largo seletor-aluno"><span>Aluno <b class="obrig">*</b> <small data-dica-grupo hidden>— em grupo: marque todos os alunos</small></span>'
     + '<input type="search" data-busca-aluno placeholder="Digite parte do nome" autocomplete="off" aria-label="Buscar aluno">'
     + '<div class="alunos-escolhidos" data-escolhidos aria-live="polite"></div>'
     + '<div class="lista-alunos" role="listbox" data-lista-aluno>' + lista.map(e => '<button type="button" role="option" aria-selected="false" data-id="' + esc(e.id) + '" data-n="' + esc(normalizar(e.nome)) + '"><span class="marca" aria-hidden="true"></span>' + esc(e.nome) + ' <small>' + esc(escolaCurta(e.escola_id)) + '</small></button>').join('')
@@ -204,13 +204,15 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
   let sigiloAtual = '';
   if (sigiloso && atendimento?.id) { try { sigiloAtual = (await dados.lerDoc('atendimentos_sigilo', atendimento.id))?.texto || ''; } catch { /* sem anotação */ } }
   const quando = atendimento ? ms(atendimento.data) : agendamento ? Math.min(ms(agendamento.inicio), Date.now()) : grupo ? ms(instante(grupo.dia, grupo.hora)) : Date.now();
-  const corpo = (agendamento?.grupo_id ? '<p class="alerta-caixa aviso">👥 Consulta em grupo: este registro é individual e vai só para o prontuário deste aluno. Se ele não veio, feche e marque “Não compareceu” na consulta.</p>' : '')
+  const lim = limiteRegistro(S.retroativo);
+  const corpo = (lim.liberado && !ret ? '<p class="alerta-caixa aviso">Registro retroativo liberado pela administração até ' + esc(formatarData(lim.ate)) + ': datas a partir de ' + esc(formatarData(instante(lim.min, '12:00'))) + '.</p>' : '')
+    + (agendamento?.grupo_id ? '<p class="alerta-caixa aviso">👥 Consulta em grupo: este registro é individual e vai só para o prontuário deste aluno. Se ele não veio, feche e marque “Não compareceu” na consulta.</p>' : '')
     + (grupo ? '<p class="alerta-caixa aviso">Atendimento em grupo · aluno <strong>' + grupo.pos + ' de ' + grupo.total + '</strong>. A consulta é a mesma; este registro é individual e vai só para o prontuário deste aluno.</p>' : '')
     + '<div class="grade">'
     + seletorAluno('estudante_id', alunoId)
     + '<div class="campo"><span>Especialidade</span><div class="aluno-fixo">' + esc(ESPECIALIDADES[S.perfil.especialidade]) + ' · ' + esc(S.perfil.nome) + '</div></div>'
     + opcoes('tipo', 'Tipo de atendimento', TIPOS_ATENDIMENTO, { valor: atendimento?.tipo || (grupo ? 'grupo' : 'sessao'), obrig: true })
-    + campo('dia', 'Data', { tipo: 'date', valor: diaMunicipal(quando), obrig: true, extra: 'max="' + hoje() + '"' })
+    + campo('dia', 'Data', { tipo: 'date', valor: diaMunicipal(quando), obrig: true, extra: 'max="' + hoje() + '"' + (ret ? '' : ' min="' + lim.min + '"') })
     + campo('hora', 'Horário', { tipo: 'time', valor: horaMunicipal(quando), obrig: true })
     + opcoes('duracao_min', 'Duração', DURACOES, { valor: atendimento?.duracao_min || agendamento?.duracao_min || grupo?.duracao_min || 30 })
     + '</div>'
@@ -233,6 +235,7 @@ export async function formAtendimento({ estudanteId = '', agendamento = null, at
       if (Object.keys(notas).length || registro?.metas) registroNovo.metas = notas;
       const data = instante(d.dia, d.hora);
       if (!data || data.getTime() > Date.now() + 5 * 60000) throw Error('A data e hora não podem estar no futuro. Para atendimentos futuros, use Agendar.');
+      if (!ret && d.dia < lim.min) throw Error(lim.liberado ? 'A data é anterior ao período liberado para registro retroativo (a partir de ' + formatarData(instante(lim.min, '12:00')) + ').' : 'Registros com mais de ' + DIAS_REGISTRO + ' dias dependem de liberação temporária da administração (Segurança → Registro retroativo).');
       const meta = { estudante_id: e.id, escola_id: e.escola_id, profissional_nome: S.perfil.nome, especialidade: S.perfil.especialidade, tipo: d.tipo, evolucao: d.evolucao, data, duracao_min: Number(d.duracao_min), orientacao_escola };
       if (ret && dados.semInternet()) throw Error('Sem internet: a edição de uma consulta precisa de conexão (a versão anterior é guardada no servidor).');
       let r;
@@ -420,7 +423,8 @@ export async function abrirConsulta(item) {
     + '<div class="acoes-linha">'
     + (at && at.situacao !== 'anulado' && at.profissional_uid === S.user.uid && pode.registrar() ? '<button type="button" class="btn" data-c="editar">Editar consulta</button>' : '')
     + (aberto && !passou && (propria || pode.gestao() || ['direcao', 'secretaria_escolar'].includes(eu.perfil)) ? '<button type="button" class="btn sec" data-c="whatsapp">Lembrete por WhatsApp</button>' : '')
-    + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">Cancelar agendamento</button>' : '')
+    + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">' + (grupo.length > 1 ? 'Cancelar só este aluno' : 'Cancelar agendamento') + '</button>'
+      + (grupo.filter(x => x.status === 'agendado').length > 1 ? '<button type="button" class="btn sec perigo" data-c="cancelar-grupo">Cancelar o grupo todo</button>' : '') : '')
     + (!aberto && !avulso && pode.agendar() && ['falta', 'cancelado'].includes(status) ? '<button type="button" class="btn sec" data-c="novo">Agendar novamente</button>' : '')
     + (e ? '<a class="btn sec" href="#/aluno/' + esc(e.id) + '" data-fechar-link>Abrir prontuário</a>' : '')
     + '</div>';
@@ -434,6 +438,7 @@ export async function abrirConsulta(item) {
     if (acao === 'reagendar') return formAgendar({ remarcar: ag });
     if (acao === 'whatsapp') return lembreteWhatsApp(ag);
     if (acao === 'novo') return formAgendar({ estudanteId: item.estudante_id, profissionalUid: item.profissional_uid });
+    if (acao === 'cancelar-grupo') return modal({ titulo: 'Cancelar o grupo todo', corpo: '<p>Todos os alunos ainda agendados neste horário serão cancelados e o horário volta a ficar livre.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar o grupo', aoSalvar: async d => { const n = await dados.cancelarGrupo(ag, d.motivo.trim()); aviso(n + ' agendamento(s) do grupo cancelado(s).'); mudou(); } });
     if (acao === 'cancelar') return modal({ titulo: 'Cancelar agendamento', corpo: '<p>O horário volta a ficar disponível. O cancelamento fica registrado.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar agendamento', aoSalvar: async d => { await dados.cancelarAgendamento(ag, d.motivo.trim()); aviso('Agendamento cancelado.'); mudou(); } });
     if (acao === 'nao') return modal({
       titulo: 'O aluno não compareceu', botao: 'Registrar falta',

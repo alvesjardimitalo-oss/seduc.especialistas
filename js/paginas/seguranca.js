@@ -1,7 +1,7 @@
 // Segurança (somente administração): quem acessou cada prontuário e cópia de segurança criptografada.
 import * as dados from '../dados.js';
 import { S, escolaCurta, estudante } from '../estado.js';
-import { PERFIS, diaMunicipal, somarDias, instante, formatarDataHora, formatarData, normalizar, ms, csv } from '../dominio.js';
+import { PERFIS, limiteRegistro, DIAS_REGISTRO, diaMunicipal, somarDias, instante, formatarDataHora, formatarData, normalizar, ms, csv } from '../dominio.js';
 import { esc, vazio, aviso, erro, $ } from '../ui.js';
 import { criptografar, abrir, validarSenha } from '../backup.js';
 
@@ -26,6 +26,7 @@ export async function render(main, vigente) {
       + lista.slice(0, 500).map(a => '<tr><td>' + esc(formatarDataHora(a.em)) + '</td><td>' + esc(a.nome) + '</td><td>' + esc(a.cargo || PERFIS[a.perfil] || a.perfil) + '</td><td><a href="#/aluno/' + esc(a.estudante_id) + '">' + esc(estudante(a.estudante_id)?.nome || a.estudante_id) + '</a></td><td>' + esc(a.escola_id ? escolaCurta(a.escola_id) : '—') + '</td><td>' + esc(ACOES[a.acao] || a.acao) + (a.acao !== 'prontuario' ? '<br><small class="nota">Registro ' + esc(a.id.slice(0, 10).toUpperCase()) + '</small>' : '') + '</td></tr>').join('')
       + '</tbody></table>' : vazio('Nenhum acesso no período.'))
     + '</section>'
+    + secaoRetroativo(hoje)
     + '<section class="cartao"><h2>Cópia de segurança</h2>'
     + '<p>Baixa <strong>todos os dados</strong> do sistema num arquivo criptografado (AES-256). Sem a senha ninguém abre o arquivo — nem você: guarde a senha em local seguro, separado do arquivo.</p>'
     + '<form id="form-backup" class="grade"><label class="campo"><span>Senha da cópia (mín. 12 caracteres)</span><input type="password" name="senha" autocomplete="new-password" minlength="12" required></label>'
@@ -40,6 +41,27 @@ export async function render(main, vigente) {
   let t;
   $('#filtros', main).oninput = ev => { clearTimeout(t); t = setTimeout(() => { Object.assign(f, Object.fromEntries(new FormData(ev.currentTarget))); render(main, vigente); }, ev.target.name === 'busca' ? 300 : 0); };
   $('#csv-acessos', main).onclick = () => baixar(csv([['Quando', 'Quem', 'Cargo', 'Código do aluno', 'Instituição', 'Ação']].concat(lista.map(a => [formatarDataHora(a.em), a.nome, a.cargo || PERFIS[a.perfil] || a.perfil, a.estudante_id.slice(-6), a.escola_id ? escolaCurta(a.escola_id) : '', ACOES[a.acao] || a.acao]))), 'acessos_' + f.de + '_' + f.ate + '.csv', 'text/csv;charset=utf-8');
+
+  $('#form-retro', main)?.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const d = Object.fromEntries(new FormData(ev.currentTarget));
+    try {
+      if (!d.desde || !d.ate) throw Error('Informe as duas datas.');
+      if (d.desde > hoje) throw Error('A data inicial dos registros não pode estar no futuro.');
+      if (d.ate < hoje) throw Error('O prazo da liberação deve ser hoje ou depois.');
+      if (d.ate > somarDias(hoje, 90)) throw Error('A liberação é temporária: no máximo 90 dias.');
+      await dados.liberarRetroativo({ desde: instante(d.desde, '00:00'), ate: instante(d.ate, '23:59') }, S.perfil);
+      S.retroativo = await dados.lerDoc('config', 'retroativo');
+      aviso('Registro retroativo liberado até ' + formatarData(instante(d.ate, '12:00')) + '.'); render(main, vigente);
+    } catch (e) { erro(e); }
+  });
+  $('#encerrar-retro', main)?.addEventListener('click', async () => {
+    try {
+      await dados.liberarRetroativo({ desde: instante(hoje, '00:00'), ate: new Date() }, S.perfil);
+      S.retroativo = await dados.lerDoc('config', 'retroativo');
+      aviso('Liberação do registro retroativo encerrada.'); render(main, vigente);
+    } catch (e) { erro(e); }
+  });
 
   $('#form-backup', main).onsubmit = async ev => {
     ev.preventDefault();
@@ -82,4 +104,18 @@ export async function quemAcessou(e) {
     modal({ titulo: 'Quem acessou — ' + e.nome, somenteLeitura: true, largo: true,
       corpo: lista.length ? '<table class="tabela"><thead><tr><th>Quando</th><th>Quem</th><th>Cargo</th><th>Ação</th></tr></thead><tbody>' + lista.slice(0, 300).map(a => '<tr><td>' + esc(formatarDataHora(a.em)) + '</td><td>' + esc(a.nome) + '</td><td>' + esc(a.cargo || PERFIS[a.perfil] || a.perfil) + '</td><td>' + esc(ACOES[a.acao] || a.acao) + '</td></tr>').join('') + '</tbody></table>' : vazio('Nenhum acesso registrado.', 'Os acessos passaram a ser registrados a partir desta versão do sistema.') });
   } catch (err) { erro(err); }
+}
+
+/** Liberação temporária do registro retroativo de atendimentos (Administração). */
+function secaoRetroativo(hoje) {
+  const lim = limiteRegistro(S.retroativo), r = S.retroativo;
+  return '<section class="cartao" id="retroativo"><h2>Registro retroativo de atendimentos</h2>'
+    + '<p>Normalmente as especialistas registram atendimentos de até <strong>' + DIAS_REGISTRO + ' dias atrás</strong>. Para lançar atendimentos mais antigos (por exemplo, os feitos antes de o sistema começar), libere temporariamente.</p>'
+    + (lim.liberado
+      ? '<p class="alerta-caixa aviso"><strong>Liberado</strong> até ' + esc(formatarDataHora(lim.ate)) + ': registros com data a partir de ' + esc(formatarData(r.desde)) + '. Liberado por ' + esc(r.por_nome || '') + '.</p>'
+        + '<button class="btn sec perigo" id="encerrar-retro" type="button">Encerrar liberação agora</button>'
+      : '<p class="nota">Situação: <strong>não liberado</strong>' + (r?.por_nome ? ' (última liberação por ' + esc(r.por_nome) + ', encerrada em ' + esc(formatarDataHora(r.liberado_ate)) + ')' : '') + '.</p>')
+    + '<form id="form-retro" class="grade"><label class="campo"><span>Registros com data a partir de</span><input type="date" name="desde" max="' + hoje + '" value="' + esc(r?.desde && lim.liberado ? diaMunicipal(ms(r.desde)) : hoje.slice(0, 4) + '-01-01') + '" required></label>'
+    + '<label class="campo"><span>Liberado até (prazo)</span><input type="date" name="ate" min="' + hoje + '" max="' + somarDias(hoje, 90) + '" value="' + esc(lim.liberado ? diaMunicipal(lim.ate) : somarDias(hoje, 7)) + '" required></label>'
+    + '<div class="campo largo"><button class="btn" type="submit">' + (lim.liberado ? 'Alterar liberação' : 'Liberar registro retroativo') + '</button><small class="nota">No máximo 90 dias. Depois do prazo, volta sozinho ao limite de ' + DIAS_REGISTRO + ' dias. Cada registro continua com autora, data e histórico de versões.</small></div></form></section>';
 }

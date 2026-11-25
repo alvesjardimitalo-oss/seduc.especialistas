@@ -407,6 +407,10 @@ try {
   // segurança: quem acessou e cópia criptografada
   await adm.goto(url + '#/seguranca'); await adm.waitForSelector('#form-backup');
   assert.match(await adm.textContent('#conteudo'), /Ítalo Admin[\s\S]*Abriu o prontuário/);
+  // registro retroativo: a administração libera temporariamente e pode encerrar
+  await adm.click('#form-retro [type=submit]'); await adm.waitForSelector('#encerrar-retro');
+  assert.match(await adm.textContent('#retroativo'), /Liberado/);
+  await adm.click('#encerrar-retro'); await adm.waitForSelector('#retroativo >> text=não liberado');
   await adm.fill('#form-backup [name=senha]', 'senha-de-teste-123'); await adm.fill('#form-backup [name=senha2]', 'senha-de-teste-123');
   const [download] = await Promise.all([adm.waitForEvent('download'), adm.click('#form-backup [type=submit]')]);
   const caminhoCopia = join(saida, 'copia-teste.json'); await download.saveAs(caminhoCopia);

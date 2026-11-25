@@ -215,6 +215,10 @@ export async function listarEstudantes(perfil) {
   for (const p of pedacos(perfil.escolas || [])) out.push(...lista(await getDocs(query(collection(db, 'estudantes'), where('escola_id', 'in', p)))));
   return out;
 }
+/** Liberação temporária do registro retroativo (Administração). */
+export async function liberarRetroativo({ desde, ate }, perfil) {
+  await writeBatch(db).set(doc(db, 'config', 'retroativo'), { desde: ts(desde), liberado_ate: ts(ate), por: uidAtual(), por_nome: perfil.nome, em: serverTimestamp() }).commit();
+}
 export async function lerDoc(col, id) { const s = await getDoc(doc(db, col, id)); return s.exists() ? { id: s.id, ...s.data() } : null; }
 
 /** Cria ou atualiza o aluno com seus dados privados (e clínicos, se a equipe enviou). */
@@ -396,6 +400,16 @@ export async function agendarNoGrupo(p) {
 export async function membrosDoGrupo(ag) {
   if (!ag?.grupo_id) return [];
   return lista(await getDocs(query(collection(db, 'agendamentos'), where('grupo_id', '==', ag.grupo_id), where('escola_id', '==', ag.escola_id))));
+}
+/** Cancela todos os alunos ainda agendados do grupo e libera o horário. */
+export async function cancelarGrupo(ag, motivo) {
+  const membros = (await membrosDoGrupo(ag)).filter(x => x.status === 'agendado');
+  const inicio = ms(ag.inicio), partes = ag.duracao_min === 60 ? [inicio, inicio + MEIA_HORA] : [inicio];
+  const b = writeBatch(db);
+  for (const x of membros) b.update(doc(db, 'agendamentos', x.id), { status: 'cancelado', motivo, alterado_por: uidAtual(), alterado_em: serverTimestamp() });
+  partes.forEach(t => b.delete(doc(db, 'reservas', idReserva(ag.profissional_uid, t))));
+  await b.commit();
+  return membros.length;
 }
 export async function cancelarAgendamento(ag, motivo) {
   const inicio = ms(ag.inicio), partes = ag.duracao_min === 60 ? [inicio, inicio + MEIA_HORA] : [inicio];
