@@ -67,9 +67,10 @@ async function renderPeriodo(main, vigente) {
   if (S.agendaProf === '' && S.perfil.perfil === 'especialista') S.agendaProf = S.user.uid;
   if (!S.agendaDe) S.agendaDe = hoje;
   if (!S.agendaAte || S.agendaAte < S.agendaDe) S.agendaAte = somarDias(S.agendaDe, 30);
-  // limite de 1 ano por consulta, para não pesar
-  if (S.agendaAte > somarDias(S.agendaDe, 366)) S.agendaAte = somarDias(S.agendaDe, 366);
   const prof = S.agendaProf && S.agendaProf !== 'todas' ? S.usuarios.find(u => u.id === S.agendaProf) : null;
+  // limite por consulta, para não pesar: 1 ano por profissional, 6 meses para a equipe toda
+  const maxDias = prof ? 366 : 183;
+  if (S.agendaAte > somarDias(S.agendaDe, maxDias)) { S.agendaAte = somarDias(S.agendaDe, maxDias); aviso('Período limitado a ' + (prof ? '1 ano' : '6 meses (equipe toda)') + ' por consulta.', 'aviso'); }
   const filtro = prof ? { profissional: prof.id } : { escolas: escolaAtual() ? [escolaAtual()] : escopoEscolas() || undefined };
   const lista = await dados.listarAgendamentos({ ...filtro, de: instante(S.agendaDe, '00:00'), ate: instante(somarDias(S.agendaAte, 1), '00:00') });
   if (!vigente()) return;

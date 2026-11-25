@@ -397,6 +397,16 @@ export async function membrosDoGrupo(ag) {
   if (!ag?.grupo_id) return [];
   return lista(await getDocs(query(collection(db, 'agendamentos'), where('grupo_id', '==', ag.grupo_id), where('escola_id', '==', ag.escola_id))));
 }
+/** Cancela todos os alunos ainda agendados do grupo e libera o horário. */
+export async function cancelarGrupo(ag, motivo) {
+  const membros = (await membrosDoGrupo(ag)).filter(x => x.status === 'agendado');
+  const inicio = ms(ag.inicio), partes = ag.duracao_min === 60 ? [inicio, inicio + MEIA_HORA] : [inicio];
+  const b = writeBatch(db);
+  for (const x of membros) b.update(doc(db, 'agendamentos', x.id), { status: 'cancelado', motivo, alterado_por: uidAtual(), alterado_em: serverTimestamp() });
+  partes.forEach(t => b.delete(doc(db, 'reservas', idReserva(ag.profissional_uid, t))));
+  await b.commit();
+  return membros.length;
+}
 export async function cancelarAgendamento(ag, motivo) {
   const inicio = ms(ag.inicio), partes = ag.duracao_min === 60 ? [inicio, inicio + MEIA_HORA] : [inicio];
   // Em grupo, o horário só é liberado quando o último aluno ativo é cancelado.

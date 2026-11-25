@@ -25,7 +25,7 @@ function seletorAluno(nome = 'estudante_id', valor = '') {
     const e = estudante(valor);
     return '<div class="campo largo"><span>Aluno</span><div class="aluno-fixo"><strong>' + esc(e?.nome) + '</strong> · ' + esc(escolaCurta(e?.escola_id)) + '</div><input type="hidden" name="' + nome + '" value="' + esc(valor) + '"></div>';
   }
-  return '<div class="campo largo seletor-aluno"><span>Aluno <b class="obrig">*</b> <small data-dica-grupo hidden>— atendimento em grupo: marque todos os alunos</small></span>'
+  return '<div class="campo largo seletor-aluno"><span>Aluno <b class="obrig">*</b> <small data-dica-grupo hidden>— em grupo: marque todos os alunos</small></span>'
     + '<input type="search" data-busca-aluno placeholder="Digite parte do nome" autocomplete="off" aria-label="Buscar aluno">'
     + '<div class="alunos-escolhidos" data-escolhidos aria-live="polite"></div>'
     + '<div class="lista-alunos" role="listbox" data-lista-aluno>' + lista.map(e => '<button type="button" role="option" aria-selected="false" data-id="' + esc(e.id) + '" data-n="' + esc(normalizar(e.nome)) + '"><span class="marca" aria-hidden="true"></span>' + esc(e.nome) + ' <small>' + esc(escolaCurta(e.escola_id)) + '</small></button>').join('')
@@ -420,7 +420,8 @@ export async function abrirConsulta(item) {
     + '<div class="acoes-linha">'
     + (at && at.situacao !== 'anulado' && at.profissional_uid === S.user.uid && pode.registrar() ? '<button type="button" class="btn" data-c="editar">Editar consulta</button>' : '')
     + (aberto && !passou && (propria || pode.gestao() || ['direcao', 'secretaria_escolar'].includes(eu.perfil)) ? '<button type="button" class="btn sec" data-c="whatsapp">Lembrete por WhatsApp</button>' : '')
-    + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">Cancelar agendamento</button>' : '')
+    + (podeAlterar ? '<button type="button" class="btn sec" data-c="reagendar">Reagendar</button><button type="button" class="btn sec perigo" data-c="cancelar">' + (grupo.length > 1 ? 'Cancelar só este aluno' : 'Cancelar agendamento') + '</button>'
+      + (grupo.filter(x => x.status === 'agendado').length > 1 ? '<button type="button" class="btn sec perigo" data-c="cancelar-grupo">Cancelar o grupo todo</button>' : '') : '')
     + (!aberto && !avulso && pode.agendar() && ['falta', 'cancelado'].includes(status) ? '<button type="button" class="btn sec" data-c="novo">Agendar novamente</button>' : '')
     + (e ? '<a class="btn sec" href="#/aluno/' + esc(e.id) + '" data-fechar-link>Abrir prontuário</a>' : '')
     + '</div>';
@@ -434,6 +435,7 @@ export async function abrirConsulta(item) {
     if (acao === 'reagendar') return formAgendar({ remarcar: ag });
     if (acao === 'whatsapp') return lembreteWhatsApp(ag);
     if (acao === 'novo') return formAgendar({ estudanteId: item.estudante_id, profissionalUid: item.profissional_uid });
+    if (acao === 'cancelar-grupo') return modal({ titulo: 'Cancelar o grupo todo', corpo: '<p>Todos os alunos ainda agendados neste horário serão cancelados e o horário volta a ficar livre.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar o grupo', aoSalvar: async d => { const n = await dados.cancelarGrupo(ag, d.motivo.trim()); aviso(n + ' agendamento(s) do grupo cancelado(s).'); mudou(); } });
     if (acao === 'cancelar') return modal({ titulo: 'Cancelar agendamento', corpo: '<p>O horário volta a ficar disponível. O cancelamento fica registrado.</p>' + area('motivo', 'Motivo', { obrig: true, max: 500, linhas: 2 }), botao: 'Cancelar agendamento', aoSalvar: async d => { await dados.cancelarAgendamento(ag, d.motivo.trim()); aviso('Agendamento cancelado.'); mudou(); } });
     if (acao === 'nao') return modal({
       titulo: 'O aluno não compareceu', botao: 'Registrar falta',

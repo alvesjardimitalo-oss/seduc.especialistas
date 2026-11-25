@@ -237,6 +237,20 @@ test('agendamento em grupo: mesmo horário, um agendamento por aluno', async () 
   await assertSucceeds(loteAgenda(f, { id: 'ag2', criador: 'fono' }).commit());
 });
 
+test('agendamento em grupo: cancelar o grupo todo de uma vez; equipe pedagógica não libera horário', async () => {
+  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), 'estudantes', 'alunoC'), { nome: 'Aluno C', escola_id: ESC_A, situacao: 'ativo', criado_por: 'fono', criado_em: Timestamp.now() }); });
+  const f = db('fono'), ini = instante(terca, '10:00').getTime();
+  await loteAgenda(f, { id: 'gA', criador: 'fono', hora: '10:00', grupo: 'G9' }).commit();
+  await setDoc(doc(f, 'agendamentos', 'gC'), { grupo_id: 'G9', estudante_id: 'alunoC', escola_id: ESC_A, profissional_uid: 'fono', profissional_nome: 'Fono', especialidade: 'fonoaudiologia', inicio: Timestamp.fromMillis(ini), duracao_min: 30, status: 'agendado', codigo: COD_AG, criado_por: 'fono', criado_em: serverTimestamp() });
+  // líder cancelado sozinho (horário segue com o grupo); a equipe pedagógica não pode apagar a reserva
+  const b1 = writeBatch(f); b1.update(doc(f, 'agendamentos', 'gA'), { status: 'cancelado', motivo: 'Teste', alterado_por: 'fono', alterado_em: serverTimestamp() }); await assertSucceeds(b1.commit());
+  await assertFails(deleteDoc(doc(db('pedA'), 'reservas', 'fono_' + ini)));
+  const b2 = writeBatch(f);
+  b2.update(doc(f, 'agendamentos', 'gC'), { status: 'cancelado', motivo: 'Grupo cancelado', alterado_por: 'fono', alterado_em: serverTimestamp() });
+  b2.delete(doc(f, 'reservas', 'fono_' + ini));
+  await assertSucceeds(b2.commit());
+});
+
 test('direção agenda apenas alunos da própria escola', async () => {
   await assertSucceeds(loteAgenda(db('dirA'), { criador: 'dirA', hora: '08:00' }).commit());
   await assertFails(loteAgenda(db('dirA'), { id: 'ag2', criador: 'dirA', hora: '08:30', aluno: 'alunoB', escola: ESC_B }).commit());

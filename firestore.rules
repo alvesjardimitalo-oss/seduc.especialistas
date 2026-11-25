@@ -455,7 +455,8 @@ service cloud.firestore {
         && getAfter(doc('agendamentos', resource.data.agendamento_id)).data.status == 'cancelado'
         && (get(doc('agendamentos', resource.data.agendamento_id)).data.status == 'agendado'
           // grupo: o último aluno cancelado libera o horário reservado em nome de outro do grupo
-          || get(doc('agendamentos', resource.data.agendamento_id)).data.get('grupo_id', '') != '');
+          || (get(doc('agendamentos', resource.data.agendamento_id)).data.get('grupo_id', '') != ''
+            && (equipe() || gestao() || direcaoDe(get(doc('agendamentos', resource.data.agendamento_id)).data.escola_id))));
       allow update: if false;
     }
 

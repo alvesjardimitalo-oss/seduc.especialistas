@@ -1,12 +1,15 @@
 // Boletim de novidades: o que mudou e por quê, mostrado uma vez a cada pessoa afetada.
 // Ao publicar um boletim novo, troque VERSAO_NOVIDADES e a lista NOVIDADES.
 // Módulo só de dados (sem DOM): também é importado pelo teste de interface.
-export const VERSAO_NOVIDADES = '2026-11-25c';
+export const VERSAO_NOVIDADES = '2026-11-25d';
 export const TITULO_NOVIDADES = 'Novidades de novembro de 2026';
 
 const GESTAO = ['superadmin', 'secretaria'], ESCOLA = ['direcao', 'secretaria_escolar', 'pedagogico'];
 /** para: perfis que veem o item ('todos' = qualquer perfil ativo). link: tela onde conferir. */
 export const NOVIDADES = [
+  { para: ['especialista', 'superadmin', 'secretaria', 'direcao', 'secretaria_escolar'], titulo: 'Cancelar o grupo todo', link: '#/agenda',
+    oque: 'Na consulta em grupo, além de “Cancelar só este aluno”, há o botão “Cancelar o grupo todo”, que cancela de uma vez todos os alunos ainda agendados e libera o horário.',
+    porque: 'Quando a especialista não pode atender, não é preciso cancelar aluno por aluno.' },
   { para: ['especialista'], titulo: 'Relatórios da especialista por período', link: '#/relatorios',
     oque: 'Em Relatórios, escolha as datas De/Até. A aba “Meus atendimentos” mostra e imprime a lista dos seus atendimentos (aluno, escola, tipo, evolução) e as faltas. A aba “Por aluno” junta tudo o que você registrou do aluno no período e gera o relatório em PDF.',
     porque: 'Antes só dava para ver o que foi feito em uma data. Agora o relatório do período sai pronto para prestar contas ou para a devolutiva à escola e à família.' },
